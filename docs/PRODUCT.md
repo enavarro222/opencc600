@@ -31,20 +31,44 @@ To drop or adapt for the CC600: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, Maps
 - 1800 mAh battery: battery life is a requirement (Wi-Fi and backlight are expensive).
 - The nRF RTC is not written by c606-oss → wrong time before the first GPS fix.
 
-## Product questions (to fill in)
-1. **Use case**: road, home trainer, both? For whom?
+## Product questions
+1. **Use case**: outdoor rides, **road and MTB**, for the author or anyone with a CC600.
+   Home trainer use comes later, if at all.
 2. **What the vendor firmware gets wrong** and justifies the project:
+   - no map around the planned route;
+   - navigation through the menus is heavy, with too many useless functions.
 3. **Core that must never break**: reliable FIT recording (crash, empty battery), display, sensors.
-4. **What makes it different** (ideas): FTMS home trainer control, integration with home_trainer_game,
-   Zwift Click / BLE remotes, fully configurable screens, structured workouts…
-5. **Ride sync**: Wi-Fi (Strava / self-hosted server), BLE to an app, USB mass storage over the littlefs?
-6. **Configuration**: 3-key menus, web page over Wi-Fi, app?
+4. **What makes it different**:
+   - a **corridor map around the loaded route** (see below);
+   - a lean, fast 3-key UX;
+   - easy ride sync (see 5).
+   Later ideas: fully configurable screens, BLE remotes, structured workouts, FTMS home trainer control,
+   integration with home_trainer_game.
+5. **Ride sync**: over **Wi-Fi when back home**, to the phone or a **configurable cloud**
+   (Strava, self-hosted server…). Wi-Fi stays off during the ride.
+6. **Configuration**: 3-key menus, web page over Wi-Fi, app? *(open)*
 
-### MVP (to define)
-- [ ] …
+### Corridor map around the route
+The "no maps" limit only applies to a global map. A map restricted to the loaded route fits the CC600:
+- **One route at a time**: loading a new route replaces the previous one (no history), so storage stays bounded.
+- **Size**: a ±1–2 km corridor around a 100–150 km route is a few hundred km². Simplified vector data
+  (roads, tracks, water, maybe coarse contours) should be in the range of a few hundred KB to 1–2 MB,
+  which fits in littlefs next to the vendor FIT files. *(to measure on real routes)*
+- **Prepared off the device**: the OSM extract is clipped to the corridor and pre-projected on the phone or
+  a server, then pushed over Wi-Fi. The CC600 only draws polylines on a 240x320 LVGL canvas.
+
+### MVP
+- [ ] Reliable FIT recording on littlefs, in a dedicated subdirectory; survives a crash or an empty battery
+      (periodic flush, file recovered at the next boot).
+- [ ] Write the GPS time back to the nRF RTC (correct timestamps before the first fix).
+- [ ] 2–3 data screens driven by the 3 keys.
+- [ ] Load a GPX route and display the route line (no background map yet).
+- [ ] Upload FIT files over Wi-Fi to a configurable URL.
+
+Right after the MVP: corridor background map.
 
 ### Deliberately out of scope
-- maps / turn-by-turn navigation (no eMMC)
+- global maps (Mapsforge style) and on-device routing / turn-by-turn recalculation
 - …
 
 ## Technical plan
