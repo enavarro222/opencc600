@@ -1,0 +1,12 @@
+# Flash dumps and vendor firmware (proprietary), boot logs (contain GPS position)
+dump/
+*.bin
+*.elf
+*.log
+
+# ESP-IDF build output
+build/
+build-*/
+sdkconfig
+sdkconfig.old
+managed_components/

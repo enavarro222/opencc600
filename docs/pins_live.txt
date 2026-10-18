@@ -1,0 +1,57 @@
+GPIO mux pull oe out in  routing
+   0   1 U     0   0  1  <- U0RXD_IN/U0TXD_OUT
+   1   1       1   1  1  -> U0RXD_IN/U0TXD_OUT
+   2   1       1   1  0  -> LCD_CS
+   3   1       1   0  0  -> LCD_PCLK
+   4   1       1   0  0  -> CAM_DATA_IN0/LCD_DATA_OUT0
+   5   1       1   0  0  -> CAM_DATA_IN2/LCD_DATA_OUT2
+   6   1       1   0  0  -> CAM_DATA_IN4/LCD_DATA_OUT4
+   7   1       1   0  0  -> CAM_DATA_IN6/LCD_DATA_OUT6
+   8   1       1   0  0  -> CAM_DATA_IN8/LCD_DATA_OUT8
+   9   1       1   0  0  -> CAM_DATA_IN10/LCD_DATA_OUT10
+  10   1       1   0  0  -> CAM_DATA_IN12/LCD_DATA_OUT12
+  11   1       1   0  0  -> CAM_DATA_IN14/LCD_DATA_OUT14
+  12   0       0   0  1  IO_MUX func0
+  13   0       0   0  0  IO_MUX func0
+  14   0       0   0  0  IO_MUX func0
+  15   0       0   0  0  IO_MUX func0
+  16   0       0   0  0  IO_MUX func0
+  17   0       0   0  0  IO_MUX func0
+  18   0       0   0  0  IO_MUX func0
+  19   0       0   0  0  USB_D-
+  20   0       0   0  0  USB_D+
+  21   0       0   0  0  IO_MUX func0
+  22   0       0   0  0  IO_MUX func0
+  23   0       0   0  0  IO_MUX func0
+  24   0       0   0  0  IO_MUX func0
+  25   0       0   0  0  IO_MUX func0
+  26   0 U     0   0  1  IO_MUX func0
+  27   0 U     0   0  1  IO_MUX func0
+  28   0 U     0   0  0  IO_MUX func0
+  29   0 U     0   0  1  IO_MUX func0
+  30   0 U     0   0  0  IO_MUX func0
+  31   0 U     0   0  1  IO_MUX func0
+  32   0 U     0   0  1  IO_MUX func0
+  33   1       1   0  0  -> CAM_DATA_IN11/LCD_DATA_OUT11
+  34   1       1   0  0  -> CAM_DATA_IN9/LCD_DATA_OUT9
+  35   1       1   0  0  -> CAM_DATA_IN7/LCD_DATA_OUT7
+  36   1       1   0  0  -> CAM_DATA_IN5/LCD_DATA_OUT5
+  37   1       1   0  0  -> CAM_DATA_IN3/LCD_DATA_OUT3
+  38   1       1   0  0  -> CAM_DATA_IN1/LCD_DATA_OUT1
+  39   1       1   1  0  GPIO out=1
+  40   1       1   0  0  -> LCD_DC
+  41   1 U     0   0  1  <- U2RXD_IN/U2TXD_OUT
+  42   1       1   1  1  -> U2RXD_IN/U2TXD_OUT
+  43   0 U     0   0  1  U0TXD (iomux)
+  44   0 U     0   0  1  U0RXD (iomux)
+  45   1 D     1   0  0  -> EXT_ADC_START/LEDC_LS_SIG_OUT0
+  46   0 D     0   0  0  IO_MUX func0
+  47   1       1   0  0  -> CAM_DATA_IN13/LCD_DATA_OUT13
+  48   1       1   0  0  -> CAM_DATA_IN15/LCD_DATA_OUT15
+
+UART dividers (baud ~= sclk / (div + frag/16)):
+  UART0: clkdiv=0x00c00056 clk_conf=0x03500000 sclk_sel=1 -> ~922190 baud
+  UART1: clkdiv=0x00000000 clk_conf=0x00000000 sclk_sel=0
+  UART2: clkdiv=0x007002b6 clk_conf=0x03500000 sclk_sel=1 -> ~115201 baud
+
+LCD_CAM regs: e0000484 00000800 00000000 00c00000 00c00000 65802000 14000016 00000000 00000000 00010001 0000002c 00000000 00000000 00000000 00000000 00000000
