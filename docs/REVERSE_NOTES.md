@@ -164,6 +164,9 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
 - **nRF firmware 1.2.16** (`cmd 01` version frame; the C606 in c606-oss reports 0.2.19).
 - Every `SendPowerOnCmd` (sent every 5 s, like c606-oss) is answered by an `Ack`, the power-on reason and the version.
   Power-on reason seen: 4 (manual) at the first boot, then 5 and 6 after esptool resets with USB plugged in.
+- **Power off checked**: `SendPowerOffCmd` (`E2 02 00 00 00 00 00 00`) cuts the ESP32 at once, **even with USB
+  plugged in** (the USB-Serial/JTAG port disappears). A long press on the power key then boots our ota_0 image
+  again from cold, power-on reason 4 (manual).
 - Keys: indexes 0..2, `1` click on release, `4` long press repeated while held, `5` release after a long press
   (all three keys checked). A long press on key 0 also makes the nRF send its power-on reason and version again.
 - Rates (host timestamps, 30 s): RTC and barometer **5 Hz**; battery, status (`F0`, 0 with USB plugged in at

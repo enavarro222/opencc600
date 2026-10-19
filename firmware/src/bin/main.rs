@@ -23,7 +23,7 @@ use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_10X20};
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
+use embedded_graphics::primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle};
 use embedded_graphics::text::{Alignment, Text};
 use esp_backtrace as _;
 use esp_hal::Async;
@@ -165,6 +165,7 @@ async fn main(_spawner: Spawner) -> ! {
     let mut last_power_on = Instant::now();
     let mut probe_index: Option<usize> = None;
     let mut scan: Option<(u8, Instant)> = None;
+    let mut power_prompt: Option<Instant> = None;
     loop {
         let _ = with_timeout(Duration::from_secs(1), STATUS_CHANGED.wait()).await;
         // The vendor repeats SendPowerOnCmd; c606-oss does it every 5 s. No nRF watchdog seen so far.
@@ -177,7 +178,26 @@ async fn main(_spawner: Spawner) -> ! {
         let mut send = None;
         let mut scan_done = false;
         while let Ok((key, action)) = NRF_KEYS.try_receive() {
+            // Power off like the vendor: long press on key 0 asks, a click on key 0 confirms, any other click or
+            // 8 s cancels. The nRF repeats LongPress while the key is held: only the first one opens the prompt.
+            if power_prompt.is_some() {
+                match (key, action) {
+                    (0, KeyAction::Click) => {
+                        info!("power off");
+                        draw_message(&mut fb, "Power off");
+                        panel.flush(&fb);
+                        NRF_COMMANDS.send(command::power_off()).await;
+                        Timer::after(Duration::from_secs(2)).await;
+                        warn!("still powered 2 s after power_off");
+                        power_prompt = None;
+                    }
+                    (_, KeyAction::Click) => power_prompt = None,
+                    _ => {}
+                }
+                continue;
+            }
             match (key, action) {
+                (0, KeyAction::LongPress) => power_prompt = Some(Instant::now()),
                 (1, KeyAction::LongRelease) if scan.is_none() => {
                     info!("scan start");
                     scan = Some((0u8, Instant::now() - SCAN_STEP));
@@ -212,11 +232,18 @@ async fn main(_spawner: Spawner) -> ! {
                 info!("scan done");
             }
         }
+        if power_prompt.is_some_and(|at| at.elapsed() >= Duration::from_secs(8)) {
+            power_prompt = None;
+        }
         let state = STATUS.lock(Cell::get);
-        if shown != Some(state) {
+        let screen = (state, power_prompt.is_some());
+        if shown != Some(screen) {
             draw_status(&mut fb, &state);
+            if power_prompt.is_some() {
+                draw_message(&mut fb, "Power off?\nkey 0: yes\nother: no");
+            }
             panel.flush(&fb);
-            shown = Some(state);
+            shown = Some(screen);
         }
         // At most 5 redraws per second; the nRF task keeps updating STATUS meanwhile, nothing is lost.
         Timer::after(Duration::from_millis(200)).await;
@@ -377,6 +404,24 @@ impl Status {
             | Message::Unknown => {}
         }
     }
+}
+
+/// Centred box over the current screen.
+fn draw_message(fb: &mut FrameBuffer, text: &str) {
+    let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+    Rectangle::new(Point::new(20, 100), Size::new(200, 120))
+        .into_styled(
+            PrimitiveStyleBuilder::new()
+                .fill_color(Rgb565::CSS_DARK_RED)
+                .stroke_color(Rgb565::WHITE)
+                .stroke_width(2)
+                .build(),
+        )
+        .draw(fb)
+        .unwrap();
+    Text::with_alignment(text, Point::new(120, 140), style, Alignment::Center)
+        .draw(fb)
+        .unwrap();
 }
 
 #[allow(
