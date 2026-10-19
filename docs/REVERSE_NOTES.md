@@ -256,6 +256,11 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   The transfer's `is_done()` then rises at every idle EOF: silence is the only sign of a stopped DMA.
   **Checked during continuous littlefs writes** (storage HIL build, 379 appends with sector erases): 921 sentences,
   0 bytes lost, while the plain UART FIFO readers lose data during flash operations.
+- **Time without a fix is not trustworthy**: without a fix (indoors, 0 satellites used), RMC (status `V`) and
+  `ZDA` still carry a time and date, but this capture had them **~22 s behind** the nRF RTC and the host clock,
+  which agreed with each other to ~2 s. The RTC is therefore only set from a valid fix (RMC `A`). Also seen
+  at boot: `PAIR010` aiding requests (GPS week 2441, TOW) and `PAIR001` acks for commands 002, 021 and 382,
+  which the ESP32 did not send.
 - Fixtures: `crates/gnss/tests/fixtures/` holds an anonymised 10 s capture (fake position, randomised satellite
   geometry). Raw captures contain the real position and stay in `dump/`.
 
