@@ -44,7 +44,6 @@ use esp_hal::uart::{self, Uart, UartRx, UartTx};
 use esp_rtos::embassy::InterruptExecutor;
 use esp_storage::FlashStorage;
 use littlefs2::fs::{Allocation, Filesystem};
-use littlefs2::path;
 use log::{debug, info, warn};
 use nrf_link::{Decoder, KeyAction, Message, RtcTime, command};
 use opencc600_firmware::panel::{self, FrameBuffer, Panel};
@@ -372,7 +371,7 @@ struct Status {
     stream0a: Option<[u8; 6]>,
     /// Last `E2 01 XX` probe sent (buzzer hunt).
     probe: Option<u8>,
-    /// Storage partition: Ok((rides in /FITS/FIT, free blocks, total blocks)) or the littlefs error code.
+    /// Storage partition: Ok((finished rides, free blocks, total blocks)) or the littlefs error code.
     storage: Option<Result<(u16, u16, u16), i32>>,
 }
 
@@ -427,7 +426,7 @@ impl Status {
     }
 }
 
-/// Mounts the `storage` partition read-only (write and erase fail) and counts the vendor rides.
+/// Mounts the `storage` partition read-only (write and erase fail) and counts the finished rides.
 #[allow(
     clippy::large_stack_frames,
     reason = "one-off at boot from main; littlefs2 directory iteration keeps paths on the stack"
@@ -439,16 +438,7 @@ fn mount_storage(flash: FLASH<'_>) -> Result<(u16, u16, u16), i32> {
     let fs = Filesystem::mount(&mut alloc, &mut partition).map_err(|e| e.code())?;
     let mounted = t.elapsed();
     let mut rides = 0u16;
-    fs.read_dir_and_then(path!("/FITS/FIT"), |dir| {
-        for entry in dir {
-            let entry = entry?;
-            if entry.file_type().is_file() {
-                rides += 1;
-            }
-        }
-        Ok(())
-    })
-    .map_err(|e| e.code())?;
+    ride_store::finished(&fs, |_, _| rides += 1).map_err(|e| e.code())?;
     let free = fs.available_blocks().map_err(|e| e.code())? as u16;
     let total = fs.total_blocks() as u16;
     info!(

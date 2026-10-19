@@ -1,0 +1,149 @@
+//! Ride storage on littlefs, hardware independent.
+//!
+//! A ride being recorded is `/rides/<id>.part`, grown by [`append`]: each call opens, writes and closes the file, and
+//! littlefs commits on close, so every `append` that returned `Ok` is on flash, whatever happens next. [`finish`]
+//! renames it to `/rides/<id>.fit` (atomic in littlefs). After a power cut, [`unfinished`] lists the rides to resume
+//! or close. `<id>` is the ride start time (Unix seconds), like the vendor firmware's names.
+//!
+//! Nothing here formats on its own: a mount error is reported, never "fixed" by erasing the rides. Formatting is
+//! [`littlefs2::fs::Filesystem::format`], called on an explicit request only.
+
+#![no_std]
+
+#[cfg(feature = "ram")]
+extern crate alloc;
+
+#[cfg(feature = "ram")]
+pub mod ram;
+
+use core::fmt::Write as _;
+
+pub use littlefs2;
+use littlefs2::driver::Storage;
+use littlefs2::fs::Filesystem;
+use littlefs2::io::{Error, Result};
+use littlefs2::path;
+use littlefs2::path::{Path, PathBuf};
+
+pub const RIDES: &Path = path!("/rides");
+
+const PART: &str = ".part";
+const FIT: &str = ".fit";
+
+fn ride_path(id: u32, ext: &str) -> PathBuf {
+    let mut buf = Name::default();
+    write!(buf, "/rides/{id}{ext}").unwrap();
+    PathBuf::try_from(buf.as_str()).unwrap()
+}
+
+/// Starts recording ride `id`: creates an empty `/rides/<id>.part` (truncated if it exists).
+pub fn start<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
+    if !fs.exists(RIDES) {
+        fs.create_dir(RIDES)?;
+    }
+    fs.create_file_and_then(&ride_path(id, PART), |_| Ok(()))
+}
+
+/// Appends to ride `id`; committed to flash when this returns `Ok`.
+pub fn append<S: Storage>(fs: &Filesystem<'_, S>, id: u32, data: &[u8]) -> Result<()> {
+    fs.open_file_with_options_and_then(
+        |o| o.write(true).append(true),
+        &ride_path(id, PART),
+        |file| {
+            let mut rest = data;
+            while !rest.is_empty() {
+                let n = file.write(rest)?;
+                rest = &rest[n..];
+            }
+            Ok(())
+        },
+    )
+}
+
+/// Closes ride `id`: `/rides/<id>.part` becomes `/rides/<id>.fit`.
+pub fn finish<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
+    fs.rename(&ride_path(id, PART), &ride_path(id, FIT))
+}
+
+/// Deletes finished ride `id` (e.g. once uploaded).
+pub fn remove<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
+    fs.remove(&ride_path(id, FIT))
+}
+
+/// Calls `f(id, size)` for every finished ride.
+pub fn finished<S: Storage>(fs: &Filesystem<'_, S>, f: impl FnMut(u32, usize)) -> Result<()> {
+    rides(fs, FIT, f)
+}
+
+/// Calls `f(id, size)` for every ride whose recording was interrupted (power cut, crash).
+pub fn unfinished<S: Storage>(fs: &Filesystem<'_, S>, f: impl FnMut(u32, usize)) -> Result<()> {
+    rides(fs, PART, f)
+}
+
+fn rides<S: Storage>(
+    fs: &Filesystem<'_, S>,
+    ext: &str,
+    mut f: impl FnMut(u32, usize),
+) -> Result<()> {
+    if !fs.exists(RIDES) {
+        return Ok(());
+    }
+    fs.read_dir_and_then(RIDES, |dir| {
+        for entry in dir {
+            let entry = entry?;
+            let name = entry.file_name().as_str();
+            if let Some(id) = name.strip_suffix(ext).and_then(|id| id.parse().ok()) {
+                f(id, entry.metadata().len());
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Reads ride `id` (finished or not) into `buf`, returns the length read.
+pub fn read<S: Storage>(
+    fs: &Filesystem<'_, S>,
+    id: u32,
+    finished: bool,
+    buf: &mut [u8],
+) -> Result<usize> {
+    let path = ride_path(id, if finished { FIT } else { PART });
+    fs.open_file_and_then(&path, |file| {
+        let mut n = 0;
+        while n < buf.len() {
+            match file.read(&mut buf[n..])? {
+                0 => break,
+                k => n += k,
+            }
+        }
+        Ok(n)
+    })
+}
+
+/// Fixed-size buffer for path names (no allocation).
+#[derive(Default)]
+struct Name {
+    buf: [u8; 32],
+    len: usize,
+}
+
+impl Name {
+    fn as_str(&self) -> &str {
+        core::str::from_utf8(&self.buf[..self.len]).unwrap()
+    }
+}
+
+impl core::fmt::Write for Name {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let end = self.len + s.len();
+        self.buf
+            .get_mut(self.len..end)
+            .ok_or(core::fmt::Error)?
+            .copy_from_slice(s.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
+
+/// Error returned by the fake flash once the power has been cut.
+pub const POWER_CUT: Error = Error::IO;

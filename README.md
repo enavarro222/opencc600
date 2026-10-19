@@ -17,7 +17,13 @@ Embassy)**; the hardware layer is a rewrite based on [c606-oss](https://github.c
 The hardware-independent `no_std` crates live in the host workspace at the root, on the stable toolchain, and are
 tested on a PC with `cargo test`:
 - [crates/nrf-link/](crates/nrf-link/): UART protocol with the nRF co-processor (frames, CRC, keys, battery, RTC,
-  barometer, commands).
+  barometer, light, buzzer, commands).
+- [crates/ride-store/](crates/ride-store/): ride files on littlefs that survive a power cut; its test cuts the power
+  at every flash operation of a recording scenario (RAM fake NOR flash).
+
+`littlefs2` generates its C bindings with bindgen, which needs the clang C headers on the PC
+(`sudo apt install libclang-common-18-dev` on Ubuntu 24.04, or point `BINDGEN_EXTRA_CLANG_ARGS` at
+`-isystem <clang>/include`).
 
 ```sh
 cargo install espup espflash --locked && espup install --targets esp32s3 && uv tool install esptool

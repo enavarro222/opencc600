@@ -1,0 +1,17 @@
+[package]
+name         = "ride-store"
+description  = "Ride storage on littlefs: append-only ride files that survive a power cut"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[features]
+# RAM-backed NOR flash with power-cut injection, for tests and the simulator (needs alloc).
+ram = []
+
+[dependencies]
+littlefs2 = { version = "0.8.1", default-features = false }
+
+[dev-dependencies]
+ride-store = { path = ".", features = ["ram"] }
