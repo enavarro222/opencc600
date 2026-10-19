@@ -45,6 +45,7 @@ use esp_storage::FlashStorage;
 use littlefs2::fs::{Allocation, Filesystem};
 use log::{debug, info, warn};
 use nrf_link::{Decoder, KeyAction, Message, RtcTime, command};
+use opencc600_firmware::gnss_uart::GnssUart;
 #[cfg(feature = "hil-storage")]
 use opencc600_firmware::hil_storage;
 use opencc600_firmware::panel::{self, FrameBuffer, Panel};
@@ -69,7 +70,7 @@ const BACKLIGHT_PCT: u8 = 50;
     reason = "it's not unusual to allocate larger buffers etc. in main"
 )]
 #[esp_rtos::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
 
     let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
@@ -153,6 +154,17 @@ async fn main(_spawner: Spawner) -> ! {
         let next = hil_storage::recover(fs).unwrap();
         hil_storage::Recorder::start(fs, next).unwrap()
     });
+
+    // GNSS: UART0 through UHCI DMA, drained by a task on the thread-mode executor (the DMA does not need it to be
+    // fast, only regular).
+    let gnss = GnssUart::new(
+        peripherals.UART0,
+        peripherals.GPIO1,
+        peripherals.GPIO0,
+        peripherals.UHCI0,
+        peripherals.DMA_CH1,
+    );
+    spawner.spawn(gnss_task(gnss).unwrap());
 
     let mut fb = FrameBuffer::new();
     draw_test_pattern(&mut fb);
@@ -382,6 +394,49 @@ async fn nrf_rx(mut rx: UartRx<'static, Async>) -> ! {
     }
 }
 
+#[embassy_executor::task]
+async fn gnss_task(mut uart: GnssUart) {
+    let mut reader = gnss::LineReader::new();
+    let mut fix = gnss::Fix::default();
+    let mut last_report = Instant::now();
+    let mut stalled = false;
+    loop {
+        let mut epoch = false;
+        uart.drain(|data| {
+            reader.feed(data, |line| {
+                debug!("gnss {line}");
+                epoch |= fix.update(line) == gnss::Epoch::Complete;
+            })
+        });
+        if uart.stalled() && !stalled {
+            stalled = true;
+            warn!("gnss: DMA stopped, data lost");
+        }
+        if epoch {
+            STATUS.lock(|s| {
+                let mut status = s.get();
+                status.fix = Some(fix);
+                status.gnss = Some(reader.stats);
+                s.set(status);
+            });
+            STATUS_CHANGED.signal(());
+        }
+        if last_report.elapsed() >= Duration::from_secs(10) {
+            last_report = Instant::now();
+            info!(
+                "gnss: {:?}, fix {} q{} {}/{} sats{}",
+                reader.stats,
+                fix.valid,
+                fix.quality,
+                fix.sats_used,
+                fix.sats_in_view,
+                if stalled { " DMA STOPPED" } else { "" }
+            );
+        }
+        Timer::after(Duration::from_millis(50)).await;
+    }
+}
+
 /// What the bring-up screen shows, updated from the nRF messages.
 #[derive(Clone, Copy, PartialEq)]
 struct Status {
@@ -400,6 +455,9 @@ struct Status {
     probe: Option<u8>,
     /// Storage partition: Ok((finished rides, free blocks, total blocks)) or the littlefs error code.
     storage: Option<Result<(u16, u16, u16), i32>>,
+    /// GNSS link counters and latest complete fix.
+    gnss: Option<gnss::Stats>,
+    fix: Option<gnss::Fix>,
 }
 
 impl Status {
@@ -417,6 +475,8 @@ impl Status {
             stream0a: None,
             probe: None,
             storage: None,
+            gnss: None,
+            fix: None,
         }
     }
 
@@ -495,8 +555,31 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status) {
         .unwrap();
 
     let none = || String::from("-");
-    let u16le = |d: &[u8; 6], i: usize| u16::from_le_bytes([d[i], d[i + 1]]);
-    let rows: [(&str, String); 9] = [
+    let rows: [(&str, String); 8] = [
+        (
+            "GNSS fix: sats used/in view, hdop, km/h",
+            s.fix.map_or_else(none, |f| {
+                if f.valid {
+                    format!(
+                        "{}/{} {}.{:02} {}",
+                        f.sats_used,
+                        f.sats_in_view,
+                        f.hdop_c.unwrap_or(9999) / 100,
+                        f.hdop_c.unwrap_or(9999) % 100,
+                        f.speed_mm_s.unwrap_or(0) * 36 / 10_000
+                    )
+                } else {
+                    format!("no fix ({} in view)", f.sats_in_view)
+                }
+            }),
+        ),
+        (
+            "GNSS time (UTC) / link errors",
+            s.fix.and_then(|f| f.time).map_or_else(none, |t| {
+                let errors = s.gnss.map_or(0, |g| g.bad_checksum + g.cut + g.malformed);
+                format!("{:02}:{:02}:{:02} / {errors}", t.hour, t.minute, t.second)
+            }),
+        ),
         (
             "storage: rides / free blocks",
             match s.storage {
@@ -537,15 +620,6 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status) {
             ),
         ),
         (
-            "nRF fw / power-on reason",
-            format!(
-                "{} / {}",
-                s.version
-                    .map_or_else(none, |(a, b, c)| format!("{a}.{b}.{c}")),
-                s.power_on_reason.map_or_else(none, |r| format!("{r}"))
-            ),
-        ),
-        (
             "baro",
             s.baro.map_or_else(
                 || String::from("- (long press key 0)"),
@@ -563,15 +637,6 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status) {
         (
             "ambient light (raw)",
             s.light.map_or_else(none, |l| format!("{l}")),
-        ),
-        (
-            "stream 0A: u16 @0",
-            s.stream0a
-                .map_or_else(none, |d| format!("{}", u16le(&d, 0))),
-        ),
-        (
-            "probe E2 01 XX   k1:next k2:again k0:prev",
-            s.probe.map_or_else(none, |id| format!("{id:02X}")),
         ),
     ];
     for (i, (name, v)) in rows.iter().enumerate() {

@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+pub mod gnss_uart;
 pub mod panel;
 pub mod storage;
 
