@@ -43,7 +43,8 @@ Not ported: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, `ui_port.c` (LVGL), Maps
   (`dump/storage.orig.bin`, identical to the device) and the 24 rides extracted as standard FIT
   (`tools/vendor_fit.py`). Going back to the vendor = `tools/flash_ota0.py --restore-vendor --storage
   dump/storage.orig.bin` (rides recorded with our firmware meanwhile stay as FIT files outside, not in the vendor
-  history). *(open: littlefs again through `littlefs2`, or a Rust-native power-loss-safe store; developed and
+  history). **Restore checked on the device on 2026-10-19**: the vendor firmware boots with all its rides and
+  settings; it only touched its own logs. *(open: littlefs again through `littlefs2`, or a Rust-native power-loss-safe store; developed and
   power-cut tested on a RAM fake first)*
 - BLE + Wi-Fi on the ESP32; ANT+ through the nRF (its firmware is not replaced).
 - 1800 mAh battery: battery life is a requirement (Wi-Fi and backlight are expensive).
