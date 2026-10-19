@@ -47,6 +47,12 @@ Not ported: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, `ui_port.c` (LVGL), Maps
 - The nRF RTC is not written by c606-oss → wrong time before the first GPS fix.
 - Barometric pressure + temperature come **from the nRF over UART2** (no direct sensor access from the ESP32).
   Their resolution and rate set the floor for altitude/D+ quality. See [REVERSE_NOTES.md](REVERSE_NOTES.md).
+- **The nRF sensor stream (pressure, IMU) only starts after a long press of the power key.** After an ESP-only
+  reset (crash, watchdog, flashing) it stays off and no known command restarts it → a ride resumed after a crash
+  would have no altitude/D+. To find: a command that starts the stream; otherwise detect it, fall back to GNSS
+  altitude for that segment and tell the rider.
+- **IMU behind the nRF** (accelerometer, gyro, magnetometer) — unused for now, see later ideas.
+- **Buzzer**: present, how it is driven is unknown (nRF command or ESP32 GPIO). See [REVERSE_NOTES.md](REVERSE_NOTES.md).
 
 ## Altitude and elevation gain (D+)
 The vendor firmware gets D+ right thanks to the barometer; ours must be **at least as good**, it is part of the
@@ -73,7 +79,7 @@ core a rider checks after every ride.
    - a **corridor map around the loaded route** (see below);
    - a lean, fast 3-key UX;
    - easy ride sync (see 5).
-   Later ideas: fully configurable screens, BLE remotes, structured workouts, FTMS home trainer control,
+   Later ideas: crash / long-stop detection with the IMU, fully configurable screens, BLE remotes, structured workouts, FTMS home trainer control,
    integration with home_trainer_game.
 5. **Ride sync**: over **Wi-Fi when back home**, to the phone or a **configurable cloud**
    (Strava, self-hosted server…). Wi-Fi stays off during the ride.
@@ -94,6 +100,8 @@ The "no maps" limit only applies to a global map. A map restricted to the loaded
 - [ ] Write the GPS time back to the nRF RTC (correct timestamps before the first fix).
 - [ ] Barometric altitude and D+ (see above), shown on the data screens and written to the FIT file.
 - [ ] 2–3 data screens driven by the 3 keys.
+- [ ] Beeps (once the buzzer is understood): key feedback (can be turned off), alerts — off route, sensor lost,
+      low battery, recording started/stopped. Every beep comes with a message on screen.
 - [ ] Load a GPX route and display the route line (no background map yet).
 - [ ] Upload FIT files over Wi-Fi to a configurable URL.
 
