@@ -104,6 +104,9 @@ Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [pro
   map start at the fix). While riding, "GPS ◌" appears in the top bar only while searching or lost, with a banner.
 - Pause screen: bottom-right resume, bottom-left "Finish…" (then confirmation), top "≡ Menu" (sensors, switch off).
   Switching off while paused keeps the ride; it resumes after power-on.
+- A finished ride stays **resumable until it has been uploaded** ("↺ Reprendre" on the end screen, then in the
+  menu): finishing only closes the FIT file, resuming reopens the same recording. Once uploaded it cannot be
+  resumed (it would duplicate the activity), so "Finish" is not shown as an irreversible action.
 - The 3 key labels have the same size and a blue mark (the colour of the physical keys) on the key's side:
   top edge for the top-left key (it sits on the top edge), bottom edge for the bottom keys.
 

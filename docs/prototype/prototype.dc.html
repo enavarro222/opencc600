@@ -71,6 +71,9 @@ button{font-family:inherit}
                 <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Capteurs</span><span style="color: {{c.ok}}">{{presentSummary}}</span></div>
                 <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Pages</span><span style="text-align: right">{{pagesPreview}}</span></div>
                 <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">À envoyer</span><span style="color: {{pendingColor}}">{{pendingLabel}}</span></div>
+                <sc-if value="{{canResume}}" hint-placeholder-val="{{ false }}">
+                  <span style="font-size: 15px; font-weight: 600; color: {{c.mute}}">↺ Dernière sortie reprenable : ≡ Menu</span>
+                </sc-if>
               </div>
             </sc-if>
 
@@ -288,13 +291,13 @@ button{font-family:inherit}
 
             <sc-if value="{{is.confirm}}" hint-placeholder-val="{{ false }}">
               <div style="height: 100%; display: flex; flex-direction: column">
-                <div style="height: 6px; background: #C92A2A"></div>
+                <div style="height: 6px; background: #1D4ED8"></div>
                 <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px">
                   <span style="font-size: 25px; font-weight: 700; line-height: 1; white-space: nowrap">Terminer la sortie ?</span>
                   <div style="display: flex; flex-direction: column; gap: 6px; font-size: 18px; font-weight: 500; line-height: 1.2">
                     <span>✓ Enregistrée : 48,6 km · 1:42:08</span>
                     <span>✓ Envoyée dès que possible, effacée une fois reçue</span>
-                    <span style="color: {{c.danger}}; font-weight: 700">✕ Elle ne pourra plus être reprise</span>
+                    <span style="font-weight: 700">↺ Reprenable tant qu'elle n'est pas envoyée</span>
                   </div>
                 </div>
               </div>
@@ -311,13 +314,13 @@ button{font-family:inherit}
                 </div>
                 <svg width="212" height="34" viewBox="0 0 212 34" aria-hidden="true" style="display: block"><path d="M0 30 L 16 26 L 26 27 L 38 16 L 46 18 L 56 23 L 66 23 L 82 6 L 92 9 L 106 26 L 124 27 L 132 21 L 142 23 L 158 26 L 188 4 L 200 15 L 212 28 L 212 34 L 0 34 Z" fill="{{c.climbDone}}"></path></svg>
                 <span style="font-size: 15px; font-weight: 600">2 montées sur 4 · 12 min à l'arrêt</span>
-                <span style="font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}">Elle part dès que possible (Wi-Fi maison ou app), puis est effacée du compteur une fois reçue.</span>
+                <span style="font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}">Tu peux la reprendre (bas gauche, ou ≡ Menu) tant qu'elle n'est pas envoyée.</span>
               </div>
             </sc-if>
 
             <sc-if value="{{is.menu}}" hint-placeholder-val="{{ false }}">
               <div style="display: flex; flex-direction: column">
-                <sc-for list="{{menuRows}}" as="m" hint-placeholder-count="2">
+                <sc-for list="{{menuRows}}" as="m" hint-placeholder-count="3">
                   <div style="height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 21px; font-weight: 600; border-bottom: 1px solid {{c.rule}}; background: {{m.bg}}; color: {{m.fg}}">
                     <span>{{m.label}}</span><span>›</span>
                   </div>
@@ -473,6 +476,7 @@ button{font-family:inherit}
         <button onClick="{{simLost}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Ceinture FC décroche</button>
         <div style="height: 1px; margin: 4px 0; background: #C8C5BE"></div>
         <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Depuis l'app</span>
+        <button onClick="{{simUpload}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">La sortie est envoyée</button>
         <button onClick="{{simTrace}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Envoyer une autre trace</button>
         <div style="height: 1px; margin: 4px 0; background: #C8C5BE"></div>
         <button onClick="{{reset}}" style="height: 34px; border: none; border-radius: 6px; background: #D6D3CC; font-size: 17px; font-weight: 600; cursor: pointer; color: #111111">Recommencer</button>
@@ -552,7 +556,12 @@ class Component extends DCLogic {
       { name: 'Sortie VTT Sidobre', info: '38 km · 950 m D+' }
     ];
   }
-  menuItems() { return ['Synchro Wi-Fi', 'Capteurs']; }
+  menuItems() { return (this.state.last === 'kept' ? ['↺ Reprendre la dernière sortie'] : []).concat(['Synchro Wi-Fi', 'Capteurs']); }
+  resumeLast() {
+    if (this.state.last !== 'kept') { this.say('Déjà envoyée · elle ne peut plus être reprise'); return; }
+    this.setState({ scr: 'ride', ride: true, page: 0, moving: true, last: null, pending: Math.max(0, this.state.pending - 1), pages: this.state.pages && this.state.pages.length ? this.state.pages : this.compose(this.state.opt) });
+    this.say('Sortie reprise · même enregistrement');
+  }
   scanItems() {
     return [
       { key: 'spd', title: 'Vitesse · Garmin 2', sub: 'ANT+ · n° 48213', name: 'Garmin 2 · ANT+', val: '● 33,9 km/h', sig: '▂▄▆█' },
@@ -595,8 +604,8 @@ class Component extends DCLogic {
       case 'confirm': return {
         hg: { l: '◀ Annuler', f: set({ scr: s.confirmFrom }) },
         bg: { l: 'Annuler', f: set({ scr: s.confirmFrom }) },
-        bd: { l: 'Terminer ■', k: 'danger', f: () => { this.setState({ scr: 'saved', ride: false, climb: 'none', off: false, pending: s.pending + 1 }); this.beep('sortie enregistrée'); } } };
-      case 'saved': return { hg: none, bg: none, bd: { l: 'OK', k: 'sel', f: set({ scr: 'home' }) } };
+        bd: { l: 'Terminer ■', k: 'sel', f: () => { this.stopScroll(); this.setState({ scr: 'saved', ride: false, climb: 'none', off: false, pending: s.pending + 1, last: 'kept' }); this.beep('sortie enregistrée'); } } };
+      case 'saved': return { hg: none, bg: { l: '↺ Reprendre', f: () => this.resumeLast() }, bd: { l: 'OK', k: 'sel', f: set({ scr: 'home' }) } };
       case 'pauseMenu': return {
         hg: { l: '◀ Retour', f: set({ scr: s.pmBack }) },
         bg: { l: 'Suivant ▼', f: set({ pmI: (s.pmI + 1) % 2 }) },
@@ -607,11 +616,12 @@ class Component extends DCLogic {
       case 'off': return { hg: { l: '', hold: true, f: set({ scr: s.ride ? 'resume' : 'home', gps: 'search' }) }, bg: { l: '', f: () => {} }, bd: { l: '', f: () => {} } };
       case 'menu': return {
         hg: { l: '◀ Retour', f: set({ scr: 'home' }) },
-        bg: { l: 'Suivant ▼', f: set({ menuI: (s.menuI + 1) % 2 }) },
+        bg: { l: 'Suivant ▼', f: set({ menuI: (s.menuI + 1) % this.menuItems().length }) },
         bd: { l: 'Ouvrir ›', k: 'sel', f: () => {
-          const i = s.menuI;
-          if (i === 0) this.setState({ scr: 'sync' });
-          else this.setState({ scr: 'sensors', sensI: 0 });
+          const it = this.menuItems()[s.menuI];
+          if (it === 'Synchro Wi-Fi') this.setState({ scr: 'sync' });
+          else if (it === 'Capteurs') this.setState({ scr: 'sensors', sensI: 0 });
+          else this.resumeLast();
         } } };
       case 'sensors': return {
         hg: { l: '◀ Retour', f: set({ scr: s.ride ? 'pauseMenu' : 'menu' }) },
@@ -698,11 +708,17 @@ class Component extends DCLogic {
       c, is,
       isOff: s.scr === 'off', isOn: s.scr !== 'off',
       simMsg: s.simMsg || '',
+      canResume: s.last === 'kept',
       gpsSearching: s.gps === 'search' && s.scr === 'home',
       gpsLabel: s.gps === 'search' ? '◌ Recherche · 5 sat' : (s.gps === 'lost' ? '✕ Perdu' : '● Fix OK · 9 sat'),
       gpsColor: s.gps === 'ok' ? c.ok : '#B35C00',
       gpsTop: ride && s.gps !== 'ok' ? 'GPS ◌' : '',
       tunnelLabel: s.gps === 'lost' ? 'Sortir du tunnel' : 'Tunnel (GPS perdu)',
+      simUpload: () => {
+        if (s.last !== 'kept') { this.setState({ simMsg: 'Termine d\u2019abord une sortie.' }); return; }
+        this.setState({ last: 'sent', pending: Math.max(0, s.pending - 1), menuI: 0 });
+        this.say('Sortie envoyée · effacée du compteur');
+      },
       simTunnel: () => {
         if (!s.ride) { this.setState({ simMsg: 'Démarre d\u2019abord une sortie sur le compteur.' }); return; }
         if (s.gps === 'lost') { this.setState({ gps: 'ok' }); this.say('GPS retrouvé · 9 satellites'); }
