@@ -59,6 +59,7 @@ extern crate alloc;
 use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 // App descriptor read by the ESP-IDF second-stage bootloader (the vendor one stays in place).
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -219,8 +220,10 @@ async fn main(spawner: Spawner) -> ! {
 
     let mut shown = None;
     let mut last_power_on = Instant::now();
-    let mut power_prompt: Option<Instant> = None;
+    let mut ui = ui::Ui::new();
     let mut ride: Option<Box<Ride>> = None;
+    // the ride in progress, else the last one saved (the "saved" screen)
+    let mut ride_shown = RideInfo::default();
     let mut trip_log: Option<TripLog> = None;
     loop {
         let _ = with_timeout(Duration::from_secs(1), STATUS_CHANGED.wait()).await;
@@ -229,46 +232,63 @@ async fn main(spawner: Spawner) -> ! {
             NRF_COMMANDS.send(command::power_on()).await;
             last_power_on = Instant::now();
         }
-        // Ride keys: click on key 1 = start / pause / resume, long press on key 1 = stop and save.
-        let mut ride_key = None;
+        // What each key does is up to the screen (crates/ui): bottom right starts / pauses / resumes, a ride ends
+        // from the pause screen, power off is a long press on the top left key confirmed by a click on it.
+        let mut commands = Vec::new();
         while let Ok((key, action)) = NRF_KEYS.try_receive() {
-            // Power off like the vendor: long press on key 0 asks, a click on key 0 confirms, any other click or
-            // 8 s cancels. The nRF repeats LongPress while the key is held: only the first one opens the prompt.
-            if power_prompt.is_some() {
-                match (key, action) {
-                    (0, KeyAction::Click) => {
-                        if let (Some(r), Ok(fs)) = (ride.take(), fs.as_ref()) {
-                            r.stop(fs, &STATUS.lock(Cell::get));
-                        }
-                        info!("power off");
-                        draw_message(&mut fb, "Power off");
-                        panel.flush(&fb);
-                        NRF_COMMANDS.send(command::power_off()).await;
-                        Timer::after(Duration::from_secs(2)).await;
-                        warn!("still powered 2 s after power_off");
-                        power_prompt = None;
-                    }
-                    (_, KeyAction::Click) => power_prompt = None,
-                    _ => {}
-                }
+            let press = match action {
+                KeyAction::Click => ui::Press::Click,
+                KeyAction::LongPress => ui::Press::Long,
+                KeyAction::LongRelease | KeyAction::Other(_) => continue,
+            };
+            let Some(key) = ui::Key::from_nrf(key) else {
                 continue;
-            }
-            match (key, action) {
-                (0, KeyAction::LongPress) => power_prompt = Some(Instant::now()),
-                (1, KeyAction::Click) => ride_key = Some(false),
-                (1, KeyAction::LongPress) => ride_key = Some(true),
-                _ => {}
+            };
+            if let Some(c) = ui.key(key, press, Instant::now().as_millis()) {
+                commands.push(c);
             }
         }
         let state = STATUS.lock(Cell::get);
-        if let Ok(fs) = fs.as_ref() {
-            match (ride_key, ride.as_mut()) {
-                (Some(false), None) => ride = Ride::start(fs, &state),
-                (Some(false), Some(r)) => r.toggle_pause(fs, &state),
-                // the nRF repeats LongPress while the key is held: only the first one stops
-                (Some(true), Some(_)) => ride.take().unwrap().stop(fs, &state),
-                _ => {}
+        for c in commands {
+            match (c, ride.as_mut(), fs.as_ref()) {
+                (ui::Command::PowerOff, _, _) => {
+                    if let (Some(r), Ok(fs)) = (ride.take(), fs.as_ref()) {
+                        r.stop(fs, &state);
+                    }
+                    info!("power off");
+                    draw_message(&mut fb, "Power off");
+                    panel.flush(&fb);
+                    NRF_COMMANDS.send(command::power_off()).await;
+                    Timer::after(Duration::from_secs(2)).await;
+                    warn!("still powered 2 s after power_off");
+                }
+                (ui::Command::Start, None, Ok(fs)) => {
+                    ride = Ride::start(fs, &state);
+                    if ride.is_none() && now_unix(&state).is_none() {
+                        ui.set_notice(ui::NOTICE_NO_TIME, Instant::now().as_millis());
+                    }
+                }
+                (ui::Command::Pause, Some(r), Ok(fs)) if r.info().running => {
+                    r.toggle_pause(fs, &state)
+                }
+                (ui::Command::Resume, Some(r), Ok(fs)) if !r.info().running => {
+                    r.toggle_pause(fs, &state)
+                }
+                (ui::Command::Stop, Some(_), Ok(fs)) => {
+                    let r = ride.take().unwrap();
+                    ride_shown = r.info();
+                    r.stop(fs, &state);
+                    let storage_info = storage_summary(fs);
+                    STATUS.lock(|s| {
+                        let mut status = s.get();
+                        status.storage = Some(storage_info);
+                        s.set(status);
+                    });
+                }
+                (c, _, _) => warn!("ui: {c:?} ignored"),
             }
+        }
+        if let Ok(fs) = fs.as_ref() {
             if let Some(r) = ride.as_mut() {
                 r.sample(fs, &state);
             }
@@ -279,16 +299,19 @@ async fn main(spawner: Spawner) -> ! {
                 log.sample(fs, &state, ride.as_deref().map(Ride::info));
             }
         }
-        if power_prompt.is_some_and(|at| at.elapsed() >= Duration::from_secs(8)) {
-            power_prompt = None;
-        }
         let ride_info = ride.as_deref().map(Ride::info);
-        let screen = (state, power_prompt.is_some(), ride_info);
+        ui.tick(Instant::now().as_millis(), ride_info.map(|r| r.running));
+        if let Some(r) = ride_info {
+            ride_shown = r;
+        }
+        let view = view_of(&state, ride_shown);
+        // the status screen shows (nearly) all of the status, the others only what is in the view
+        let status_shown = (ui.screen() == ui::Screen::Status).then_some(state);
+        let screen = (ui, view, status_shown);
         if shown != Some(screen) {
-            draw_status(&mut fb, &state, ride_info);
-            draw_key_hints(&mut fb, ride_info, power_prompt.is_some());
-            if power_prompt.is_some() {
-                draw_message(&mut fb, "Power off?\nkey 0: yes\nother: no");
+            ui::draw(&mut fb, &ui, &view, &THEME).unwrap();
+            if status_shown.is_some() {
+                draw_status(&mut fb, &state, ride_info);
             }
             panel.flush(&fb);
             shown = Some(screen);
@@ -765,11 +788,14 @@ fn storage_summary(fs: &Filesystem<'_, storage::Partition<'_>>) -> Result<(u16, 
 const UTC_OFFSET_S: i32 = 0;
 
 /// What the screen shows of the ride.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Default, PartialEq)]
 struct RideInfo {
     running: bool,
     timer_s: u32,
     distance_cm: u32,
+    ascent_m: u16,
+    descent_m: u16,
+    max_speed_mm_s: u32,
 }
 
 /// The ride being recorded: one FIT record per GNSS epoch (1 Hz) while the timer runs.
@@ -1036,6 +1062,9 @@ impl Ride {
             running: self.recorder.summary().running(),
             timer_s: t.timer_ms / 1000,
             distance_cm: self.odometer.distance_cm(),
+            ascent_m: t.ascent_m,
+            descent_m: t.descent_m,
+            max_speed_mm_s: t.max_speed_mm_s,
         }
     }
 }
@@ -1084,27 +1113,48 @@ fn unix_of(t: &RtcTime) -> Option<u32> {
         .filter(|&u| u > fit::FIT_EPOCH_OFFSET)
 }
 
-/// What each key does now, written next to it: key 0 top left, key 1 bottom left, key 2 bottom right (CC600).
-fn draw_key_hints(fb: &mut FrameBuffer, ride: Option<RideInfo>, power_prompt: bool) {
-    let style = MonoTextStyle::new(&FONT_6X10, Rgb565::CSS_AQUA);
-    let (k0, k1) = if power_prompt {
-        ("< yes", "< no")
-    } else {
-        (
-            "< long: off",
-            match ride {
-                None => "< start",
-                Some(r) if r.running => "< pause  long: stop",
-                Some(_) => "< resume  long: stop",
+/// Colours of the screens. *To make a setting (day / night, or from the ambient light).*
+const THEME: ui::Theme = ui::DAY;
+/// Storage a ride takes per hour: a 34-byte record a second (littlefs overhead left out).
+const RIDE_BYTES_PER_HOUR: u32 = 34 * 3600;
+const BLOCK_SIZE: u32 = <storage::Partition<'_> as littlefs2::driver::Storage>::BLOCK_SIZE as u32;
+
+/// What the screens show (crates/ui).
+fn view_of(s: &Status, ride: RideInfo) -> ui::View {
+    let fix = s.fix;
+    ui::View {
+        clock: now_unix(s).map(|unix| {
+            let day_s = (unix as i64 + UTC_OFFSET_S as i64).rem_euclid(86_400) as u32;
+            ((day_s / 3600) as u8, (day_s / 60 % 60) as u8)
+        }),
+        battery_pct: s.battery.map(|(_, pct)| pct),
+        gnss: match fix {
+            None => ui::Gnss::Off,
+            Some(f) if f.valid => ui::Gnss::Fix { used: f.sats_used },
+            Some(f) => ui::Gnss::Searching {
+                in_view: f.sats_in_view,
             },
-        )
-    };
-    Text::new(k0, Point::new(2, 12), style).draw(fb).unwrap();
-    Text::new(k1, Point::new(2, 316), style).draw(fb).unwrap();
-    let k2 = if power_prompt { "no >" } else { "- >" };
-    Text::with_alignment(k2, Point::new(238, 316), style, Alignment::Right)
-        .draw(fb)
-        .unwrap();
+        },
+        // the receiver reports a few tenths of m/s at rest
+        speed_mm_s: fix
+            .filter(|f| f.valid)
+            .and_then(|f| f.speed_mm_s)
+            .map(|v| if v < recorder::MOVING_MM_S { 0 } else { v }),
+        altitude_dm: s.altimeter.altitude_dm(),
+        heart_rate: None,
+        ride: ui::RideView {
+            timer_s: ride.timer_s,
+            distance_cm: ride.distance_cm,
+            ascent_m: ride.ascent_m,
+            descent_m: ride.descent_m,
+            max_speed_mm_s: ride.max_speed_mm_s,
+        },
+        rides_stored: s.storage.and_then(|r| r.ok()).map(|(rides, _, _)| rides),
+        free_hours: s
+            .storage
+            .and_then(|r| r.ok())
+            .map(|(_, free, _)| free as u32 * BLOCK_SIZE / RIDE_BYTES_PER_HOUR),
+    }
 }
 
 /// Test hook, lines on the USB serial port: `key <0-2> <click|long>` act as key presses from the nRF (`long` =
@@ -1231,14 +1281,10 @@ fn draw_message(fb: &mut FrameBuffer, text: &str) {
     clippy::large_stack_frames,
     reason = "bring-up screen, called from main, ~1.5 KB"
 )]
+/// The bring-up values, in the content area of the status screen (between the key bars of crates/ui).
 fn draw_status(fb: &mut FrameBuffer, s: &Status, ride: Option<RideInfo>) {
-    let title = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
-    let label = MonoTextStyle::new(&FONT_6X10, Rgb565::CSS_LIGHT_GRAY);
-    let value = MonoTextStyle::new(&FONT_10X20, Rgb565::YELLOW);
-    fb.clear(Rgb565::BLACK).unwrap();
-    Text::with_alignment("opencc600", Point::new(140, 24), title, Alignment::Center)
-        .draw(fb)
-        .unwrap();
+    let label = MonoTextStyle::new(&FONT_6X10, THEME.mute);
+    let value = MonoTextStyle::new(&FONT_10X20, THEME.fg);
 
     let none = || String::from("-");
     let rows: [(&str, String); 9] = [
@@ -1344,7 +1390,7 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status, ride: Option<RideInfo>) {
         }),
     ];
     for (i, (name, v)) in rows.iter().enumerate() {
-        let y = 44 + i as i32 * 29;
+        let y = ui::CONTENT.top_left.y + 10 + i as i32 * 28;
         Text::new(name, Point::new(8, y), label).draw(fb).unwrap();
         Text::new(v, Point::new(8, y + 20), value).draw(fb).unwrap();
     }

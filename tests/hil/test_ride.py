@@ -22,18 +22,20 @@ def test_ride_with_a_pause(dut, out_dir):
     before = set(rides(dut.read_storage(out_dir / "before.bin")))
     dut.reset()
     dut.send("sound off")
-    dut.press(1)  # start
+    dut.press(2)  # start
     time.sleep(30)
-    dut.press(1)  # pause
+    dut.press(2)  # pause
     time.sleep(10)
-    dut.press(1)  # resume
+    dut.press(2)  # resume
     time.sleep(20)
-    dut.press(1, long=True)  # stop and save
+    dut.press(2)  # pause: a ride ends from the pause screen...
+    dut.press(1)  # ...end...
+    dut.press(2)  # ...confirmed: stop and save
     time.sleep(1)
     new = {k: v for k, v in rides(dut.read_storage(out_dir / "after.bin")).items() if k not in before}
     assert len(new) == 1 and next(iter(new)).endswith(".fit"), new.keys()
     m = decode(next(iter(new.values())))
-    assert [e["event_type"] for e in m["event_mesgs"]] == ["start", "stop", "start", "stop_all"]
+    assert [e["event_type"] for e in m["event_mesgs"]] == ["start", "stop", "start", "stop", "stop_all"]
     s = m["session_mesgs"][0]
     assert abs(s["total_elapsed_time"] - 60) <= 2, s["total_elapsed_time"]
     assert abs(s["total_timer_time"] - 50) <= 2, s["total_timer_time"]
@@ -45,7 +47,7 @@ def test_interrupted_ride_is_closed_at_boot(dut, out_dir):
     before = set(rides(dut.read_storage(out_dir / "before.bin")))
     dut.reset()
     dut.send("sound off")
-    dut.press(1)  # start, never stopped
+    dut.press(2)  # start, never stopped
     time.sleep(25)
     # the storage read resets the device mid-ride: the ride is still a .part in this image...
     new = [k for k in rides(dut.read_storage(out_dir / "cut.bin")) if k not in before]

@@ -44,6 +44,7 @@ fit               = { path = "../crates/fit" }
 gnss              = { path = "../crates/gnss" }
 nrf-link          = { path = "../crates/nrf-link" }
 recorder          = { path = "../crates/recorder" }
+ui                = { path = "../crates/ui" }
 ride-store        = { path = "../crates/ride-store" }
 static_cell      = "2.1.1"
 littlefs2 = { version = "0.8.1", default-features = false, features = ["c-stubs"] }

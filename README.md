@@ -28,6 +28,8 @@ tested on a PC with `cargo test`:
   rides; its test cuts the power at every flash operation of a ride and of the recovery.
 - [crates/altitude/](crates/altitude/): barometric altitude whose bias is calibrated on the GNSS (Kalman filter),
   tested on synthetic rides; see [docs/ALTITUDE.md](docs/ALTITUDE.md).
+- [crates/ui/](crates/ui/): screens, what the 3 keys do on each, drawing on the 240x320 panel (embedded-graphics,
+  u8g2 fonts); its test draws every screen to `target/tmp/screens/*.png`.
 
 Hardware-in-the-loop tests on a CC600 plugged in over USB (keys injected over USB, storage read back):
 `uv run --project tests/hil pytest tests/hil`, see [tests/hil/](tests/hil/) and docs/DEV_PROCESS.md.

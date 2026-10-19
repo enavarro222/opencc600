@@ -1,0 +1,14 @@
+[package]
+name         = "ui"
+description  = "Ride UI of the CC600: screens, what the 3 keys do on each, drawing on the 240x320 panel, no_std"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dependencies]
+embedded-graphics = "0.8.2"
+u8g2-fonts        = { version = "0.8.0", features = ["embedded_graphics_textstyle"] }
+
+[dev-dependencies]
+png = "0.18.1"

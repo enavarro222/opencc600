@@ -167,10 +167,15 @@ Status on 2026-10-19 (updated by the bring-up work; altitude is worked on in par
       with the Garmin FIT SDK). Key 1: start / pause / resume, long press: stop.
 - [ ] **GPS time written back to the nRF RTC**: done in the code (valid fix only, at most once a minute, 2 s
       tolerance); *to check on the device with a real fix*.
-- [ ] **Barometric altitude and D+** (see above and ALTITUDE.md), shown on the data screens and written to the FIT
-      file. Today the recorder still takes the GNSS altitude.
-- [ ] **2–3 data screens driven by the 3 keys** (key 0 top left, 1 bottom left, 2 bottom right), the current action
-      written next to each key *(the hints exist on the bring-up screen)*.
+- [x] **Barometric altitude and D+** (see above and ALTITUDE.md), written to the FIT file (altitude from the filter,
+      `absolute_pressure`, D+ from the pressure only) and shown on the ride pages.
+- [x] **Data screens driven by the 3 keys** (`crates/ui`, after the prototype; key 0 top left, 1 bottom left, 2 bottom
+      right), the current action written next to each key: home, ride page 1 (speed, time, distance, D+, heart
+      rate), ride page 2 (altitude, average, max, clock, D-), pause, end confirmed from the pause, saved, power off
+      confirmed, bring-up status. Bottom right starts / pauses / resumes, the left keys turn the pages. Differences
+      from the prototype: no menu yet (home: "État" opens the status screen; pause: "Terminer" asks to end), power
+      off is confirmed by a click like the vendor, and it saves the ride instead of keeping it to resume. Day theme;
+      the map and climb pages wait for the GPX route.
 - [ ] **Beeps** (once the buzzer is understood): key feedback (can be turned off), alerts — off route, sensor lost,
       low battery, recording started/stopped. Every beep comes with a message on screen.
 - [ ] **Load a GPX route and display the route line** (no background map yet).
