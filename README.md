@@ -72,7 +72,7 @@ Source: [docs/prototype/prototype.dc.html](docs/prototype/prototype.dc.html); th
 - `tools/vendor_fit.py`: extracts the vendor's recorded rides from a storage partition image as standard FIT files.
 - `tools/serial_log.py`: prints the USB serial log for N seconds, each line with the host time (no reset);
   `--send T:TEXT` types a test command at T seconds (`key 2 click`, `sound off`, `gnss cold`, `gnss time on`,
-  `rtc shift -300`).
+  `rtc shift -300`, `screen ?`).
 - `tools/ttff.py`: measures the GNSS time to first fix after forced restarts (full cold, cold with the RTC time,
   hot...), to run by a window; results in `dump/ttff.csv`.
 - `tools/pull_rides.py`: copies the rides from the CC600 to `dump/rides/` and checks them with the Garmin FIT SDK.
@@ -85,6 +85,8 @@ Source: [docs/prototype/prototype.dc.html](docs/prototype/prototype.dc.html); th
   `tools/ghidra/`: headless scripts that name the mask ROM functions and decompile the functions using given
   strings.
 - `tools/build_prototype.py`: rebuilds the standalone UI prototype page.
+- `tools/prototype_shots.py`: screenshots of the prototype's states and their text layout (`target/proto/`), the
+  reference for `crates/ui`; `tools/compare_screens.py` puts them next to the firmware's screens.
 - `tools/check_prototype_layout.py`: checks in headless Chromium that nothing on the prototype screen changes size between states.
 - `tools/build_fonts.py`: rasterizes Barlow Condensed (`crates/ui/fonts/`) at the prototype's sizes, with the UI
   icons as glyphs, into `crates/ui/src/fonts/` (FreeType, HarfBuzz kerning and tabular figures).

@@ -126,6 +126,42 @@ class Dut:
     def press(self, key: int, long: bool = False):
         self.send(f"key {key} {'long' if long else 'click'}")
 
+    def screen(self) -> str:
+        """The screen shown (`crates/ui` `Screen`: Home, Ride, Paused, Resume, Saved...)."""
+        for _ in range(5):
+            mark = self.mark()
+            self.send("screen ?")
+            try:
+                return self.expect(r"screen (\w+)$", timeout=1.0, since=mark).group(1)
+            except TimeoutError:
+                continue  # the log line was lost
+        raise TimeoutError("no screen line")
+
+    def wait_screen(self, name: str, timeout: float = 10.0):
+        end = time.time() + timeout
+        while (shown := self.screen()) != name:
+            if time.time() > end:
+                raise TimeoutError(f"screen {shown}, not {name}, after {timeout} s")
+            time.sleep(0.5)
+
+    def to_home(self):
+        """Back to the home screen, finishing a ride left over by an earlier test (paused at power-on)."""
+        for _ in range(6):
+            shown = self.screen()
+            if shown == "Home":
+                return
+            if shown == "Ride":
+                self.press(2)  # pause
+            elif shown in ("Paused", "Resume"):
+                self.press(1)  # finish...
+                self.press(2)  # ...confirmed
+            elif shown in ("Saved", "ConfirmStop"):
+                self.press(2)
+            else:
+                self.press(0)  # back
+            time.sleep(0.5)
+        raise RuntimeError(f"not back home: {self.screen()}")
+
     # --- storage -----------------------------------------------------------------------------------------------
 
     def read_storage(self, image_path) -> "littlefs.LittleFS":  # noqa: F821

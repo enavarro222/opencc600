@@ -1,9 +1,11 @@
 //! Draws every screen with sample values: no glyph missing from the fonts (debug builds stop on one), no key label
-//! wider than its box, and PNGs to look at in `target/tmp/screens/`.
+//! wider than its box, no text out of the screen; PNGs to look at in `target/tmp/screens/` (compare with the
+//! prototype's, tools/prototype_shots.py and tools/compare_screens.py).
 
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
-use ui::{Gnss, Key, Press, RideView, Theme, Ui, View};
+use ui::fonts::Line;
+use ui::{Gnss, Key, Press, Profile, RideView, Theme, Ui, View};
 
 struct Fb(Vec<Rgb565>);
 
@@ -30,23 +32,39 @@ impl DrawTarget for Fb {
     }
 }
 
+fn profile(n: usize, f: impl Fn(usize) -> i16) -> Profile {
+    let mut p = Profile::default();
+    for i in 0..n {
+        p.points[i] = f(i);
+    }
+    p.len = n as u8;
+    p
+}
+
+/// The prototype's sample ride.
 fn view() -> View {
     View {
-        clock: Some((9, 41)),
+        clock: Some((10, 29)),
         battery_pct: Some(81),
         gnss: Gnss::Fix { used: 9 },
         speed_mm_s: Some(9_000),
-        altitude_dm: Some(6_604),
+        altitude_dm: Some(6_120),
+        grade_pct: Some(4),
         heart_rate: None,
         ride: RideView {
             timer_s: 6128,
+            elapsed_s: 6128 + 12 * 60,
             distance_cm: 4_863_000,
             ascent_m: 812,
-            descent_m: 790,
+            descent_m: 640,
             max_speed_mm_s: 17_400,
         },
-        rides_stored: Some(12),
-        free_hours: Some(38),
+        recent: profile(50, |i| 5_700 + (i as i16 * 9) + ((i as i16 * 7) % 23) * 4),
+        whole: profile(50, |i| {
+            4_000 + ((i as f32 / 5.0).sin() * 900.0) as i16 + i as i16 * 20
+        }),
+        rides_stored: Some(2),
+        resumable: true,
     }
 }
 
@@ -72,48 +90,87 @@ fn save(name: &str, ui: &Ui, v: &View, theme: &Theme) {
     w.write_image_data(&data).unwrap();
 }
 
+/// The states of tools/prototype_shots.py, under the same names.
 #[test]
 fn every_screen() {
     use Key::*;
-    let v = view();
-    for (theme, suffix) in [(ui::DAY, "day"), (ui::NIGHT, "night")] {
+    for (theme, suffix) in [(ui::DAY, ""), (ui::NIGHT, "-night")] {
+        let v = view();
+        let home = View {
+            clock: Some((8, 47)),
+            ..v
+        };
         let mut ui = Ui::new();
-        let shot = |ui: &Ui, name: &str| save(&format!("{name}-{suffix}"), ui, &v, &theme);
-        shot(&ui, "1-home");
-        ui.key(BottomLeft, Press::Click, 0);
-        shot(&ui, "2-status");
-        ui.key(TopLeft, Press::Click, 0);
-        ui.key(BottomRight, Press::Click, 0);
-        shot(&ui, "3-ride-page1");
-        ui.key(BottomLeft, Press::Click, 0);
-        shot(&ui, "4-ride-page2");
-        ui.key(BottomRight, Press::Click, 0);
-        shot(&ui, "5-paused");
-        ui.key(BottomLeft, Press::Click, 0);
-        shot(&ui, "6-confirm-stop");
-        ui.key(BottomRight, Press::Click, 0);
-        shot(&ui, "7-saved");
-        ui.key(BottomRight, Press::Click, 0);
-        ui.key(TopLeft, Press::Long, 0);
-        shot(&ui, "8-power-off");
-        ui.key(BottomLeft, Press::Click, 0);
-        ui.set_notice(ui::NOTICE_NO_TIME, 0);
-        shot(&ui, "9-notice");
+        let shot = |ui: &Ui, v: &View, name: &str| save(&format!("{name}{suffix}"), ui, v, &theme);
+        let key = |ui: &mut Ui, k: Key| {
+            ui.key(k, Press::Click, 0, &v);
+        };
+        let searching = View {
+            gnss: Gnss::Searching {
+                in_view: 5,
+                progress: 10,
+            },
+            ..home
+        };
+        shot(&ui, &searching, "home-search");
+        shot(&ui, &home, "home");
+        key(&mut ui, BottomLeft);
+        shot(&ui, &home, "menu");
+        key(&mut ui, TopLeft);
+        key(&mut ui, BottomRight);
+        ui.tick(0, Some(true), &v);
+        shot(&ui, &v, "ride-page1");
+        key(&mut ui, BottomLeft);
+        shot(&ui, &v, "ride-page2");
+        key(&mut ui, BottomLeft);
+        let lost = View {
+            gnss: Gnss::Searching {
+                in_view: 3,
+                progress: 0,
+            },
+            ..v
+        };
+        ui.tick(1, Some(true), &lost);
+        shot(&ui, &lost, "ride-gps-lost");
+        ui.tick(2, Some(true), &v);
+        shot(&ui, &v, "ride-gps-found");
+        ui.tick(2 + ui::INFO_MS, Some(true), &v);
+        key(&mut ui, BottomRight);
+        shot(&ui, &home, "paused");
+        key(&mut ui, TopLeft);
+        shot(&ui, &home, "pause-menu");
+        key(&mut ui, TopLeft);
+        key(&mut ui, BottomLeft);
+        shot(&ui, &home, "confirm-stop");
+        key(&mut ui, BottomRight);
+        shot(&ui, &home, "saved");
+        let mut resume = Ui::new();
+        resume.found_paused_ride();
+        shot(&resume, &home, "resume");
+        // scrolling pages, the indicator under the page dots
+        let mut scroll = Ui::new();
+        scroll.key(BottomRight, Press::Click, 0, &v);
+        scroll.key(TopLeft, Press::Click, 0, &v);
+        shot(&scroll, &v, "ride-scrolling");
+        let mut info = Ui::new();
+        info.inform(
+            "Pas encore l'heure",
+            Line::new(format_args!("Attends le GPS")),
+            0,
+        );
+        shot(&info, &home, "home-info");
     }
-    // unknown values
+    // unknown values, a slow speed (its comma where 32,4 has it), a low battery
     let empty = View::default();
     let mut ui = Ui::new();
-    save("10-home-empty", &ui, &empty, &ui::DAY);
-    ui.key(Key::BottomRight, Press::Click, 0);
-    save("11-ride-empty", &ui, &empty, &ui::DAY);
-    // a slow speed keeps the comma of 32,4 (right-aligned in the slot of "00,0")
-    let mut ui = Ui::new();
-    ui.key(Key::BottomRight, Press::Click, 0);
-    let slow = View { speed_mm_s: Some(2_722), battery_pct: Some(9), ..view() };
-    save("13-ride-slow", &ui, &slow, &ui::DAY);
-    let searching = View {
-        gnss: Gnss::Searching { in_view: 12 },
-        ..empty
+    save("empty-home", &ui, &empty, &ui::DAY);
+    ui.key(Key::BottomRight, Press::Click, 0, &empty);
+    save("empty-ride", &ui, &empty, &ui::DAY);
+    let slow = View {
+        speed_mm_s: Some(2_722),
+        battery_pct: Some(9),
+        heart_rate: Some(142),
+        ..view()
     };
-    save("12-home-searching", &Ui::new(), &searching, &ui::DAY);
+    save("ride-slow-hr", &ui, &slow, &ui::DAY);
 }

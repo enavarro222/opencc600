@@ -146,10 +146,16 @@ async fn main(spawner: Spawner) -> ! {
             Err(e.code())
         }
     };
-    // Rides interrupted by a power cut or a crash: closed with what had been written.
+    // Rides interrupted by a power cut, a crash or a power off during a pause: the newest one is offered to resume
+    // (reopened paused below), older ones are closed with what had been written.
+    let interrupted = fs
+        .as_ref()
+        .ok()
+        .and_then(|fs| recorder::interrupted(fs).ok().flatten());
     if let Ok(fs) = fs.as_ref()
-        && let Err(e) =
-            recorder::recover(fs, UTC_OFFSET_S, None, |r| info!("ride recovered: {r:?}"))
+        && let Err(e) = recorder::recover(fs, UTC_OFFSET_S, interrupted, |r| {
+            info!("ride recovered: {r:?}")
+        })
     {
         warn!("ride recovery: littlefs error {}", e.code());
     }
@@ -223,8 +229,19 @@ async fn main(spawner: Spawner) -> ! {
     let mut last_power_on = Instant::now();
     let mut ui = ui::Ui::new();
     let mut ride: Option<Box<Ride>> = None;
+    if let (Some(id), Ok(fs)) = (interrupted, fs.as_ref()) {
+        ride = Ride::reopen(fs, id, false);
+        if ride.is_some() {
+            ui.found_paused_ride();
+        }
+    }
+    // the newest finished ride: resumable until uploaded (no upload yet)
+    let mut last_finished = fs
+        .as_ref()
+        .ok()
+        .and_then(|fs| recorder::last_finished(fs).ok().flatten());
     // the ride in progress, else the last one saved (the "saved" screen)
-    let mut ride_shown = RideInfo::default();
+    let mut ride_shown = ride.as_deref().map(Ride::info).unwrap_or_default();
     let mut trip_log: Option<TripLog> = None;
     loop {
         let _ = with_timeout(Duration::from_secs(1), STATUS_CHANGED.wait()).await;
@@ -234,7 +251,10 @@ async fn main(spawner: Spawner) -> ! {
             last_power_on = Instant::now();
         }
         // What each key does is up to the screen (crates/ui): bottom right starts / pauses / resumes, a ride ends
-        // from the pause screen, power off is a long press on the top left key confirmed by a click on it.
+        // from the pause screen (confirmed), power off is a long press on the top left key of the home screen or
+        // the pause menu.
+        let resumable = ride.is_none() && last_finished.is_some();
+        let view = view_of(&STATUS.lock(Cell::get), &ride_shown, resumable);
         let mut commands = Vec::new();
         while let Ok((key, action)) = NRF_KEYS.try_receive() {
             let press = match action {
@@ -245,7 +265,7 @@ async fn main(spawner: Spawner) -> ! {
             let Some(key) = ui::Key::from_nrf(key) else {
                 continue;
             };
-            if let Some(c) = ui.key(key, press, Instant::now().as_millis()) {
+            if let Some(c) = ui.key(key, press, Instant::now().as_millis(), &view) {
                 commands.push(c);
             }
         }
@@ -253,8 +273,9 @@ async fn main(spawner: Spawner) -> ! {
         for c in commands {
             match (c, ride.as_mut(), fs.as_ref()) {
                 (ui::Command::PowerOff, _, _) => {
-                    if let (Some(r), Ok(fs)) = (ride.take(), fs.as_ref()) {
-                        r.stop(fs, &state);
+                    // a ride (paused) is kept: offered again at power-on
+                    if let (Some(r), Ok(fs)) = (ride.as_mut(), fs.as_ref()) {
+                        r.keep(fs);
                     }
                     info!("power off");
                     draw_message(&mut fb, "Power off");
@@ -266,7 +287,16 @@ async fn main(spawner: Spawner) -> ! {
                 (ui::Command::Start, None, Ok(fs)) => {
                     ride = Ride::start(fs, &state);
                     if ride.is_none() && now_unix(&state).is_none() {
-                        ui.set_notice(ui::NOTICE_NO_TIME, Instant::now().as_millis());
+                        let detail = ui::fonts::Line::new(format_args!("Attends le GPS"));
+                        ui.inform("Pas encore l'heure", detail, Instant::now().as_millis());
+                    }
+                }
+                (ui::Command::ResumeLast, None, Ok(fs)) => {
+                    if let Some(id) = last_finished.take() {
+                        ride = Ride::reopen(fs, id, true);
+                        if let Some(r) = ride.as_mut() {
+                            r.toggle_pause(fs, &state);
+                        }
                     }
                 }
                 (ui::Command::Pause, Some(r), Ok(fs)) if r.info().running => {
@@ -278,6 +308,7 @@ async fn main(spawner: Spawner) -> ! {
                 (ui::Command::Stop, Some(_), Ok(fs)) => {
                     let r = ride.take().unwrap();
                     ride_shown = r.info();
+                    last_finished = Some(r.recorder.id());
                     r.stop(fs, &state);
                     let storage_info = storage_summary(fs);
                     STATUS.lock(|s| {
@@ -301,11 +332,16 @@ async fn main(spawner: Spawner) -> ! {
             }
         }
         let ride_info = ride.as_deref().map(Ride::info);
-        ui.tick(Instant::now().as_millis(), ride_info.map(|r| r.running));
         if let Some(r) = ride_info {
             ride_shown = r;
         }
-        let view = view_of(&state, ride_shown);
+        let resumable = ride.is_none() && last_finished.is_some();
+        let view = view_of(&state, &ride_shown, resumable);
+        ui.tick(
+            Instant::now().as_millis(),
+            ride_info.map(|r| r.running),
+            &view,
+        );
         // the status screen shows (nearly) all of the status, the others only what is in the view
         let status_shown = (ui.screen() == ui::Screen::Status).then_some(state);
         let screen = (ui, view, status_shown);
@@ -316,6 +352,7 @@ async fn main(spawner: Spawner) -> ! {
             }
             panel.flush(&fb);
             shown = Some(screen);
+            SCREEN.lock(|s| s.set(ui.screen()));
         }
         // HIL: append back to back for 150 ms, so most resets land during a flash operation.
         #[cfg(feature = "hil-storage")]
@@ -793,10 +830,13 @@ const UTC_OFFSET_S: i32 = 0;
 struct RideInfo {
     running: bool,
     timer_s: u32,
+    elapsed_s: u32,
     distance_cm: u32,
     ascent_m: u16,
     descent_m: u16,
     max_speed_mm_s: u32,
+    /// Altitude along the ride (gradient, profiles).
+    history: ui::history::History,
 }
 
 /// The ride being recorded: one FIT record per GNSS epoch (1 Hz) while the timer runs.
@@ -807,6 +847,8 @@ struct Ride {
     last_epoch: Option<gnss::Time>,
     clock: recorder::EpochClock,
     last_timestamp: u32,
+    /// Altitude along the ride, in RAM (lost when the ride is resumed after a power off).
+    history: ui::history::History,
 }
 
 type Fs<'a> = Filesystem<'a, storage::Partition<'a>>;
@@ -975,12 +1017,52 @@ impl Ride {
                     last_epoch: None,
                     clock: recorder::EpochClock::default(),
                     last_timestamp: fit::timestamp(unix),
+                    history: ui::history::History::new(),
                 }))
             }
             Err(e) => {
                 warn!("ride: start failed, littlefs error {}", e.code());
                 None
             }
+        }
+    }
+
+    /// Ride `id` opened again, paused: interrupted (`finished` false) or finished (the end screen's "resume").
+    #[allow(
+        clippy::large_stack_frames,
+        reason = "littlefs file handles (cache included) on the main stack, once per ride"
+    )]
+    fn reopen(fs: &Fs<'_>, id: u32, finished: bool) -> Option<Box<Self>> {
+        let res = if finished {
+            recorder::Recorder::reopen_finished(fs, id)
+        } else {
+            recorder::Recorder::reopen(fs, id)
+        };
+        match res {
+            Ok(recorder) => {
+                let t = recorder.summary().totals();
+                info!("ride {id}: reopened paused, {t:?}");
+                Some(Box::new(Self {
+                    odometer: recorder::Odometer::starting_at(t.distance_cm),
+                    last_epoch: None,
+                    clock: recorder::EpochClock::default(),
+                    last_timestamp: t.end_time,
+                    history: ui::history::History::new(),
+                    recorder,
+                }))
+            }
+            Err(e) => {
+                warn!("ride {id}: reopen failed, littlefs error {}", e.code());
+                None
+            }
+        }
+    }
+
+    /// Writes what is buffered, before a power off: the ride (paused) is offered again at power-on.
+    fn keep(&mut self, fs: &Fs<'_>) {
+        match self.recorder.flush(fs) {
+            Ok(()) => info!("ride {}: kept for the next power-on", self.recorder.id()),
+            Err(e) => warn!("ride: flush failed, littlefs error {}", e.code()),
         }
     }
 
@@ -1038,6 +1120,9 @@ impl Ride {
         if let Err(e) = self.recorder.record(fs, &record) {
             warn!("ride: record failed, littlefs error {}", e.code());
         }
+        if let (true, Some(alt)) = (self.recorder.summary().running(), record.altitude_dm) {
+            self.history.push(distance_cm, alt);
+        }
     }
 
     fn stop(self: Box<Self>, fs: &Fs<'_>, s: &Status) {
@@ -1062,10 +1147,12 @@ impl Ride {
         RideInfo {
             running: self.recorder.summary().running(),
             timer_s: t.timer_ms / 1000,
+            elapsed_s: t.elapsed_ms / 1000,
             distance_cm: self.odometer.distance_cm(),
             ascent_m: t.ascent_m,
             descent_m: t.descent_m,
             max_speed_mm_s: t.max_speed_mm_s,
+            history: self.history,
         }
     }
 }
@@ -1076,6 +1163,8 @@ const SERIAL: u32 = 600;
 const SOUND_BEEP: u8 = 0x00;
 /// Buzzer on; `sound off` on the USB test hook mutes it (tests next to people).
 static SOUND_ON: AtomicBool = AtomicBool::new(true);
+/// The screen shown, for the test hook.
+static SCREEN: Mutex<CriticalSectionRawMutex, Cell<ui::Screen>> = Mutex::new(Cell::new(ui::Screen::Home));
 
 fn sound(id: u8) {
     if SOUND_ON.load(Ordering::Relaxed) {
@@ -1116,13 +1205,11 @@ fn unix_of(t: &RtcTime) -> Option<u32> {
 
 /// Colours of the screens. *To make a setting (day / night, or from the ambient light).*
 const THEME: ui::Theme = ui::DAY;
-/// Storage a ride takes per hour: a 34-byte record a second (littlefs overhead left out).
-const RIDE_BYTES_PER_HOUR: u32 = 34 * 3600;
-const BLOCK_SIZE: u32 = <storage::Partition<'_> as littlefs2::driver::Storage>::BLOCK_SIZE as u32;
 
 /// What the screens show (crates/ui).
-fn view_of(s: &Status, ride: RideInfo) -> ui::View {
+fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
     let fix = s.fix;
+    let altitude_dm = s.altimeter.altitude_dm();
     ui::View {
         clock: now_unix(s).map(|unix| {
             let day_s = (unix as i64 + UTC_OFFSET_S as i64).rem_euclid(86_400) as u32;
@@ -1134,6 +1221,8 @@ fn view_of(s: &Status, ride: RideInfo) -> ui::View {
             Some(f) if f.valid => ui::Gnss::Fix { used: f.sats_used },
             Some(f) => ui::Gnss::Searching {
                 in_view: f.sats_in_view,
+                // a guess: ~45 s to a fix with the RTC time (dump/ttff.csv), never full before the fix
+                progress: (Instant::now().as_secs() * 100 / 45).min(95) as u8,
             },
         },
         // the receiver reports a few tenths of m/s at rest
@@ -1141,20 +1230,21 @@ fn view_of(s: &Status, ride: RideInfo) -> ui::View {
             .filter(|f| f.valid)
             .and_then(|f| f.speed_mm_s)
             .map(|v| if v < recorder::MOVING_MM_S { 0 } else { v }),
-        altitude_dm: s.altimeter.altitude_dm(),
+        altitude_dm,
+        grade_pct: altitude_dm.and_then(|a| ride.history.grade_pct(ride.distance_cm, a)),
         heart_rate: None,
         ride: ui::RideView {
             timer_s: ride.timer_s,
+            elapsed_s: ride.elapsed_s,
             distance_cm: ride.distance_cm,
             ascent_m: ride.ascent_m,
             descent_m: ride.descent_m,
             max_speed_mm_s: ride.max_speed_mm_s,
         },
+        recent: ride.history.recent(),
+        whole: ride.history.whole(),
         rides_stored: s.storage.and_then(|r| r.ok()).map(|(rides, _, _)| rides),
-        free_hours: s
-            .storage
-            .and_then(|r| r.ok())
-            .map(|(_, free, _)| free as u32 * BLOCK_SIZE / RIDE_BYTES_PER_HOUR),
+        resumable,
     }
 }
 
@@ -1201,6 +1291,7 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                         SOUND_ON.store(on, Ordering::Relaxed);
                     }
                     Some(UsbCommand::Gnss(request)) => GNSS_REQUESTS.send(request).await,
+                    Some(UsbCommand::Screen) => info!("screen {:?}", SCREEN.lock(Cell::get)),
                     Some(UsbCommand::RtcShift(s)) => match STATUS.lock(Cell::get).rtc {
                         Some(rtc) => {
                             let t = RtcTime::from_unix(rtc.unix() + s as i64);
@@ -1237,6 +1328,8 @@ enum UsbCommand {
     Gnss(GnssRequest),
     /// Moves the nRF RTC by this many seconds, to check that a fix sets it right again.
     RtcShift(i32),
+    /// Logs the screen shown (`screen Home`), for the HIL tests.
+    Screen,
 }
 
 fn usb_command(line: &str) -> Option<UsbCommand> {
@@ -1258,6 +1351,7 @@ fn usb_command(line: &str) -> Option<UsbCommand> {
             Some(UsbCommand::Gnss(GnssRequest::Start(start)))
         }
         ("rtc", "shift", Some(s)) => Some(UsbCommand::RtcShift(s.parse().ok()?)),
+        ("screen", "?", None) => Some(UsbCommand::Screen),
         ("key", key, Some(action)) => {
             let key = key.parse().ok().filter(|&k: &u8| k <= 2)?;
             let actions: &[KeyAction] = match action {
@@ -1402,7 +1496,7 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status, ride: Option<RideInfo>) {
         }),
     ];
     for (i, (name, v)) in rows.iter().enumerate() {
-        let y = ui::CONTENT.top_left.y + 10 + i as i32 * 28;
+        let y = ui::CONTENT.top_left.y + 10 + i as i32 * 27;
         Text::new(name, Point::new(8, y), label).draw(fb).unwrap();
         Text::new(v, Point::new(8, y + 20), value).draw(fb).unwrap();
     }

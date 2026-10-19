@@ -118,6 +118,14 @@ pub struct Odometer {
 }
 
 impl Odometer {
+    /// Goes on from `distance_cm` (a resumed ride).
+    pub fn starting_at(distance_cm: u32) -> Self {
+        Self {
+            last: None,
+            distance_mm: distance_cm as u64 * 10,
+        }
+    }
+
     /// Adds the speed at FIT timestamp `timestamp`; returns the distance since the start, centimetres.
     pub fn update(&mut self, timestamp: u32, speed_mm_s: Option<u32>) -> u32 {
         if let (Some(last), Some(v)) = (self.last, speed_mm_s)

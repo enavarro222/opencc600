@@ -27,6 +27,12 @@ pub mod icon {
     pub const CHECK: char = '\u{e006}';
     pub const CROSS: char = '\u{e007}';
     pub const DOT: char = '\u{e008}';
+    pub const MENU: char = '\u{e009}';
+    pub const DOWN: char = '\u{e00a}';
+    pub const CHEVRON: char = '\u{e00b}';
+    pub const CYCLE: char = '\u{e00c}';
+    pub const UNDO: char = '\u{e00d}';
+    pub const RING: char = '\u{e00e}';
 }
 
 pub struct Font {
@@ -162,6 +168,7 @@ fn round64(v: i32) -> i32 {
 }
 
 /// A line of text up to 64 bytes, for formatted values.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Line {
     buf: [u8; 64],
     len: usize,
@@ -180,6 +187,12 @@ impl Line {
     pub fn as_str(&self) -> &str {
         // only whole `str`s are written
         core::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
+    }
+}
+
+impl fmt::Debug for Line {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(self.as_str(), f)
     }
 }
 
@@ -249,7 +262,11 @@ fn draw_at<D: DrawTarget<Color = Rgb565>>(
             .filter_map(|(row, col)| {
                 let i = start + (row * g.w as i32 + col) as usize;
                 let byte = f.bitmaps[i / 2];
-                let a = if i.is_multiple_of(2) { byte >> 4 } else { byte & 0x0f };
+                let a = if i.is_multiple_of(2) {
+                    byte >> 4
+                } else {
+                    byte & 0x0f
+                };
                 (a > 0).then(|| Pixel(Point::new(gx + col, gy + row), blend(s.bg, s.color, a)))
             });
         res = d.draw_iter(pixels);
@@ -282,13 +299,20 @@ pub fn value<D: DrawTarget<Color = Rgb565>>(
         origin + tl >= 0 && origin + tr <= d.bounding_box().size.width as i32,
         "{text:?} out of the screen"
     );
-    Ok(Rectangle::new(Point::new(origin + tl, baseline - f.cap as i32), Size::new((tr - tl) as u32, f.cap as u32)))
+    Ok(Rectangle::new(
+        Point::new(origin + tl, baseline - f.cap as i32),
+        Size::new((tr - tl) as u32, f.cap as u32),
+    ))
 }
 
 /// Where the pen starts for [`value`].
 fn value_origin(f: &Font, tracking: i16, text: &str, min: &str, x: i32, align: Align) -> i32 {
     let zeros = Line::new(format_args!("{}", Zeros(text)));
-    let template = if zeros.as_str().chars().count() >= min.chars().count() { zeros.as_str() } else { min };
+    let template = if zeros.as_str().chars().count() >= min.chars().count() {
+        zeros.as_str()
+    } else {
+        min
+    };
     let (l, r) = f.ink(template, tracking);
     let template_origin = match align {
         Align::Left => x - l,
@@ -327,7 +351,7 @@ pub fn lines<D: DrawTarget<Color = Rgb565>>(
 }
 
 /// `bg` to `fg` by `a` / 15, per channel.
-fn blend(bg: Rgb565, fg: Rgb565, a: u8) -> Rgb565 {
+pub fn blend(bg: Rgb565, fg: Rgb565, a: u8) -> Rgb565 {
     if a >= 15 {
         return fg;
     }
@@ -347,19 +371,27 @@ mod tests {
     fn tables_are_sorted() {
         for f in [
             &HUGE,
+            &ALT,
             &VALUE,
             &TITLE,
+            &STAT,
             &HEADING,
+            &HEADING_SMALL,
+            &MENU,
+            &BANNER,
             &KEY,
-            &HINT,
+            &BODY_BOLD,
             &ROW,
             &ROW_SMALL,
+            &BODY,
+            &NOTE_LARGE,
             &SUB,
+            &NOTE,
+            &NOTE_BOLD,
             &BAR,
             &LABEL,
             &LABEL_SMALL,
-            &NOTE,
-            &BODY,
+            &LABEL_TINY,
             &MARK,
         ] {
             assert!(f.glyphs.windows(2).all(|w| w[0].c < w[1].c), "{} px", f.px);

@@ -21,38 +21,47 @@ ROOT = Path(__file__).resolve().parent.parent
 FONTS = ROOT / "crates/ui/fonts"
 OUT = ROOT / "crates/ui/src/fonts"
 
-DIGITS = "0123456789,.:-+– "
+DIGITS = "0123456789,.:-+–% "
 UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZÀÂÇÉÈÊËÎÏÔÙÛÜŒ"
-FRENCH = "àâäçéèêëîïôöùûüÿœæÀÂÇÉÈÊËÎÏÔÖÙÛÜŒ«»’…·°−–"
+FRENCH = "àâäçéèêëîïôöùûüÿœæÀÂÇÉÈÊËÎÏÔÖÙÛÜŒ«»’…·°−–›‹—"
 TEXT = "".join(chr(c) for c in range(32, 127)) + FRENCH
 LABEL = UPPER + DIGITS + "/·'’()%"
 
 # private use code points of the icons, in the order of `crate::fonts::icon`
-ICONS = ["play", "pause", "stop", "left", "right", "power", "check", "cross", "dot"]
+ICONS = ["play", "pause", "stop", "left", "right", "power", "check", "cross", "dot", "menu", "down", "chevron", "cycle",
+         "undo", "ring"]
 ICON_BASE = 0xE000
 ICON_CHARS = "".join(chr(ICON_BASE + i) for i in range(len(ICONS)))
 
 # name, weight, CSS px, characters
 SPECS = [
     ("HUGE", "Bold", 84, DIGITS),
+    ("ALT", "Bold", 78, DIGITS),
     ("VALUE", "Bold", 34, DIGITS),
     ("TITLE", "Bold", 30, TEXT),
+    ("STAT", "Bold", 26, TEXT),
     ("HEADING", "Bold", 25, TEXT),
-    ("KEY", "Bold", 19, TEXT),
-    ("HINT", "Bold", 16, TEXT),
-    ("ROW", "SemiBold", 19, TEXT),
+    ("HEADING_SMALL", "Bold", 22, TEXT),
+    ("MENU", "SemiBold", 21, TEXT),
+    ("BANNER", "Bold", 19, TEXT),
+    ("KEY", "Bold", 18, TEXT),
+    ("BODY_BOLD", "Bold", 18, TEXT),
+    ("ROW", "SemiBold", 18, TEXT),
     ("ROW_SMALL", "SemiBold", 17, TEXT),
+    ("BODY", "Medium", 18, TEXT),
+    ("NOTE_LARGE", "Medium", 16, TEXT),
     ("SUB", "SemiBold", 15, TEXT),
+    ("NOTE", "Medium", 15, TEXT),
+    ("NOTE_BOLD", "Bold", 15, TEXT),
     ("BAR", "SemiBold", 14, TEXT),
     ("LABEL", "SemiBold", 13, LABEL),
     ("LABEL_SMALL", "SemiBold", 12, LABEL),
-    ("NOTE", "Medium", 15, TEXT),
-    ("BODY", "Medium", 18, TEXT),
+    ("LABEL_TINY", "SemiBold", 11, LABEL),
     ("MARK", "Bold", 44, ""),
 ]
 # icon width, in cap heights
 ICON_W = {"play": 0.9, "pause": 0.95, "stop": 0.9, "left": 0.9, "right": 0.9, "power": 1.08, "check": 1.1, "cross": 0.85,
-          "dot": 0.62}
+          "dot": 0.62, "menu": 1.0, "down": 0.95, "chevron": 0.5, "cycle": 1.05, "undo": 1.05, "ring": 0.85}
 SS = 8  # supersampling of the icons
 
 
@@ -87,6 +96,31 @@ def icon(name: str, cap: int, bold: bool) -> tuple[int, list[int]]:
         dr.line([(W - t / 2, t / 2), (t / 2, H - t / 2)], fill=255, width=round(t))
     elif name == "dot":
         dr.ellipse([0, (H - W) / 2, W, (H + W) / 2], fill=255)
+    elif name == "menu":
+        for k in range(3):
+            y = t / 2 + k * (H - t) / 2
+            dr.line([(0, y), (W, y)], fill=255, width=round(t))
+    elif name == "down":
+        dr.polygon([(0, H * 0.18), (W, H * 0.18), (W / 2, H * 0.92)], fill=255)
+    elif name == "chevron":
+        dr.line([(t / 2, t / 2), (W - t / 2, H / 2), (t / 2, H - t / 2)], fill=255, width=round(t), joint="curve")
+    elif name in ("cycle", "undo"):
+        # a circle open at the top right, the arrow head at the top pointing clockwise (cycle); mirrored (undo)
+        u = t * 0.72
+        r = min(W, H) / 2 - u / 2
+        c = (W / 2, H / 2)
+        dr.arc([c[0] - r, c[1] - r, c[0] + r, c[1] + r], -20, 262, fill=255, width=round(u))
+        top = (c[0], c[1] - r)
+        h = u * 1.45
+        dr.polygon([(top[0] + h * 1.25, top[1]), (top[0] - h * 0.25, top[1] - h), (top[0] - h * 0.25, top[1] + h)],
+                   fill=255)
+        if name == "undo":
+            im = im.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+            dr = ImageDraw.Draw(im)
+    elif name == "ring":
+        r = W / 2 - t * 0.35
+        c = (W / 2, H / 2)
+        dr.ellipse([c[0] - r, c[1] - r, c[0] + r, c[1] + r], outline=255, width=round(t * 0.7))
     small = im.resize((w, cap), Image.Resampling.BOX)
     return w, list(small.getdata())
 FEATURES = {"kern": True, "tnum": True}

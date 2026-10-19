@@ -417,8 +417,8 @@ fn an_interrupted_ride_is_reopened_paused() {
         r.record(&fs, &sample(i)).unwrap();
     }
     r.flush(&fs).unwrap();
-    // the power goes while the timer runs: nothing more is written
-    drop(r);
+    // the power goes while the timer runs: nothing more is written (the recorder is left as it is)
+    let _ = r;
     assert_eq!(interrupted(&fs).unwrap(), Some(ID));
     let mut r = Recorder::reopen(&fs, ID).unwrap();
     assert!(!r.summary().running(), "reopened paused");

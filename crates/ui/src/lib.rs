@@ -4,24 +4,28 @@
 //! The firmware owns the ride: [`Ui::key`] only returns a [`Command`] for it to run, and [`Ui::tick`] brings the
 //! screen back in line with the ride it really has (a start refused without the time, a ride lost).
 //!
-//! Keys (nRF numbering): 0 top left, 1 bottom left, 2 bottom right. The bottom right key is the main action (start,
-//! pause, resume); a ride ends from the pause screen, confirmed, never by one press during the ride.
+//! Keys (nRF numbering): 0 top left, 1 bottom left, 2 bottom right. Bottom right is the main action (start, pause,
+//! resume, OK), bottom left the menu or the next page / item, top left back or contextual. One long press only:
+//! the top left key on the home screen switches off. A ride ends from the pause screen, confirmed with another
+//! key, and stays resumable afterwards.
 
 #![no_std]
 
 mod draw;
 pub mod fonts;
+pub mod history;
 
 pub use draw::{CONTENT, DAY, NIGHT, Theme, draw};
+use fonts::Line;
 
-/// Ride pages, cycled by the two left keys: 0 speed / time / distance / D+ / heart rate, 1 altitude / averages.
-pub const PAGES: u8 = 2;
-/// The power-off prompt closes by itself after this long.
-pub const POWER_PROMPT_MS: u64 = 8_000;
-/// Notice when a ride cannot start yet: no GNSS fix and no RTC time.
-pub const NOTICE_NO_TIME: &str = "Pas encore l'heure";
-/// A notice stays this long on the screen.
-pub const NOTICE_MS: u64 = 3_000;
+/// Pages of a ride at most.
+pub const MAX_PAGES: usize = 4;
+/// Auto-scroll of the ride pages, one page every this long.
+pub const SCROLL_MS: u64 = 4_000;
+/// An information banner stays this long.
+pub const INFO_MS: u64 = 3_000;
+/// Points of an altitude profile ([`View::recent`], [`View::whole`]).
+pub const PROFILE: usize = 50;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
@@ -52,13 +56,71 @@ pub enum Press {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Screen {
     Home,
+    Menu,
     /// Bring-up values (sensors, links, storage), drawn by the firmware in [`CONTENT`].
     Status,
     Ride,
     Paused,
+    PauseMenu,
+    /// A paused ride found at power-on.
+    Resume,
     ConfirmStop,
     Saved,
-    PowerOff,
+}
+
+/// A ride page, picked when the ride starts ([`pages`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    /// Speed, time, distance, D+, heart rate (else average speed).
+    Essential,
+    /// Altitude, gradient, D+ / D-, the last 5 km.
+    Altitude,
+}
+
+impl Page {
+    fn name(self) -> &'static str {
+        match self {
+            Page::Essential => "Essentiel",
+            Page::Altitude => "Altitude",
+        }
+    }
+}
+
+/// The ride pages for what the device has (docs/PRODUCT.md, "Data pages"): without a route nor a sensor,
+/// Essential then Altitude. The map, climbs and effort pages come with the route and the sensors.
+pub fn pages() -> Pages {
+    Pages {
+        list: [Some(Page::Essential), Some(Page::Altitude), None, None],
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Pages {
+    list: [Option<Page>; MAX_PAGES],
+}
+
+impl Pages {
+    pub fn len(&self) -> usize {
+        self.list.iter().flatten().count()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn get(&self, i: usize) -> Option<Page> {
+        self.list.get(i).copied().flatten()
+    }
+
+    /// "Essentiel · Altitude".
+    pub fn names(&self) -> Line {
+        let mut l = Line::new(format_args!(""));
+        for (i, p) in self.list.iter().flatten().enumerate() {
+            let sep = if i > 0 { " · " } else { "" };
+            l = Line::new(format_args!("{}{sep}{}", l.as_str(), p.name()));
+        }
+        l
+    }
 }
 
 /// What the firmware has to do after a key press.
@@ -67,9 +129,11 @@ pub enum Command {
     Start,
     Pause,
     Resume,
-    /// Stop and save the ride.
+    /// Finish the ride: it stays resumable.
     Stop,
-    /// Power off; a ride in progress is saved first.
+    /// Resume the last finished ride (reopened, timer running).
+    ResumeLast,
+    /// Switch off; a paused ride is kept and offered again at power-on.
     PowerOff,
 }
 
@@ -77,6 +141,8 @@ pub enum Command {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Plain,
+    /// No action: "—" in the mute colour.
+    Nothing,
     Go,
     Pause,
     Danger,
@@ -104,6 +170,46 @@ impl Hint {
     }
 }
 
+const NOTHING: Hint = Hint::new("—").kind(Kind::Nothing);
+
+/// The one banner shown, floating over the page (never over the key bar).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Banner {
+    pub kind: BannerKind,
+    pub title: &'static str,
+    pub detail: Line,
+    /// When it was shown (an information goes after [`INFO_MS`]).
+    pub since_ms: u64,
+    /// For an information: what is left of its time, in tenths (the line under it).
+    pub left_tenths: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BannerKind {
+    /// Blue, for [`INFO_MS`].
+    Info,
+    /// Amber, while it is true.
+    Attention,
+}
+
+/// Entries of the menus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Item {
+    ResumeLast,
+    Status,
+    PowerOff,
+}
+
+impl Item {
+    pub fn label(self) -> &'static str {
+        match self {
+            Item::ResumeLast => "\u{e00d} Reprendre la sortie",
+            Item::Status => "État du compteur",
+            Item::PowerOff => "Éteindre (sortie gardée)",
+        }
+    }
+}
+
 /// What the screens show, filled by the firmware before each [`draw`].
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct View {
@@ -114,20 +220,29 @@ pub struct View {
     /// Current speed, 0 when stopped.
     pub speed_mm_s: Option<u32>,
     pub altitude_dm: Option<i32>,
+    /// Gradient over the last 100 m, percent.
+    pub grade_pct: Option<i8>,
     pub heart_rate: Option<u8>,
-    /// The ride in progress, or the last one saved (for [`Screen::Saved`]).
+    /// The ride in progress, or the last one finished (for [`Screen::Saved`]).
     pub ride: RideView,
+    /// Altitude (dm) of the last 5 km, every 100 m, oldest first.
+    pub recent: Profile,
+    /// Altitude (dm) of the whole ride.
+    pub whole: Profile,
+    /// Finished rides on the device (all still to upload).
     pub rides_stored: Option<u16>,
-    /// Recording time left in the storage.
-    pub free_hours: Option<u32>,
+    /// The last finished ride can be resumed.
+    pub resumable: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Gnss {
     #[default]
     Off,
+    /// `progress`: how far the acquisition probably is, percent.
     Searching {
         in_view: u8,
+        progress: u8,
     },
     Fix {
         used: u8,
@@ -137,6 +252,7 @@ pub enum Gnss {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RideView {
     pub timer_s: u32,
+    pub elapsed_s: u32,
     pub distance_cm: u32,
     pub ascent_m: u16,
     pub descent_m: u16,
@@ -149,15 +265,43 @@ impl RideView {
     }
 }
 
+/// Altitude points, oldest first, `len` of them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Profile {
+    pub points: [i16; PROFILE],
+    pub len: u8,
+}
+
+impl Default for Profile {
+    fn default() -> Self {
+        Self {
+            points: [0; PROFILE],
+            len: 0,
+        }
+    }
+}
+
+impl Profile {
+    pub fn points(&self) -> &[i16] {
+        &self.points[..self.len as usize]
+    }
+}
+
 /// Which screen is shown and what the keys do on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ui {
     screen: Screen,
-    page: u8,
-    /// Where the power-off prompt goes back to.
+    /// Where the menus, the status and the confirmation go back to.
     back: Screen,
-    prompt_at: u64,
-    notice: Option<(&'static str, u64)>,
+    pages: Pages,
+    page: u8,
+    item: u8,
+    scroll: bool,
+    scrolled_at: u64,
+    banner: Option<Banner>,
+    /// The GNSS had a fix during this ride ("lost" rather than "searching").
+    had_fix: bool,
+    fix: bool,
 }
 
 impl Default for Ui {
@@ -170,61 +314,136 @@ impl Ui {
     pub const fn new() -> Self {
         Self {
             screen: Screen::Home,
-            page: 0,
             back: Screen::Home,
-            prompt_at: 0,
-            notice: None,
+            pages: Pages {
+                list: [None; MAX_PAGES],
+            },
+            page: 0,
+            item: 0,
+            scroll: false,
+            scrolled_at: 0,
+            banner: None,
+            had_fix: false,
+            fix: false,
         }
+    }
+
+    /// At power-on with a paused ride: the screen that offers to resume or finish it.
+    pub fn found_paused_ride(&mut self) {
+        self.screen = Screen::Resume;
+        self.pages = pages();
     }
 
     pub fn screen(&self) -> Screen {
         self.screen
     }
 
-    pub fn page(&self) -> u8 {
-        self.page
+    pub fn page(&self) -> Option<Page> {
+        self.pages.get(self.page as usize)
     }
 
-    pub fn notice(&self) -> Option<&'static str> {
-        self.notice.map(|(text, _)| text)
+    /// The page shown and how many there are.
+    pub fn page_index(&self) -> (u8, u8) {
+        (self.page, self.pages.len() as u8)
     }
 
-    /// Shows `text` for [`NOTICE_MS`].
-    pub fn set_notice(&mut self, text: &'static str, now_ms: u64) {
-        self.notice = Some((text, now_ms));
+    pub fn scrolling(&self) -> bool {
+        self.scroll
     }
 
-    pub fn key(&mut self, key: Key, press: Press, now_ms: u64) -> Option<Command> {
+    pub fn banner(&self) -> Option<&Banner> {
+        self.banner.as_ref()
+    }
+
+    /// Shows an information for [`INFO_MS`] (an attention stays first).
+    pub fn inform(&mut self, title: &'static str, detail: Line, now_ms: u64) {
+        if !self.banner.is_some_and(|b| b.kind == BannerKind::Attention) {
+            self.banner = Some(Banner {
+                kind: BannerKind::Info,
+                title,
+                detail,
+                since_ms: now_ms,
+                left_tenths: 10,
+            });
+        }
+    }
+
+    /// The entries of the menu shown, and the selected one.
+    pub fn menu(&self, resumable: bool) -> ([Option<Item>; 3], u8) {
+        match self.screen {
+            Screen::Menu if resumable => (
+                [Some(Item::ResumeLast), Some(Item::Status), None],
+                self.item,
+            ),
+            Screen::Menu => ([Some(Item::Status), None, None], self.item),
+            Screen::PauseMenu => ([Some(Item::PowerOff), Some(Item::Status), None], self.item),
+            _ => ([None; 3], 0),
+        }
+    }
+
+    pub fn key(&mut self, key: Key, press: Press, now_ms: u64, view: &View) -> Option<Command> {
         use Key::*;
         use Press::*;
         use Screen::*;
         let (screen, command) = match (self.screen, key, press) {
-            (Home | Paused, TopLeft, Long) => {
-                self.back = self.screen;
-                self.prompt_at = now_ms;
-                (PowerOff, None)
+            (Home, TopLeft, Long) => (Home, Some(Command::PowerOff)),
+            (Home, BottomLeft, Click) => {
+                self.item = 0;
+                self.back = Home;
+                (Menu, None)
             }
-            (PowerOff, TopLeft, Click) => (PowerOff, Some(Command::PowerOff)),
-            (PowerOff, _, Click) => (self.back, None),
-            (Home, BottomLeft, Click) => (Status, None),
             (Home, BottomRight, Click) => {
-                self.page = 0;
+                self.start_ride();
                 (Ride, Some(Command::Start))
             }
-            (Status, TopLeft, Click) => (Home, None),
+            (Menu | PauseMenu, TopLeft, Click) => (self.back, None),
+            (Menu | PauseMenu, BottomLeft, Click) => {
+                let n = self.menu(view.resumable).0.iter().flatten().count() as u8;
+                self.item = (self.item + 1) % n.max(1);
+                (self.screen, None)
+            }
+            (Menu | PauseMenu, BottomRight, Click) => {
+                match self.menu(view.resumable).0[self.item as usize] {
+                    Some(Item::ResumeLast) => {
+                        self.start_ride();
+                        (Ride, Some(Command::ResumeLast))
+                    }
+                    // the status goes back to its menu, the menu to where it was opened from
+                    Some(Item::Status) => (Status, None),
+                    Some(Item::PowerOff) => (self.screen, Some(Command::PowerOff)),
+                    None => (self.screen, None),
+                }
+            }
+            (Status, TopLeft, Click) => (if self.back == Home { Menu } else { PauseMenu }, None),
             (Ride, TopLeft, Click) => {
-                self.page = (self.page + PAGES - 1) % PAGES;
+                self.scroll = !self.scroll;
+                self.scrolled_at = now_ms;
                 (Ride, None)
             }
             (Ride, BottomLeft, Click) => {
-                self.page = (self.page + 1) % PAGES;
+                self.next_page();
                 (Ride, None)
             }
-            (Ride, BottomRight, Click) => (Paused, Some(Command::Pause)),
-            (Paused, BottomLeft, Click) => (ConfirmStop, None),
-            (Paused, BottomRight, Click) => (Ride, Some(Command::Resume)),
-            (ConfirmStop, TopLeft | BottomLeft, Click) => (Paused, None),
+            (Ride, BottomRight, Click) => {
+                self.scroll = false;
+                (Paused, Some(Command::Pause))
+            }
+            (Paused | Resume, TopLeft, Click) => {
+                self.back = self.screen;
+                self.item = 0;
+                (PauseMenu, None)
+            }
+            (Paused | Resume, BottomLeft, Click) => {
+                self.back = self.screen;
+                (ConfirmStop, None)
+            }
+            (Paused | Resume, BottomRight, Click) => (Ride, Some(Command::Resume)),
+            (ConfirmStop, TopLeft | BottomLeft, Click) => (self.back, None),
             (ConfirmStop, BottomRight, Click) => (Saved, Some(Command::Stop)),
+            (Saved, BottomLeft, Click) if view.resumable => {
+                self.start_ride();
+                (Ride, Some(Command::ResumeLast))
+            }
             (Saved, BottomRight, Click) => (Home, None),
             (s, _, _) => (s, None),
         };
@@ -232,69 +451,124 @@ impl Ui {
         command
     }
 
-    /// Closes what times out, and follows the ride the firmware has: `None` without a ride, else whether its timer
-    /// runs.
-    pub fn tick(&mut self, now_ms: u64, ride: Option<bool>) {
+    fn start_ride(&mut self) {
+        self.pages = pages();
+        self.page = 0;
+        self.had_fix = false;
+    }
+
+    fn next_page(&mut self) {
+        self.page = (self.page + 1) % (self.pages.len() as u8).max(1);
+    }
+
+    /// Follows the ride the firmware has (`None` without a ride, else whether its timer runs) and the GNSS fix;
+    /// scrolls the pages, sets and clears the banners.
+    pub fn tick(&mut self, now_ms: u64, ride: Option<bool>, view: &View) {
         use Screen::*;
-        if self.screen == PowerOff && now_ms.saturating_sub(self.prompt_at) >= POWER_PROMPT_MS {
-            self.screen = self.back;
-        }
-        if self
-            .notice
-            .is_some_and(|(_, at)| now_ms.saturating_sub(at) >= NOTICE_MS)
-        {
-            self.notice = None;
-        }
         self.screen = match (self.screen, ride) {
-            (Ride | Paused | ConfirmStop, None) => Home,
-            (Home | Status | Saved | Ride, Some(false)) => Paused,
-            (Home | Status | Saved | Paused | ConfirmStop, Some(true)) => Ride,
+            (Ride | Paused | PauseMenu | ConfirmStop | Resume, None) => Home,
+            (Home | Saved | Paused | ConfirmStop | Resume, Some(true)) => Ride,
+            (Ride, Some(false)) => Paused,
             (s, _) => s,
         };
-        if self.back == Paused && ride.is_none() {
-            self.back = Home;
+        if self.scroll
+            && self.screen == Ride
+            && now_ms.saturating_sub(self.scrolled_at) >= SCROLL_MS
+        {
+            self.next_page();
+            self.scrolled_at = now_ms;
+        }
+        // GNSS banners while riding: searching or lost while there is no fix, then found again for a while
+        let fix = matches!(view.gnss, Gnss::Fix { .. });
+        let riding = ride.is_some();
+        if riding && !fix {
+            let (title, detail) = if self.had_fix {
+                ("GPS perdu", "Distance en attente du GPS")
+            } else {
+                ("Recherche du GPS", "La distance part au fix")
+            };
+            if !self.banner.is_some_and(|b| b.title == title) {
+                self.banner = Some(Banner {
+                    kind: BannerKind::Attention,
+                    title,
+                    detail: Line::new(format_args!("{detail}")),
+                    since_ms: now_ms,
+                    left_tenths: 10,
+                });
+            }
+        } else if self.banner.is_some_and(|b| b.kind == BannerKind::Attention) {
+            self.banner = None;
+            if let (true, Gnss::Fix { used }) = (riding && self.had_fix, view.gnss) {
+                self.inform(
+                    "GPS retrouvé",
+                    Line::new(format_args!("{used} satellites")),
+                    now_ms,
+                );
+            }
+        }
+        if riding && fix {
+            self.had_fix = true;
+        }
+        self.fix = fix;
+        if let Some(b) = self.banner.as_mut().filter(|b| b.kind == BannerKind::Info) {
+            let age = now_ms.saturating_sub(b.since_ms);
+            if age >= INFO_MS {
+                self.banner = None;
+            } else {
+                b.left_tenths = (10 - age * 10 / INFO_MS) as u8;
+            }
         }
     }
 
     /// Labels of the top left, bottom left and bottom right keys.
-    pub fn hints(&self) -> [Option<Hint>; 3] {
+    pub fn hints(&self, view: &View) -> [Hint; 3] {
         use Screen::*;
-        const HOLD_OFF: Hint = Hint::new("\u{e005} Maintenir");
         const BACK: Hint = Hint::new("\u{e003} Retour");
+        const NEXT: Hint = Hint::new("Suivant \u{e00a}");
+        const OPEN: Hint = Hint::new("Ouvrir \u{e00b}").kind(Kind::Select);
+        const MENU: Hint = Hint::new("\u{e009} Menu");
         match self.screen {
             Home => [
-                Some(HOLD_OFF),
-                Some(Hint::new("État")),
-                Some(Hint::new("Démarrer \u{e000}").kind(Kind::Go)),
+                Hint::new("\u{e005} Maintenir"),
+                MENU,
+                Hint::new("Démarrer").kind(Kind::Go),
             ],
-            Status => [Some(BACK), None, None],
+            Menu | PauseMenu => [BACK, NEXT, OPEN],
+            Status => [BACK, NOTHING, NOTHING],
             Ride => [
-                Some(Hint::new("\u{e003} Page")),
-                Some(Hint::new("Page \u{e004}")),
-                Some(Hint::new("Pause \u{e001}").kind(Kind::Pause)),
+                Hint::new(if self.scroll {
+                    "\u{e00c} Défil. oui"
+                } else {
+                    "\u{e00c} Défil. non"
+                }),
+                Hint::new("Page \u{e004}"),
+                Hint::new("Pause \u{e001}").kind(Kind::Pause),
             ],
-            Paused => [
-                Some(HOLD_OFF),
-                Some(Hint::new("Terminer \u{e002}")),
-                Some(Hint::new("Reprendre \u{e000}").kind(Kind::Go)),
+            Paused | Resume => [
+                MENU,
+                Hint::new("Terminer…"),
+                Hint::new("Reprendre").kind(Kind::Go),
             ],
             ConfirmStop => [
-                Some(Hint::new("\u{e003} Annuler")),
-                Some(Hint::new("Annuler")),
-                Some(Hint::new("Terminer \u{e002}").kind(Kind::Danger)),
+                Hint::new("\u{e003} Annuler"),
+                Hint::new("Annuler"),
+                Hint::new("Terminer \u{e002}").kind(Kind::Select),
             ],
-            Saved => [None, None, Some(Hint::new("OK").kind(Kind::Select))],
-            PowerOff => [
-                Some(Hint::new("\u{e005} Oui").kind(Kind::Danger)),
-                Some(Hint::new("Non")),
-                Some(Hint::new("Non")),
+            Saved => [
+                NOTHING,
+                if view.resumable {
+                    Hint::new("Reprendre")
+                } else {
+                    NOTHING
+                },
+                Hint::new("OK").kind(Kind::Select),
             ],
         }
     }
 
-    /// Whether the power-off prompt would save a ride.
-    pub fn power_off_saves_ride(&self) -> bool {
-        self.screen == Screen::PowerOff && self.back == Screen::Paused
+    /// The top bar shows "GPS ✕" in place of the clock (riding without a fix).
+    pub fn gps_warning(&self) -> bool {
+        matches!(self.screen, Screen::Ride | Screen::Paused) && !self.fix
     }
 }
 
@@ -304,8 +578,15 @@ mod tests {
     use Key::*;
     use Press::*;
 
+    fn view() -> View {
+        View {
+            gnss: Gnss::Fix { used: 9 },
+            ..Default::default()
+        }
+    }
+
     fn press(ui: &mut Ui, key: Key) -> Option<Command> {
-        ui.key(key, Click, 0)
+        ui.key(key, Click, 0, &view())
     }
 
     #[test]
@@ -317,7 +598,7 @@ mod tests {
         assert_eq!(ui.screen(), Screen::Paused);
         assert_eq!(press(&mut ui, BottomRight), Some(Command::Resume));
         assert_eq!(press(&mut ui, BottomRight), Some(Command::Pause));
-        // ending asks first, and can be cancelled with either left key
+        // finishing asks first, confirmed with another key, and can be cancelled with either left key
         assert_eq!(press(&mut ui, BottomLeft), None);
         assert_eq!(ui.screen(), Screen::ConfirmStop);
         assert_eq!(press(&mut ui, TopLeft), None);
@@ -330,69 +611,104 @@ mod tests {
     }
 
     #[test]
-    fn no_key_ends_or_powers_off_a_running_ride() {
+    fn a_finished_ride_is_resumed_from_the_end_screen_or_the_menu() {
+        let resumable = View {
+            resumable: true,
+            ..view()
+        };
         let mut ui = Ui::new();
         press(&mut ui, BottomRight);
-        for key in [TopLeft, BottomLeft] {
-            for p in [Click, Long] {
-                assert_eq!(ui.key(key, p, 0), None);
-                assert_eq!(ui.screen(), Screen::Ride);
-            }
+        press(&mut ui, BottomRight);
+        press(&mut ui, BottomLeft);
+        press(&mut ui, BottomRight);
+        assert_eq!(ui.screen(), Screen::Saved);
+        assert_eq!(
+            ui.key(BottomLeft, Click, 0, &resumable),
+            Some(Command::ResumeLast)
+        );
+        assert_eq!(ui.screen(), Screen::Ride);
+        // from the home menu
+        let mut ui = Ui::new();
+        press(&mut ui, BottomLeft);
+        assert_eq!(ui.screen(), Screen::Menu);
+        assert_eq!(ui.menu(true).0[0], Some(Item::ResumeLast));
+        assert_eq!(
+            ui.key(BottomRight, Click, 0, &resumable),
+            Some(Command::ResumeLast)
+        );
+        // nothing to resume: the end screen's bottom left does nothing
+        let mut ui = Ui::new();
+        press(&mut ui, BottomRight);
+        press(&mut ui, BottomRight);
+        press(&mut ui, BottomLeft);
+        press(&mut ui, BottomRight);
+        assert_eq!(press(&mut ui, BottomLeft), None);
+        assert_eq!(ui.hints(&view())[1], NOTHING);
+    }
+
+    #[test]
+    fn no_key_ends_or_switches_off_a_running_ride() {
+        let mut ui = Ui::new();
+        press(&mut ui, BottomRight);
+        for key in [TopLeft, BottomLeft, BottomRight] {
+            let c = ui.key(key, Long, 0, &view());
+            assert!(c != Some(Command::Stop) && c != Some(Command::PowerOff));
         }
-        assert_eq!(ui.key(BottomRight, Long, 0), None);
         assert_eq!(ui.screen(), Screen::Ride);
     }
 
     #[test]
-    fn the_left_keys_cycle_the_ride_pages() {
+    fn the_bottom_left_key_cycles_the_pages_and_the_top_left_one_scrolls_them() {
         let mut ui = Ui::new();
         press(&mut ui, BottomRight);
-        assert_eq!(ui.page(), 0);
+        assert_eq!(ui.page(), Some(Page::Essential));
         press(&mut ui, BottomLeft);
-        assert_eq!(ui.page(), 1);
+        assert_eq!(ui.page(), Some(Page::Altitude));
         press(&mut ui, BottomLeft);
-        assert_eq!(ui.page(), 0);
+        assert_eq!(ui.page(), Some(Page::Essential));
+        ui.key(TopLeft, Click, 1_000, &view());
+        assert!(ui.scrolling());
+        ui.tick(1_000 + SCROLL_MS - 1, Some(true), &view());
+        assert_eq!(ui.page(), Some(Page::Essential));
+        ui.tick(1_000 + SCROLL_MS, Some(true), &view());
+        assert_eq!(ui.page(), Some(Page::Altitude));
+        // pausing stops the scrolling
+        press(&mut ui, BottomRight);
+        assert!(!ui.scrolling());
+    }
+
+    #[test]
+    fn switching_off_from_home_or_the_pause_menu() {
+        let mut ui = Ui::new();
+        assert_eq!(ui.key(TopLeft, Long, 0, &view()), Some(Command::PowerOff));
+        let mut ui = Ui::new();
+        press(&mut ui, BottomRight);
+        press(&mut ui, BottomRight);
         press(&mut ui, TopLeft);
-        assert_eq!(ui.page(), PAGES - 1);
-        // a new ride starts on the first page
-        press(&mut ui, BottomRight);
+        assert_eq!(ui.screen(), Screen::PauseMenu);
+        assert_eq!(ui.menu(false).0[0], Some(Item::PowerOff));
+        assert_eq!(press(&mut ui, BottomRight), Some(Command::PowerOff));
+        // the status from the pause menu goes back to it, then to the pause
         press(&mut ui, BottomLeft);
         press(&mut ui, BottomRight);
-        press(&mut ui, BottomRight);
-        press(&mut ui, BottomRight);
-        assert_eq!(ui.page(), 0);
-    }
-
-    #[test]
-    fn power_off_asks_and_closes_by_itself() {
-        let mut ui = Ui::new();
-        assert_eq!(ui.key(TopLeft, Long, 1_000), None);
-        assert_eq!(ui.screen(), Screen::PowerOff);
-        // the nRF repeats the long press while the key is held
-        assert_eq!(ui.key(TopLeft, Long, 1_500), None);
-        assert_eq!(ui.screen(), Screen::PowerOff);
-        assert!(!ui.power_off_saves_ride());
-        ui.tick(1_000 + POWER_PROMPT_MS - 1, None);
-        assert_eq!(ui.screen(), Screen::PowerOff);
-        ui.tick(1_000 + POWER_PROMPT_MS, None);
-        assert_eq!(ui.screen(), Screen::Home);
-
-        ui.key(TopLeft, Long, 0);
-        assert_eq!(press(&mut ui, BottomRight), None);
-        assert_eq!(ui.screen(), Screen::Home);
-        ui.key(TopLeft, Long, 0);
-        assert_eq!(press(&mut ui, TopLeft), Some(Command::PowerOff));
-    }
-
-    #[test]
-    fn power_off_from_the_pause_saves_the_ride() {
-        let mut ui = Ui::new();
-        press(&mut ui, BottomRight);
-        press(&mut ui, BottomRight);
-        ui.key(TopLeft, Long, 0);
-        assert!(ui.power_off_saves_ride());
-        press(&mut ui, BottomLeft);
+        assert_eq!(ui.screen(), Screen::Status);
+        press(&mut ui, TopLeft);
+        assert_eq!(ui.screen(), Screen::PauseMenu);
+        press(&mut ui, TopLeft);
         assert_eq!(ui.screen(), Screen::Paused);
+    }
+
+    #[test]
+    fn a_paused_ride_found_at_power_on() {
+        let mut ui = Ui::new();
+        ui.found_paused_ride();
+        ui.tick(0, Some(false), &view());
+        assert_eq!(ui.screen(), Screen::Resume);
+        press(&mut ui, BottomLeft);
+        assert_eq!(press(&mut ui, TopLeft), None);
+        assert_eq!(ui.screen(), Screen::Resume);
+        assert_eq!(press(&mut ui, BottomRight), Some(Command::Resume));
+        assert_eq!(ui.page(), Some(Page::Essential));
     }
 
     #[test]
@@ -400,29 +716,46 @@ mod tests {
         let mut ui = Ui::new();
         // start refused (no time yet)
         press(&mut ui, BottomRight);
-        ui.tick(0, None);
+        ui.tick(0, None, &view());
         assert_eq!(ui.screen(), Screen::Home);
         // pause refused: the timer still runs
         press(&mut ui, BottomRight);
         press(&mut ui, BottomRight);
-        ui.tick(0, Some(true));
+        ui.tick(0, Some(true), &view());
         assert_eq!(ui.screen(), Screen::Ride);
-        // the status screen never hides a ride
-        let mut ui = Ui::new();
-        press(&mut ui, BottomLeft);
-        assert_eq!(ui.screen(), Screen::Status);
-        ui.tick(0, Some(false));
-        assert_eq!(ui.screen(), Screen::Paused);
     }
 
     #[test]
-    fn notices_time_out() {
+    fn gnss_banners() {
+        let searching = View {
+            gnss: Gnss::Searching {
+                in_view: 5,
+                progress: 40,
+            },
+            ..Default::default()
+        };
         let mut ui = Ui::new();
-        ui.set_notice("Pas encore l'heure", 100);
-        ui.tick(100 + NOTICE_MS - 1, None);
-        assert_eq!(ui.notice(), Some("Pas encore l'heure"));
-        ui.tick(100 + NOTICE_MS, None);
-        assert_eq!(ui.notice(), None);
+        press(&mut ui, BottomRight);
+        ui.tick(0, Some(true), &searching);
+        assert_eq!(ui.banner().unwrap().title, "Recherche du GPS");
+        assert!(ui.gps_warning());
+        ui.tick(100, Some(true), &view());
+        assert_eq!(ui.banner(), None, "first fix: no banner");
+        ui.tick(200, Some(true), &searching);
+        assert_eq!(ui.banner().unwrap().title, "GPS perdu");
+        ui.tick(300, Some(true), &view());
+        let b = ui.banner().unwrap();
+        assert_eq!(
+            (b.kind, b.title, b.detail.as_str()),
+            (BannerKind::Info, "GPS retrouvé", "9 satellites")
+        );
+        ui.tick(300 + INFO_MS, Some(true), &view());
+        assert_eq!(ui.banner(), None);
+    }
+
+    #[test]
+    fn page_names() {
+        assert_eq!(pages().names().as_str(), "Essentiel · Altitude");
     }
 
     #[test]

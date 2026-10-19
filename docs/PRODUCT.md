@@ -187,13 +187,12 @@ Status on 2026-10-19 (updated by the bring-up work; altitude is worked on in par
       (`dump/log_rtc_shift.txt`).
 - [x] **Barometric altitude and D+** (see above and ALTITUDE.md), written to the FIT file (altitude from the filter,
       `absolute_pressure`, D+ from the pressure only) and shown on the ride pages.
-- [x] **Data screens driven by the 3 keys** (`crates/ui`, after the prototype; key 0 top left, 1 bottom left, 2 bottom
-      right), the current action written next to each key: home, ride page 1 (speed, time, distance, D+, heart
-      rate), ride page 2 (altitude, average, max, clock, D-), pause, end confirmed from the pause, saved, power off
-      confirmed, bring-up status. Bottom right starts / pauses / resumes, the left keys turn the pages. Differences
-      from the prototype: no menu yet (home: "État" opens the status screen; pause: "Terminer" asks to end), power
-      off is confirmed by a click like the vendor, and it saves the ride instead of keeping it to resume. Day theme;
-      the map and climb pages wait for the GPX route.
+- [x] **Data screens driven by the 3 keys** (`crates/ui`, after the prototype, compared with it by
+      `tools/prototype_shots.py` and `tools/compare_screens.py`): home (GPS acquisition, pages, rides to upload),
+      menu, ride pages Essential and Altitude (gradient, last 5 km), auto-scroll, GPS banners, pause and pause menu,
+      finish confirmed, end screen, a ride paused at power-off or interrupted offered again at power-on, the last
+      finished ride resumable (no upload yet: always the newest). Not yet: sensors, Wi-Fi sync, route pages, auto
+      pause, start reminder, beeps; the menus show the device status instead.
 - [ ] **Beeps** (once the buzzer is understood): key feedback (can be turned off), alerts — off route, sensor lost,
       low battery, recording started/stopped. Every beep comes with a message on screen.
 - [ ] **Load a GPX route and display the route line** (no background map yet), and switch to a free ride without
