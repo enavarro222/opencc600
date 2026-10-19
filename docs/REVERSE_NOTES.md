@@ -183,40 +183,43 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
 - **Buzzer = nRF command `E2 01 XX`** (type 2, cmd 0x10, `E2 01 XX 00 00 00 00 00`), every value acknowledged.
   The vendor firmware has a `BUZZER FUNC TEST` / `PRESS B KEY TEST BUZZER` factory test and `Key Tones` /
   `Prompt Tones` settings. Scan of 00..1B recorded with the PC microphone (`tools/sound_probe.py`, piezo
-  fundamentals 1.5–7 kHz; notes split on frequency changes, so a long note may show as 2 pieces).
+  fundamentals 1.5–7 kHz).
   Heard: 00 and 01 the same short beep, 02 "ti-dou-di", 17 "tou-di-dou"; 13, 18, 19 silent by ear.
 
-  | `E2 01 XX` | notes (Hz × ms) | total |
+  | `E2 01 XX` | notes (name ms; `→` legato, `· N ms ·` silence) | total |
   |---|---|---|
   | 13 | silent | |
-  | 00 | 3000×80, 3000×70, 3000×30, 2700×30, 4900×50 | 2440 ms |
-  | 01 | 3000×160, 3000×80 | 280 ms |
-  | 02 | 4900×90, 4250×110, 5000×210, 5000×170 | 590 ms |
-  | 03 | 4900×90, 5600×110, 4250×90, 5500×190, 5500×240 | 740 ms |
-  | 04 | 3000×80, 3400×110, 3000×80, 3000×120, 3000×70, 3000×70 | 570 ms |
-  | 05 | 5000×800 | 800 ms |
-  | 06 | 5600×130, 4800×640 | 770 ms |
-  | 07 | 4800×170, 6000×100, 5600×360, 4000×30, 5600×170 | 830 ms |
-  | 08 | 3000×80, 3400×110, 3000×80, 3000×100, 3000×110, 3000×30 | 570 ms |
-  | 09 | 3400×90, 3000×80, 3400×110, 3000×80, 3000×70, 3000×60 | 570 ms |
-  | 0A | 4000×380 | 380 ms |
-  | 0B | 4000×550 | 550 ms |
-  | 0C | 6000×360, 3000×100, 4000×290, 4000×40 | 860 ms |
-  | 0D | 4000×700 | 700 ms |
-  | 0E | 4000×1160 | 1160 ms |
-  | 0F | 4000×1370 | 1370 ms |
-  | 10 | 6000×350, 3000×50, 3000×30, 4000×290 | 750 ms |
-  | 11 | 4000×220, 3000×50, 3000×30, 6000×360, 6000×80, 6000×40, 1600×30 | 1600 ms |
-  | 12 | 1500×70, 4000×2880 | 2960 ms (still sounding at the next command) |
-  | 13 | 4000×90 | 90 ms |
-  | 14 | 3400×100, 3000×200, 3000×100, 3400×100, 3000×200, 3000×80, 3000×40, 1600×30 | 2760 ms |
-  | 15 | 2500×140, 5100×30, 2500×40, 2500×30, 2500×30 | 320 ms |
-  | 16 | 3000×310, 3000×110 | 440 ms |
-  | 17 | 5600×170, 4800×580 | 750 ms |
+  | 00 | F#7 (3.00 kHz) 80 | 80 ms |
+  | 01 | F#7 (3.00 kHz) 160 | 160 ms |
+  | 02 | D#8 (4.90 kHz) 70 → C8 (4.25 kHz) 80 · 30 ms · D#8 (5.00 kHz) 160 | 350 ms |
+  | 03 | D#8 (4.90 kHz) 80 → F8 (5.60 kHz) 70 · 40 ms · C8 (4.25 kHz) 70 · 30 ms · F8 (5.50 kHz) 160 | 460 ms |
+  | 04 | F#7 (3.00 kHz) 60 → G#7 (3.40 kHz) 90 · 30 ms · F#7 (3.00 kHz) 60 · 40 ms · F#7 (3.00 kHz) 70 | 360 ms |
+  | 05 | D#8 (4.90 kHz) 70 → D#8 (5.00 kHz) 80 · 120 ms · D#8 (4.90 kHz) 80 · 90 ms · D#8 (5.00 kHz) 80 | 530 ms |
+  | 06 | F8 (5.60 kHz) 120 → D#8 (5.00 kHz) 80 · 30 ms · D8 (4.80 kHz) 300 | 540 ms |
+  | 07 | D8 (4.80 kHz) 160 → F#8 (6.00 kHz) 80 · 20 ms · F8 (5.60 kHz) 310 | 570 ms |
+  | 08 | F#7 (3.00 kHz) 70 → G#7 (3.40 kHz) 80 · 30 ms · F#7 (3.00 kHz) 70 · 30 ms · F#7 (3.00 kHz) 70 | 360 ms |
+  | 09 | G#7 (3.40 kHz) 80 → F#7 (3.00 kHz) 70 · 30 ms · G#7 (3.40 kHz) 80 · 30 ms · F#7 (3.00 kHz) 70 | 370 ms |
+  | 0A | B7 (4.00 kHz) 110 | 110 ms |
+  | 0B | B7 (4.00 kHz) 110 · 100 ms · B7 (4.00 kHz) 50 | 260 ms |
+  | 0C | F#8 (6.00 kHz) 250 · 210 ms · B7 (4.00 kHz) 50 | 510 ms |
+  | 0D | B7 (4.00 kHz) 410 | 410 ms |
+  | 0E | B7 (4.00 kHz) 410 · 50 ms · B7 (4.00 kHz) 410 | 870 ms |
+  | 0F | B7 (4.00 kHz) 260 · 150 ms · B7 (4.00 kHz) 250 · 150 ms · B7 (4.00 kHz) 260 | 1070 ms |
+  | 10 | F#8 (6.00 kHz) 240 · 210 ms · B7 (4.00 kHz) 60 | 510 ms |
+  | 11 | B7 (4.00 kHz) 150 · 160 ms · F#8 (6.00 kHz) 250 | 560 ms |
+  | 12 | B7 (4.00 kHz) 2870 | 2870 ms (still sounding at the next command) |
+  | 13 | B7 (4.00 kHz) 70 | 70 ms |
+  | 14 | G#7 (3.40 kHz) 80 · 30 ms · F#7 (3.00 kHz) 70 · 40 ms · F#7 (3.00 kHz) 70 · 30 ms · F#7 (3.00 kHz) 70 · 30 ms · G#7 (3.40 kHz) 80 · 30 ms · F#7 (3.00 kHz) 70 · 40 ms · F#7 (3.00 kHz) 70 | 710 ms |
+  | 15 | D#7 (2.50 kHz) 140 | 140 ms |
+  | 16 | F#7 (3.00 kHz) 310 | 310 ms |
+  | 17 | F8 (5.60 kHz) 150 → D#8 (5.00 kHz) 80 · 30 ms · D8 (4.80 kHz) 310 | 580 ms |
   | 18 | silent | |
   | 19 | silent | |
-  | 1A | 4550×200, 5400×130, 3900×70, 5450×40, 5450×70 | 600 ms |
-  | 1B | 1550×70 | 70 ms |
+  | 1A | C#8 (4.50 kHz) 80 → C#8 (4.55 kHz) 70 · 30 ms · E8 (5.40 kHz) 90 · 40 ms · B7 (3.90 kHz) 70 | 390 ms |
+  | 1B | G6 (1.55 kHz) 70 | 70 ms |
+
+  Spectrograms of all of them: [buzzer_sounds.png](buzzer_sounds.png) (the reference: the table can miss a
+  quieter last beep, e.g. 0B is 3 beeps). Same sound twice: 06 = 17, 04 = 08, 0C = 10; 1B is noise only.
 
   12 keeps sounding (4 kHz) until the next command: probably a continuous alarm that needs a stop command
   (13, which gave a 90 ms tick right after it, or 18 / 19?). *(To check: what stops 12; which sound the vendor
