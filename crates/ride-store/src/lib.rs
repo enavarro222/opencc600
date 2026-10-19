@@ -21,7 +21,7 @@ use core::fmt::Write as _;
 pub use littlefs2;
 use littlefs2::driver::Storage;
 use littlefs2::fs::Filesystem;
-use littlefs2::io::{Error, Result};
+use littlefs2::io::{Error, Result, SeekFrom};
 use littlefs2::path;
 use littlefs2::path::{Path, PathBuf};
 
@@ -107,8 +107,20 @@ pub fn read<S: Storage>(
     finished: bool,
     buf: &mut [u8],
 ) -> Result<usize> {
+    read_at(fs, id, finished, 0, buf)
+}
+
+/// Reads ride `id` (finished or not) from byte `offset` into `buf`, returns the length read.
+pub fn read_at<S: Storage>(
+    fs: &Filesystem<'_, S>,
+    id: u32,
+    finished: bool,
+    offset: usize,
+    buf: &mut [u8],
+) -> Result<usize> {
     let path = ride_path(id, if finished { FIT } else { PART });
     fs.open_file_and_then(&path, |file| {
+        file.seek(SeekFrom::Start(offset as u32))?;
         let mut n = 0;
         while n < buf.len() {
             match file.read(&mut buf[n..])? {

@@ -230,6 +230,11 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
 - **UART FIFO**: 128 bytes = ~11 ms at 115200 baud. Reading it from the thread-mode executor lost frames
   (`FifoOverflowed`) during a redraw + flush (~25 ms); the nRF task now runs on an interrupt executor. The GNSS at
   921600 baud fills the FIFO in 1.4 ms: it will need UART DMA (UHCI) or the same high-priority reader.
+- **Flash writes stall the UART readers**: while littlefs programs or erases a sector, the flash cache is off and
+  code running from flash waits, the interrupt executor included. During the storage HIL test (back-to-back
+  appends) the nRF FIFO overflowed 6 times in ~3 min. Rides write far less often, but the GNSS at 921600 baud
+  will lose bytes on every sector erase: its reader needs UART DMA (UHCI) or an IRAM interrupt handler that keeps
+  draining the FIFO.
 
 ## Vendor storage partition (littlefs)
 

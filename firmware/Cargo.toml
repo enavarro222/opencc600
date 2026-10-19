@@ -9,6 +9,10 @@ license      = "GPL-3.0-or-later"
 name = "opencc600"
 path = "./src/bin/main.rs"
 
+[features]
+# Power-cut test of the ride store on the device (tools/hil_storage.py); never in a normal build.
+hil-storage = []
+
 [dependencies]
 esp-hal = { version = "~1.2.2", features = ["esp32s3", "log-04", "unstable"] }
 

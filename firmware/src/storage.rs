@@ -1,50 +1,87 @@
 //! The `storage` flash partition as a littlefs block device.
 //!
-//! Read-only for now: write and erase fail, so mounting the partition cannot change it whatever littlefs does.
-//! Writes come with the move to our own layout (docs/PRODUCT.md, storage decision).
+//! The partition is ours (docs/PRODUCT.md, storage decision): the vendor's content is backed up in dump/ and
+//! goes back with `tools/flash_ota0.py --restore-vendor --storage`. [`open`] formats only a blank (erased)
+//! partition, never one that fails to mount for another reason.
 
+use alloc::boxed::Box;
+
+use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use esp_storage::FlashStorage;
 use littlefs2::consts::{U4, U256};
 use littlefs2::driver::Storage;
+use littlefs2::fs::{Allocation, Filesystem};
 use littlefs2::io::{Error, Result};
 
 /// `storage` partition (data/0x83), checked against the device partition table by tools/flash_ota0.py.
 pub const OFFSET: u32 = 0x86_0000;
 pub const SIZE: usize = 0x79_E000;
+const BLOCK: usize = 4096;
 
 pub struct Partition<'d> {
     flash: FlashStorage<'d>,
 }
 
 impl<'d> Partition<'d> {
-    pub fn read_only(flash: FlashStorage<'d>) -> Self {
+    pub fn new(flash: FlashStorage<'d>) -> Self {
         Self { flash }
+    }
+
+    /// Both superblock blocks fully erased: nothing to lose by formatting.
+    fn is_blank(&mut self) -> Result<bool> {
+        let mut buf = [0u8; 256];
+        for off in (0..2 * BLOCK).step_by(buf.len()) {
+            self.read(off, &mut buf)?;
+            if buf.iter().any(|&b| b != 0xFF) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 }
 
+/// Mounts the partition; formats it first if (and only if) it is blank. Returns whether it was formatted.
+pub fn open<'a, 'd>(
+    alloc: &'a mut Box<Allocation<Partition<'d>>>,
+    partition: &'a mut Partition<'d>,
+) -> Result<(Filesystem<'a, Partition<'d>>, bool)> {
+    let formatted = if Filesystem::is_mountable(partition) {
+        false
+    } else if partition.is_blank()? {
+        Filesystem::format(partition)?;
+        true
+    } else {
+        return Err(Error::CORRUPTION);
+    };
+    Ok((Filesystem::mount(alloc, partition)?, formatted))
+}
+
 impl Storage for Partition<'_> {
-    /// Same geometry as the vendor's (littlefs superblock): 4 KiB blocks = flash sectors.
-    const BLOCK_SIZE: usize = 4096;
-    const BLOCK_COUNT: usize = SIZE / 4096;
+    /// 4 KiB blocks = flash sectors (the vendor used the same geometry).
+    const BLOCK_SIZE: usize = BLOCK;
+    const BLOCK_COUNT: usize = SIZE / BLOCK;
     const READ_SIZE: usize = 16;
     const WRITE_SIZE: usize = 16;
     type CACHE_SIZE = U256;
     /// In u64 words: 4 × 64 = 256 blocks scanned per allocation pass.
     type LOOKAHEAD_SIZE = U4;
+    /// Wear levelling: move a metadata pair after this many erases (littlefs recommends 100..1000).
+    const BLOCK_CYCLES: isize = 500;
 
     fn read(&mut self, off: usize, buf: &mut [u8]) -> Result<usize> {
-        self.flash
-            .read(OFFSET + off as u32, buf)
-            .map_err(|_| Error::IO)?;
+        ReadNorFlash::read(&mut self.flash, OFFSET + off as u32, buf).map_err(|_| Error::IO)?;
         Ok(buf.len())
     }
 
-    fn write(&mut self, _off: usize, _data: &[u8]) -> Result<usize> {
-        Err(Error::IO)
+    fn write(&mut self, off: usize, data: &[u8]) -> Result<usize> {
+        NorFlash::write(&mut self.flash, OFFSET + off as u32, data).map_err(|_| Error::IO)?;
+        Ok(data.len())
     }
 
-    fn erase(&mut self, _off: usize, _len: usize) -> Result<usize> {
-        Err(Error::IO)
+    fn erase(&mut self, off: usize, len: usize) -> Result<usize> {
+        let from = OFFSET + off as u32;
+        NorFlash::erase(&mut self.flash, from, from + len as u32).map_err(|_| Error::IO)?;
+        Ok(len)
     }
 }
 

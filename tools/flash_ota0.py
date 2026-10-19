@@ -15,6 +15,8 @@ usage: flash_ota0.py IMAGE.bin [-p /dev/ttyACM0] [--dry-run]
        flash_ota0.py --restore-vendor [-p /dev/ttyACM0]   (boot ota_1 again)
        flash_ota0.py --restore-vendor --storage dump/storage.orig.bin
                      (also write the vendor storage partition back: rides, settings, pairings)
+       flash_ota0.py --erase-storage   (blank storage partition: our firmware formats it at the next boot;
+                     refused unless the vendor backup dump/storage.orig.bin is there)
 """
 import argparse
 import struct
@@ -31,6 +33,7 @@ ALLOWED_WRITES = {OTA0[0], OTADATA[0], STORAGE[0]}
 
 DUMP = Path(__file__).resolve().parent.parent / "dump"
 OTADATA_ORIG = DUMP / "otadata.orig.bin"
+STORAGE_ORIG = DUMP / "storage.orig.bin"
 
 
 def esptool(port, *args, after="hard-reset"):
@@ -77,7 +80,16 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="check only, write nothing")
     ap.add_argument("--restore-vendor", action="store_true", help="write the original otadata back (boots ota_1)")
     ap.add_argument("--storage", type=Path, help="with --restore-vendor: storage partition image to write back")
+    ap.add_argument("--erase-storage", action="store_true", help="erase the storage partition (vendor backup required)")
     a = ap.parse_args()
+
+    if a.erase_storage:
+        backup = STORAGE_ORIG.read_bytes() if STORAGE_ORIG.exists() else b""
+        if len(backup) != STORAGE[1] or backup[8:16] != b"littlefs":
+            sys.exit(f"no valid vendor backup at {STORAGE_ORIG}: read the partition first")
+        check_layout(read_partitions(a.port))
+        esptool(a.port, "erase-region", f"{STORAGE[0]:#x}", f"{STORAGE[1]:#x}")
+        return
 
     if a.restore_vendor:
         if not OTADATA_ORIG.exists():

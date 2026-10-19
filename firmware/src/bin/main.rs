@@ -36,7 +36,6 @@ use esp_hal::lcd_cam::lcd::i8080::{self, I8080};
 use esp_hal::ledc::channel::{self, ChannelIFace};
 use esp_hal::ledc::timer::{self, TimerIFace};
 use esp_hal::ledc::{LSGlobalClkSource, Ledc, LowSpeed};
-use esp_hal::peripherals::FLASH;
 use esp_hal::peripherals::{GPIO41, GPIO42, UART2};
 use esp_hal::time::{self as hal_time, Rate};
 use esp_hal::timer::timg::TimerGroup;
@@ -46,6 +45,8 @@ use esp_storage::FlashStorage;
 use littlefs2::fs::{Allocation, Filesystem};
 use log::{debug, info, warn};
 use nrf_link::{Decoder, KeyAction, Message, RtcTime, command};
+#[cfg(feature = "hil-storage")]
+use opencc600_firmware::hil_storage;
 use opencc600_firmware::panel::{self, FrameBuffer, Panel};
 use opencc600_firmware::storage;
 use static_cell::StaticCell;
@@ -126,16 +127,31 @@ async fn main(_spawner: Spawner) -> ! {
     let mut panel = Panel::new(bus, dma_buf);
     info!("panel initialised");
 
-    // Storage spike: mount the littlefs partition read-only, count its rides. The vendor's is littlefs disk v2.1,
-    // littlefs2 only mounts v2.0: expected to fail with -22 until we format the partition ourselves.
-    let storage_info = mount_storage(peripherals.FLASH);
-    if let Err(code) = storage_info {
-        warn!("storage: littlefs error {code}");
-    }
+    // Storage: our littlefs partition, formatted here only if blank (tools/flash_ota0.py --erase-storage).
+    let mut partition = storage::Partition::new(FlashStorage::new(peripherals.FLASH));
+    let mut alloc = Box::new(Allocation::new());
+    let fs = match storage::open(&mut alloc, &mut partition) {
+        Ok((fs, formatted)) => {
+            if formatted {
+                info!("storage: blank partition, formatted");
+            }
+            Ok(fs)
+        }
+        Err(e) => {
+            warn!("storage: littlefs error {}", e.code());
+            Err(e.code())
+        }
+    };
+    let storage_info = fs.as_ref().map_err(|&code| code).and_then(storage_summary);
     STATUS.lock(|s| {
         let mut status = s.get();
         status.storage = Some(storage_info);
         s.set(status);
+    });
+    #[cfg(feature = "hil-storage")]
+    let mut hil = fs.as_ref().ok().map(|fs| {
+        let next = hil_storage::recover(fs).unwrap();
+        hil_storage::Recorder::start(fs, next).unwrap()
     });
 
     let mut fb = FrameBuffer::new();
@@ -261,6 +277,17 @@ async fn main(_spawner: Spawner) -> ! {
             }
             panel.flush(&fb);
             shown = Some(screen);
+        }
+        // HIL: append back to back for 150 ms, so most resets land during a flash operation.
+        #[cfg(feature = "hil-storage")]
+        if let (Ok(fs), Some(recorder)) = (fs.as_ref(), hil.as_mut()) {
+            let t = Instant::now();
+            while t.elapsed() < Duration::from_millis(150) {
+                if let Err(e) = recorder.step(fs) {
+                    warn!("hil: append error {}", e.code());
+                    break;
+                }
+            }
         }
         // At most 5 redraws per second; the nRF task keeps updating STATUS meanwhile, nothing is lost.
         Timer::after(Duration::from_millis(200)).await;
@@ -426,26 +453,13 @@ impl Status {
     }
 }
 
-/// Mounts the `storage` partition read-only (write and erase fail) and counts the finished rides.
-#[allow(
-    clippy::large_stack_frames,
-    reason = "one-off at boot from main; littlefs2 directory iteration keeps paths on the stack"
-)]
-fn mount_storage(flash: FLASH<'_>) -> Result<(u16, u16, u16), i32> {
-    let mut partition = storage::Partition::read_only(FlashStorage::new(flash));
-    let mut alloc = Box::new(Allocation::new());
-    let t = Instant::now();
-    let fs = Filesystem::mount(&mut alloc, &mut partition).map_err(|e| e.code())?;
-    let mounted = t.elapsed();
+/// Finished rides, free blocks, total blocks.
+fn storage_summary(fs: &Filesystem<'_, storage::Partition<'_>>) -> Result<(u16, u16, u16), i32> {
     let mut rides = 0u16;
-    ride_store::finished(&fs, |_, _| rides += 1).map_err(|e| e.code())?;
+    ride_store::finished(fs, |_, _| rides += 1).map_err(|e| e.code())?;
     let free = fs.available_blocks().map_err(|e| e.code())? as u16;
     let total = fs.total_blocks() as u16;
-    info!(
-        "storage: mounted in {} ms, {rides} rides, {free} / {total} blocks free, listed in {} ms",
-        mounted.as_millis(),
-        t.elapsed().as_millis()
-    );
+    info!("storage: {rides} rides, {free} / {total} blocks free");
     Ok((rides, free, total))
 }
 
@@ -484,7 +498,7 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status) {
     let u16le = |d: &[u8; 6], i: usize| u16::from_le_bytes([d[i], d[i + 1]]);
     let rows: [(&str, String); 9] = [
         (
-            "storage (read-only): rides / free blocks",
+            "storage: rides / free blocks",
             match s.storage {
                 None => none(),
                 Some(Ok((rides, free, total))) => format!("{rides} / {free} of {total}"),

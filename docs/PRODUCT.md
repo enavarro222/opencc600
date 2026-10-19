@@ -199,7 +199,8 @@ Right after the MVP: corridor background map.
    `SensorSource`, `SyncTransport`, …), so everything above `cc600-board` runs on a PC.
 3. Bring-up order on the device: panel *(done 2026-10-19: `firmware/src/panel.rs`, framebuffer in PSRAM
    flushed in 40-line DMA bands)* → nRF link *(keys, battery, RTC read, barometer, light sensor, buzzer, power off done
-   2026-10-19: `crates/nrf-link`; RTC write-back to do with the GNSS)* (keys, battery, RTC) → storage → GNSS → FIT recording
+   2026-10-19: `crates/nrf-link`; RTC write-back to do with the GNSS)* → storage *(done 2026-10-19: our littlefs on the whole partition, `crates/ride-store`,
+   power-cut tested on a PC at every flash operation and on the device with random resets)* (keys, battery, RTC) → storage → GNSS → FIT recording
    → BLE / ANT+ sensors → Wi-Fi sync.
 4. Then sync / configuration / differentiating features, following the MVP.
 

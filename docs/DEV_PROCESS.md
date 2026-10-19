@@ -33,6 +33,8 @@ Each layer below catches what the previous one cannot.
   pressure / time columns become fixtures, no positions.
 - **Power-cut fuzzing**: the storage fake (RAM-backed flash) "cuts the power" at **every** write in turn, then
   reboots the logic and checks that the ride is recovered. This is the test behind "a ride is never lost".
+  *Exists*: `crates/ride-store/tests/power_cut.rs` (988 cuts, half-applied program / erase, checked against a
+  deliberately non-atomic append).
 
 ## 2. Simulator — every commit
 
@@ -76,8 +78,10 @@ One CC600 dedicated to tests, on USB-C to a self-hosted CI runner. Everything go
   - inject key events (the keys are on the nRF, so there is no GPIO to poke);
   - dump the framebuffer as PNG → compared with the simulator golden image;
   - load a route, start/stop a ride, read back a FIT file.
-- **Crash recovery**: reset at random points (esptool / OpenOCD) during recording, check the FIT file at the next
-  boot. A real battery cut needs the case open → out of scope for now; a reset is not a brown-out.
+- **Crash recovery**: reset at random points during recording, check the ride at the next boot.
+  *Exists for the ride store*: `tools/hil_storage.py` with the `hil-storage` firmware build (back-to-back appends,
+  reset 1–8 s after each boot, every byte checked against a known pattern). First run, 2026-10-19: 30 resets,
+  1057 appends, 11 rides closed, nothing lost. A real battery cut needs the case open → out of scope for now; a reset is not a brown-out.
 - **Sensors**: a second board (ESP32 or nRF dev kit) scripted to act as BLE heart-rate / cadence / power sensors,
   so BLE is tested without a rider.
 - **GNSS**: fix works indoors (~6 s), enough for smoke tests; real rides cover the rest.

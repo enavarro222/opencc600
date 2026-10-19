@@ -6,3 +6,6 @@ extern crate alloc;
 
 pub mod panel;
 pub mod storage;
+
+#[cfg(feature = "hil-storage")]
+pub mod hil_storage;

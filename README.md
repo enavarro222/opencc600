@@ -44,10 +44,13 @@ Source: [docs/prototype/prototype.dc.html](docs/prototype/prototype.dc.html); th
 ## Tools
 - `tools/flash_ota0.py`: writes an app image to `ota_0` and erases `otadata`, after checking the device has the
   known CC600 partition layout; saves the original otadata once (`dump/otadata.orig.bin`), `--restore-vendor`
-  writes it back (`--storage dump/storage.orig.bin` also puts the vendor storage partition back). Refuses any
-  other offset.
+  writes it back (`--storage dump/storage.orig.bin` also puts the vendor storage partition back), `--erase-storage`
+  blanks the storage partition for our firmware to format (only with the vendor backup present). Refuses any other
+  offset.
 - `tools/read_pins.py`: reads the pin routing of a running ESP32-S3 over its built-in USB-JTAG
   (Espressif OpenOCD), read-only.
+- `tools/hil_storage.py`: resets the CC600 at random moments while the `hil-storage` firmware records, checks that
+  no acknowledged ride data is lost.
 - `tools/vendor_fit.py`: extracts the vendor's recorded rides from a storage partition image as standard FIT files.
 - `tools/serial_log.py`: prints the USB serial log for N seconds, each line with the host time (no reset).
 - `tools/sound_probe.py`: records the PC microphone while the firmware scans the nRF sound commands, then lists
