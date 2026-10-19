@@ -174,8 +174,53 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   The temperature reads ~30 °C in a 20–22 °C room, rising slowly: the sensor is inside the case, heated by the
   ESP32 (240 MHz, never sleeping), the backlight and the charger. Fine for the sensor's own compensation, not an
   air temperature. *(To compare with the vendor firmware in the same conditions.)*
+- **Ambient light sensor = stream `F1 04`** (checked by covering / lighting the device): u16 @6 = raw level
+  (~1000 indoors at night), u32 @2 = constant 600 (unknown). Vendor factory test strings `Environment Light:`,
+  `LightLux:`, setting `Auto(Light)` (auto backlight).
 - **No accelerometer / gyro frames** (`F1 01` / `F1 02`) on the CC600. Two subtypes not seen on the C606, meaning
-  unknown: `F1 04` = u32 `600` (constant) + u16 ~1000 varying (996..2779), `F1 0A` = u16 ~3000..3100 varying.
+  unknown: `F1 0A` = u16 ~3000..3100, tracks the barometer temperature 0.01 °C a little above it (second
+  temperature? to check by warming the case).
+- **Buzzer = nRF command `E2 01 XX`** (type 2, cmd 0x10, `E2 01 XX 00 00 00 00 00`), every value acknowledged.
+  The vendor firmware has a `BUZZER FUNC TEST` / `PRESS B KEY TEST BUZZER` factory test and `Key Tones` /
+  `Prompt Tones` settings. Scan of 00..1B recorded with the PC microphone (`tools/sound_probe.py`, piezo
+  fundamentals 1.5–7 kHz; notes split on frequency changes, so a long note may show as 2 pieces).
+  Heard: 00 and 01 the same short beep, 02 "ti-dou-di", 17 "tou-di-dou"; 13, 18, 19 silent by ear.
+
+  | `E2 01 XX` | notes (Hz × ms) | total |
+  |---|---|---|
+  | 13 | silent | |
+  | 00 | 3000×80, 3000×70, 3000×30, 2700×30, 4900×50 | 2440 ms |
+  | 01 | 3000×160, 3000×80 | 280 ms |
+  | 02 | 4900×90, 4250×110, 5000×210, 5000×170 | 590 ms |
+  | 03 | 4900×90, 5600×110, 4250×90, 5500×190, 5500×240 | 740 ms |
+  | 04 | 3000×80, 3400×110, 3000×80, 3000×120, 3000×70, 3000×70 | 570 ms |
+  | 05 | 5000×800 | 800 ms |
+  | 06 | 5600×130, 4800×640 | 770 ms |
+  | 07 | 4800×170, 6000×100, 5600×360, 4000×30, 5600×170 | 830 ms |
+  | 08 | 3000×80, 3400×110, 3000×80, 3000×100, 3000×110, 3000×30 | 570 ms |
+  | 09 | 3400×90, 3000×80, 3400×110, 3000×80, 3000×70, 3000×60 | 570 ms |
+  | 0A | 4000×380 | 380 ms |
+  | 0B | 4000×550 | 550 ms |
+  | 0C | 6000×360, 3000×100, 4000×290, 4000×40 | 860 ms |
+  | 0D | 4000×700 | 700 ms |
+  | 0E | 4000×1160 | 1160 ms |
+  | 0F | 4000×1370 | 1370 ms |
+  | 10 | 6000×350, 3000×50, 3000×30, 4000×290 | 750 ms |
+  | 11 | 4000×220, 3000×50, 3000×30, 6000×360, 6000×80, 6000×40, 1600×30 | 1600 ms |
+  | 12 | 1500×70, 4000×2880 | 2960 ms (still sounding at the next command) |
+  | 13 | 4000×90 | 90 ms |
+  | 14 | 3400×100, 3000×200, 3000×100, 3400×100, 3000×200, 3000×80, 3000×40, 1600×30 | 2760 ms |
+  | 15 | 2500×140, 5100×30, 2500×40, 2500×30, 2500×30 | 320 ms |
+  | 16 | 3000×310, 3000×110 | 440 ms |
+  | 17 | 5600×170, 4800×580 | 750 ms |
+  | 18 | silent | |
+  | 19 | silent | |
+  | 1A | 4550×200, 5400×130, 3900×70, 5450×40, 5450×70 | 600 ms |
+  | 1B | 1550×70 | 70 ms |
+
+  12 keeps sounding (4 kHz) until the next command: probably a continuous alarm that needs a stop command
+  (13, which gave a 90 ms tick right after it, or 18 / 19?). *(To check: what stops 12; which sound the vendor
+  uses for keys, ride start / stop / lap, alerts.)*
 - **UART FIFO**: 128 bytes = ~11 ms at 115200 baud. Reading it from the thread-mode executor lost frames
   (`FifoOverflowed`) during a redraw + flush (~25 ms); the nRF task now runs on an interrupt executor. The GNSS at
   921600 baud fills the FIFO in 1.4 ms: it will need UART DMA (UHCI) or the same high-priority reader.

@@ -52,6 +52,11 @@ fn commands() {
     );
     assert_eq!(command::check_power_on_reason()[4], 1);
     assert_eq!(command::power_off()[11], 0);
+    let jingle = command::misc(command::SOUND_JINGLE);
+    assert_eq!(
+        &jingle[6..14],
+        &[0xE2, 0x01, 0x17, 0x00, 0x00, 0x00, 0x00, 0x00]
+    );
     for f in [
         on,
         command::check_power_on_reason(),
@@ -182,16 +187,16 @@ fn baro() {
 }
 
 #[test]
-fn unknown_stream_subtypes() {
-    // CC600 (nRF fw 1.2.16), 3.3 Hz each; meaning unknown.
+fn cc600_stream_subtypes() {
+    // CC600 (nRF fw 1.2.16), 3.3 Hz each: 04 = ambient light, 0A = unknown.
     let m = parse_one(&[
         0xA5, 0x0C, 0x6F, 0xF1, 0x04, 0x10, 0xF1, 0x04, 0x58, 0x02, 0x00, 0x00, 0x28, 0x04,
     ]);
     assert_eq!(
         m,
-        Message::Stream {
-            sub: 0x04,
-            data: [0x58, 0x02, 0x00, 0x00, 0x28, 0x04]
+        Message::Light {
+            level: 0x0428,
+            param: 600
         }
     );
     let m = parse_one(&[

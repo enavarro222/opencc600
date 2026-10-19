@@ -236,7 +236,14 @@ pub enum Message {
         centi_celsius: i16,
         centi_pascal: u32,
     },
-    /// Other sensor stream subtype, not understood yet (CC600: `04` and `0A`, 3.3 Hz each).
+    /// Ambient light sensor (CC600, 3.3 Hz; checked by covering / lighting the device). `level` is the raw
+    /// reading (~1000 indoors at night), `param` is constant 600 (unknown, maybe an integration time).
+    /// Vendor factory test strings: `Environment Light:`, `LightLux:`; used for the `Auto(Light)` backlight.
+    Light {
+        level: u16,
+        param: u32,
+    },
+    /// Other sensor stream subtype, not understood yet (CC600: `0A`, 3.3 Hz, tracks the barometer temperature).
     Stream {
         sub: u8,
         data: [u8; 6],
@@ -300,6 +307,10 @@ impl Message {
                     centi_celsius: u16_at(p, 2)? as i16,
                     centi_pascal: u32::from_le_bytes(p.get(4..8)?.try_into().ok()?),
                 },
+                0x04 => Message::Light {
+                    param: u32::from_le_bytes(p.get(2..6)?.try_into().ok()?),
+                    level: u16_at(p, 6)?,
+                },
                 sub => Message::Stream {
                     sub,
                     data: p.get(2..8)?.try_into().ok()?,
@@ -341,5 +352,15 @@ pub mod command {
     /// GNSS module power: 0 off, 1 on, 2 (vendor value, meaning unknown).
     pub fn gps_power(val: u8) -> [u8; CTRL_FRAME] {
         ctrl(TYPE_SET, 0x02, 0x07, val)
+    }
+
+    /// [`misc`] value playing a short melody ("tou-di-dou") on the buzzer (CC600, checked by ear).
+    pub const SOUND_JINGLE: u8 = 0x17;
+
+    /// `E2 01 XX 00 00 00 00 00`, "LED/misc" in c606-oss; the vendor sends XX < 0x1C (0x13, 0x17, 0x18, 0x19 seen).
+    /// Each is acknowledged. On the CC600, [`SOUND_JINGLE`] plays a short melody on the buzzer; 0x13, 0x18 and 0x19
+    /// make no sound; the other values are untested.
+    pub fn misc(id: u8) -> [u8; CTRL_FRAME] {
+        ctrl(TYPE_SET, 0x01, id, 0x00)
     }
 }

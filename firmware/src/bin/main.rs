@@ -163,12 +163,54 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut shown = None;
     let mut last_power_on = Instant::now();
+    let mut probe_index: Option<usize> = None;
+    let mut scan: Option<(u8, Instant)> = None;
     loop {
         let _ = with_timeout(Duration::from_secs(1), STATUS_CHANGED.wait()).await;
         // The vendor repeats SendPowerOnCmd; c606-oss does it every 5 s. No nRF watchdog seen so far.
         if last_power_on.elapsed() >= Duration::from_secs(5) {
             NRF_COMMANDS.send(command::power_on()).await;
             last_power_on = Instant::now();
+        }
+        // Buzzer hunt: key 1 = next probe, key 2 = send the same again, key 0 = previous;
+        // long press on key 1 = automatic scan of E2 01 00..1B, one every 3 s (tools/sound_probe.py records it).
+        let mut send = None;
+        let mut scan_done = false;
+        while let Ok((key, action)) = NRF_KEYS.try_receive() {
+            match (key, action) {
+                (1, KeyAction::LongRelease) if scan.is_none() => {
+                    info!("scan start");
+                    scan = Some((0u8, Instant::now() - SCAN_STEP));
+                }
+                (_, KeyAction::Click) => {
+                    probe_index = match key {
+                        0 => probe_index.map(|i: usize| i.saturating_sub(1)),
+                        1 => Some(probe_index.map_or(0, |i| (i + 1).min(PROBES.len() - 1))),
+                        _ => probe_index.or(Some(0)),
+                    };
+                    send = Some(PROBES[probe_index.unwrap_or(0)]);
+                }
+                _ => {}
+            }
+        }
+        if let Some((id, at)) = scan
+            && at.elapsed() >= SCAN_STEP
+        {
+            send = Some(id);
+            scan = (id < SCAN_LAST).then(|| (id + 1, Instant::now()));
+            scan_done = scan.is_none();
+        }
+        if let Some(id) = send {
+            info!("probe E2 01 {id:02X}");
+            NRF_COMMANDS.send(command::misc(id)).await;
+            STATUS.lock(|s| {
+                let mut status = s.get();
+                status.probe = Some(id);
+                s.set(status);
+            });
+            if scan_done {
+                info!("scan done");
+            }
         }
         let state = STATUS.lock(Cell::get);
         if shown != Some(state) {
@@ -186,6 +228,16 @@ const RUN_BENCH: bool = false;
 /// Latest state from the nRF, written by the nRF task, read by the display loop.
 static STATUS: Mutex<CriticalSectionRawMutex, Cell<Status>> = Mutex::new(Cell::new(Status::new()));
 static STATUS_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+static NRF_KEYS: Channel<CriticalSectionRawMutex, (u8, KeyAction), 8> = Channel::new();
+
+const SCAN_STEP: Duration = Duration::from_secs(3);
+const SCAN_LAST: u8 = 0x1B;
+
+/// Buzzer hunt: `E2 01 XX` values, the ones the vendor sends first, then the rest of 0..0x1C.
+const PROBES: [u8; 28] = [
+    0x13, 0x17, 0x18, 0x19, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B,
+    0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x14, 0x15, 0x16, 0x1A, 0x1B,
+];
 static NRF_COMMANDS: Channel<CriticalSectionRawMutex, [u8; command::CTRL_FRAME], 4> =
     Channel::new();
 
@@ -240,10 +292,14 @@ async fn nrf_rx(mut rx: UartRx<'static, Async>) -> ! {
                 Message::Accel(_)
                 | Message::Gyro(_)
                 | Message::Baro { .. }
+                | Message::Light { .. }
                 | Message::Stream { .. } => {
                     debug!("nrf {msg:?}")
                 }
                 _ => info!("nrf {msg:?}"),
+            }
+            if let Message::Key { key, action } = msg {
+                let _ = NRF_KEYS.try_send((key, action));
             }
             STATUS.lock(|s| {
                 let mut status = s.get();
@@ -266,6 +322,11 @@ struct Status {
     last_key: Option<(u8, KeyAction)>,
     keys: u32,
     baro: Option<(i16, u32)>,
+    /// Ambient light (raw) and the raw sensor stream subtype `0A` (meaning unknown).
+    light: Option<u16>,
+    stream0a: Option<[u8; 6]>,
+    /// Last `E2 01 XX` probe sent (buzzer hunt).
+    probe: Option<u8>,
 }
 
 impl Status {
@@ -279,6 +340,9 @@ impl Status {
             last_key: None,
             keys: 0,
             baro: None,
+            light: None,
+            stream0a: None,
+            probe: None,
         }
     }
 
@@ -304,6 +368,8 @@ impl Status {
                 centi_celsius,
                 centi_pascal,
             } => self.baro = Some((centi_celsius, centi_pascal)),
+            Message::Light { level, .. } => self.light = Some(level),
+            Message::Stream { sub: 0x0A, data } => self.stream0a = Some(data),
             Message::Ack
             | Message::Accel(_)
             | Message::Gyro(_)
@@ -327,15 +393,16 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status) {
         .unwrap();
 
     let none = || String::from("-");
-    let rows: [(&str, String); 7] = [
+    let u16le = |d: &[u8; 6], i: usize| u16::from_le_bytes([d[i], d[i + 1]]);
+    let rows: [(&str, String); 8] = [
         (
-            "battery",
-            s.battery
-                .map_or_else(none, |(mv, pct)| format!("{pct}% {mv}mV")),
-        ),
-        (
-            "charger status",
-            s.charger.map_or_else(none, |c| format!("{c}")),
+            "battery / charger status",
+            format!(
+                "{} / {}",
+                s.battery
+                    .map_or_else(none, |(mv, pct)| format!("{pct}% {mv}mV")),
+                s.charger.map_or_else(none, |c| format!("{c}"))
+            ),
         ),
         (
             "nRF RTC (UTC)",
@@ -347,15 +414,18 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status) {
             }),
         ),
         (
-            "last key",
-            s.last_key.map_or_else(none, |(k, a)| match a {
-                KeyAction::Click => format!("{k} click"),
-                KeyAction::LongPress => format!("{k} long"),
-                KeyAction::LongRelease => format!("{k} release"),
-                KeyAction::Other(v) => format!("{k} ?{v}"),
-            }),
+            "last key (events)",
+            format!(
+                "{} ({})",
+                s.last_key.map_or_else(none, |(k, a)| match a {
+                    KeyAction::Click => format!("{k} click"),
+                    KeyAction::LongPress => format!("{k} long"),
+                    KeyAction::LongRelease => format!("{k} release"),
+                    KeyAction::Other(v) => format!("{k} ?{v}"),
+                }),
+                s.keys
+            ),
         ),
-        ("key events", format!("{}", s.keys)),
         (
             "nRF fw / power-on reason",
             format!(
@@ -380,9 +450,22 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status) {
                 },
             ),
         ),
+        (
+            "ambient light (raw)",
+            s.light.map_or_else(none, |l| format!("{l}")),
+        ),
+        (
+            "stream 0A: u16 @0",
+            s.stream0a
+                .map_or_else(none, |d| format!("{}", u16le(&d, 0))),
+        ),
+        (
+            "probe E2 01 XX   k1:next k2:again k0:prev",
+            s.probe.map_or_else(none, |id| format!("{id:02X}")),
+        ),
     ];
     for (i, (name, v)) in rows.iter().enumerate() {
-        let y = 52 + i as i32 * 38;
+        let y = 50 + i as i32 * 34;
         Text::new(name, Point::new(8, y), label).draw(fb).unwrap();
         Text::new(v, Point::new(8, y + 20), value).draw(fb).unwrap();
     }
