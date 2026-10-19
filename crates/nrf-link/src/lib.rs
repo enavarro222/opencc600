@@ -202,6 +202,36 @@ pub struct RtcTime {
     pub second: u8,
 }
 
+impl RtcTime {
+    /// Seconds since 1970-01-01 00:00:00 (no leap seconds, like UTC on the receivers).
+    pub fn unix(&self) -> i64 {
+        days_from_civil(self.year, self.month, self.day) * 86_400
+            + self.hour as i64 * 3600
+            + self.minute as i64 * 60
+            + self.second as i64
+    }
+
+    /// 0 = Sunday, the value [`command::set_rtc`] expects.
+    pub fn weekday(&self) -> u8 {
+        // 1970-01-01 was a Thursday
+        (days_from_civil(self.year, self.month, self.day) + 4).rem_euclid(7) as u8
+    }
+}
+
+/// Days since 1970-01-01 of a proleptic Gregorian date (H. Hinnant's `days_from_civil`).
+fn days_from_civil(y: u16, m: u8, d: u8) -> i64 {
+    let (y, m) = if m <= 2 {
+        (y as i64 - 1, m as i64 + 9)
+    } else {
+        (y as i64, m as i64 - 3)
+    };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * m + 2) / 5 + d as i64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
 /// nRF → ESP32 messages known so far.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Message {

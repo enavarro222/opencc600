@@ -50,16 +50,26 @@ measurement unless marked so.
 
 ## How we measure
 
-The case is not opened, so no current probe on the rails. Three complementary ways:
+The case is not opened, so no current probe on the rails, and **plugged into USB the battery charges**: the unit
+must run on battery during a measurement. Simple ways, cheapest first:
 
-1. **Battery discharge runs (reference method)**: the firmware logs, every minute, the battery voltage and percent
-   from the nRF, the configuration under test and the uptime, into the storage partition (`/power/<run>.csv`).
-   Run each configuration on battery for a few hours from a full charge; average current
-   ≈ capacity used / time. Slow, but it measures the real thing, nRF included.
-2. **USB input current with a full battery** *(hypothesis to check)*: once the charger has finished, the USB input
-   current should be close to the system draw. A USB power meter then gives a fast A/B comparison (backlight
-   levels, CPU clock, GNSS modes) in minutes instead of hours. To validate against method 1 before trusting it.
-3. **Firmware counters**: time spent awake vs idle per executor, redraws per minute, bytes received per link.
+1. **Battery run, read back afterwards (reference method, no hardware)**: the firmware appends one line a minute
+   to `/power/<run>.csv` on our littlefs: uptime, battery millivolts and percent from the nRF, the configuration
+   under test (backlight, GNSS mode, CPU clock...). Charge to 100 %, unplug, let it run; plug back in and read the
+   file over the serial link to plot it. The ride-store guarantee applies: the last acknowledged line survives
+   the battery dying. Below 3 % the firmware writes an end-of-run line and powers off cleanly (`power_off`).
+   - A **full discharge** gives the real battery life, nRF included, with no assumption.
+   - A **partial run** (100 % → 70 %) is enough to compare two configurations, less precisely (the nRF percent
+     is coarse and the voltage curve is not linear).
+2. **USB power blocker (live logs on battery, ~5–10 €)**: an adapter that cuts the USB +5 V and keeps D+/D−
+   ("USB power blocker", "data only", e.g. PortaPow), or a cable with its VBUS wire cut. The unit then runs on
+   battery while `/dev/ttyACM0` still carries the logs: ideal for live A/B comparisons and for watching a
+   discharge. *To check on the CC600: the ESP32-S3 USB-Serial-JTAG should enumerate without VBUS since the chip
+   is powered by the battery; quick test: plug through the blocker and look for `/dev/ttyACM0`.*
+3. **USB input current with a full battery** *(hypothesis to check)*: once the charger has finished, the USB input
+   current may be close to the system draw; a USB power meter would then give a fast A/B comparison. To validate
+   against method 1 before trusting it.
+4. **Firmware counters**: time spent awake vs idle per executor, redraws per minute, bytes received per link.
    Cheap, always on in debug builds, and they explain *why* a configuration draws more.
 
 Each lever below gets an A/B measurement before it becomes a default. Results go in the table at the end.

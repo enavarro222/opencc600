@@ -323,3 +323,22 @@ proptest! {
         dec.feed(&data, |f| { let _ = Message::parse(&f); });
     }
 }
+
+#[test]
+fn rtc_time_arithmetic() {
+    let t = |year, month, day, hour, minute, second| RtcTime {
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+    };
+    assert_eq!(t(1970, 1, 1, 0, 0, 0).unix(), 0);
+    assert_eq!(t(2026, 10, 19, 8, 40, 27).unix(), 1_792_399_227);
+    assert_eq!(t(2000, 2, 29, 0, 0, 0).unix(), 951_782_400);
+    assert_eq!(t(1970, 1, 1, 0, 0, 0).weekday(), 4); // Thursday
+    assert_eq!(t(2026, 10, 19, 0, 0, 0).weekday(), 1); // Monday
+    assert_eq!(t(2024, 2, 29, 0, 0, 0).weekday(), 4);
+    assert_eq!(t(2026, 3, 1, 0, 0, 0).unix() - t(2026, 2, 28, 0, 0, 0).unix(), 86_400);
+}

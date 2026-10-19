@@ -205,6 +205,8 @@ async fn main(spawner: Spawner) -> ! {
     // Vendor boot (`INIT_QUERY`): power-on command, then the power-on reason query.
     NRF_COMMANDS.send(command::power_on()).await;
     NRF_COMMANDS.send(command::check_power_on_reason()).await;
+    // The nRF powers the receiver and can leave it off after a power cycle (seen once).
+    NRF_COMMANDS.send(command::gps_power(1)).await;
 
     let mut shown = None;
     let mut last_power_on = Instant::now();
@@ -396,6 +398,10 @@ async fn nrf_rx(mut rx: UartRx<'static, Async>) -> ! {
 }
 
 #[embassy_executor::task]
+#[allow(
+    clippy::large_stack_frames,
+    reason = "task future: line buffer + fix, statically allocated by embassy"
+)]
 async fn gnss_task(mut uart: GnssUart) {
     let mut reader = gnss::LineReader::new();
     let mut fix = gnss::Fix::default();
@@ -404,6 +410,7 @@ async fn gnss_task(mut uart: GnssUart) {
     // full) or a silent receiver.
     let mut last_data = Instant::now();
     let mut silent = false;
+    let mut last_rtc_set: Option<Instant> = None;
     loop {
         let mut epoch = false;
         let n = uart.drain(|data| {
@@ -427,6 +434,7 @@ async fn gnss_task(mut uart: GnssUart) {
                 s.set(status);
             });
             STATUS_CHANGED.signal(());
+            sync_rtc(&fix, &mut last_rtc_set).await;
         }
         if last_report.elapsed() >= Duration::from_secs(10) {
             last_report = Instant::now();
@@ -444,20 +452,32 @@ async fn gnss_task(mut uart: GnssUart) {
     }
 }
 
-/// 0 = Sunday (days since 1970-01-01, a Thursday).
-#[allow(dead_code, reason = "for the GNSS time to nRF RTC sync, next step")]
-fn weekday(y: u16, m: u8, d: u8) -> u8 {
-    let (y, m) = if m <= 2 {
-        (y as i32 - 1, m as i32 + 9)
-    } else {
-        (y as i32, m as i32 - 3)
+/// Writes the GNSS time to the nRF RTC when they differ by 2 s or more (the RTC frame has a 1 s resolution and
+/// arrives at 5 Hz, so 1 s is jitter), at most once a minute in case a write does not take.
+async fn sync_rtc(fix: &gnss::Fix, last_set: &mut Option<Instant>) {
+    let (true, Some(time), Some(date)) = (fix.valid, fix.time, fix.date) else {
+        return;
     };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * m + 2) / 5 + d as i32 - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    (days + 4).rem_euclid(7) as u8
+    if last_set.is_some_and(|at| at.elapsed() < Duration::from_secs(60)) {
+        return;
+    }
+    let gnss = RtcTime {
+        year: date.year,
+        month: date.month,
+        day: date.day,
+        hour: time.hour,
+        minute: time.minute,
+        second: time.second,
+    };
+    let rtc = STATUS.lock(Cell::get).rtc;
+    if rtc.is_some_and(|rtc| (rtc.unix() - gnss.unix()).abs() < 2) {
+        return;
+    }
+    info!("rtc: {rtc:?} -> {gnss:?} (GNSS)");
+    NRF_COMMANDS
+        .send(command::set_rtc(&gnss, gnss.weekday()))
+        .await;
+    *last_set = Some(Instant::now());
 }
 
 /// What the bring-up screen shows, updated from the nRF messages.
