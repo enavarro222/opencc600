@@ -91,7 +91,7 @@ Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [pro
 - Every screen shows what each of the 3 keys does, next to the key (top-left key = top-left label, bottom keys =
   bottom bar corners). Labels stay consistent with the front silkscreen: bottom-right = main action (start, pause,
   resume, OK), bottom-left = menu / next, top-left = back / contextual.
-- No hidden action. One long press only, always labelled: "⏻ Maintenir" to switch off (and on).
+- No hidden action. One long press only, always labelled: "⏻ Maintenir" on the home screen to switch off (and on).
 - Irreversible actions go through a confirmation screen that says what will happen; confirming uses a different
   key than the one that opened it.
 - Riding: 3 pages (data, corridor map, climbs), bottom-left cycles pages. Top-left is contextual: map zoom on the
@@ -100,7 +100,10 @@ Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [pro
   true: off route, sensor lost), climb ahead, auto-pause. One at a time, by priority.
 - One route on the device, sent from the app at any time (even mid-ride). Rides are uploaded as soon as possible
   (home Wi-Fi or app) and deleted only after the upload is confirmed.
-- Pause menu: sensors, finish ride. Switching off while paused keeps the ride; it resumes after power-on.
+- Pause screen: bottom-right resume, bottom-left "Finish…" (then confirmation), top "≡ Menu" (sensors, switch off).
+  Switching off while paused keeps the ride; it resumes after power-on.
+- The 3 key labels have the same size and a blue mark (the colour of the physical keys) on the key's side:
+  left edge for the top-left key, bottom edge for the bottom keys.
 
 ### Data pages: chosen for the rider, not built by the rider
 No page editor to start with. The app asks **one question** ("ride to explore" or "train"); the device detects the
