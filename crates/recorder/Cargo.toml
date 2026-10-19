@@ -1,0 +1,15 @@
+[package]
+name         = "recorder"
+description  = "Ride recording: FIT activity files on ride-store, closed again after a power cut"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dependencies]
+fit        = { path = "../fit" }
+ride-store = { path = "../ride-store" }
+
+[dev-dependencies]
+fitparser  = "0.11.0"
+ride-store = { path = "../ride-store", features = ["ram"] }

@@ -81,6 +81,11 @@ pub fn remove<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
     fs.remove(&ride_path(id, FIT))
 }
 
+/// Deletes unfinished ride `id` (e.g. an empty one found after a power cut).
+pub fn remove_unfinished<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
+    fs.remove(&ride_path(id, PART))
+}
+
 /// Calls `f(id, size)` for every finished ride.
 pub fn finished<S: Storage>(fs: &Filesystem<'_, S>, f: impl FnMut(u32, usize)) -> Result<()> {
     rides(fs, FIT, f)
