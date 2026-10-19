@@ -1,0 +1,11 @@
+[package]
+name         = "fit"
+description  = "FIT activity file writer (Garmin Flexible and Interoperable Data Transfer), no_std, no alloc"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dev-dependencies]
+# Independent decoder: every file written in the tests is read back with it.
+fitparser = "0.11.0"
