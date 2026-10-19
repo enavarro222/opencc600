@@ -22,6 +22,7 @@ helmet = re.search(r"<helmet>(.*?)</helmet>", xdc, re.S)
 styles = "".join(re.findall(r"<style>(.*?)</style>", helmet.group(1), re.S)) if helmet else ""
 template = re.sub(r"<helmet>.*?</helmet>", "", xdc, flags=re.S).strip()
 logic = re.search(r"<script[^>]*data-dc-script[^>]*>(.*?)</script>", src, re.S).group(1)
+pw, ph = map(int, re.search(r'"\$preview":\{"width":(\d+),"height":(\d+)\}', src).groups())
 
 RUNTIME = r"""
 class DCLogic {
@@ -107,10 +108,10 @@ const night = document.getElementById('night');
 night.addEventListener('change', () => { comp.props = { nuit: night.checked }; scheduleRender(); });
 
 function fit() {
-  const w = Math.min(1, (document.documentElement.clientWidth - 16) / 640);
+  const w = Math.min(1, (document.documentElement.clientWidth - 16) / __PW__);
   const box = document.getElementById('stage');
   box.style.transform = 'scale(' + w + ')';
-  box.parentElement.style.height = (640 * w) + 'px';
+  box.parentElement.style.height = (__PH__ * w) + 'px';
 }
 window.addEventListener('resize', fit);
 fit();
@@ -128,14 +129,14 @@ PAGE = f"""<!doctype html>
 <style>
 :root {{ color-scheme: light; }}
 body {{ margin: 0; background: #E9E7E2; color: #111; font-family: 'Barlow Condensed', sans-serif; }}
-header {{ max-width: 640px; margin: 0 auto; padding: 20px 16px 8px; }}
+header {{ max-width: {pw}px; margin: 0 auto; padding: 20px 16px 8px; }}
 h1 {{ margin: 0 0 4px; font-size: 30px; }}
 header p {{ margin: 4px 0; font-size: 18px; line-height: 1.3; color: #333; }}
 header a {{ color: #1D4ED8; }}
 label.night {{ display: inline-flex; gap: 6px; align-items: center; font-size: 18px; font-weight: 600; margin-top: 6px; cursor: pointer; }}
 .fitwrap {{ overflow: hidden; }}
-#stage {{ width: 640px; height: 640px; margin: 0 auto; transform-origin: top left; }}
-@media (min-width: 656px) {{ #stage {{ transform-origin: top center; }} }}
+#stage {{ width: {pw}px; height: {ph}px; margin: 0 auto; transform-origin: top left; }}
+@media (min-width: {pw + 16}px) {{ #stage {{ transform-origin: top center; }} }}
 {styles}
 </style>
 </head>
@@ -160,5 +161,5 @@ wire();
 </html>
 """
 
-OUT.write_text(PAGE, encoding="utf-8")
+OUT.write_text(PAGE.replace("__PW__", str(pw)).replace("__PH__", str(ph)), encoding="utf-8")
 print(f"wrote {OUT.relative_to(ROOT)} ({OUT.stat().st_size} bytes)")

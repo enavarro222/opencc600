@@ -83,7 +83,37 @@ core a rider checks after every ride.
    integration with home_trainer_game.
 5. **Ride sync**: over **Wi-Fi when back home**, to the phone or a **configurable cloud**
    (Strava, self-hosted server…). Wi-Fi stays off during the ride.
-6. **Configuration**: 3-key menus, web page over Wi-Fi, app? *(open)*
+6. **Configuration**: in a **companion app** (web app over Web Bluetooth is the current lead, to be decided).
+   The device menu stays minimal: sync, sensors, and what is needed on the road. See "UI rules" below.
+
+### UI rules (from the clickable prototype)
+Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [prototype/](prototype/).
+- Every screen shows what each of the 3 keys does, next to the key (top-left key = top-left label, bottom keys =
+  bottom bar corners). Labels stay consistent with the front silkscreen: bottom-right = main action (start, pause,
+  resume, OK), bottom-left = menu / next, top-left = back / contextual.
+- No hidden action. One long press only, always labelled: "⏻ Maintenir" to switch off (and on).
+- Irreversible actions go through a confirmation screen that says what will happen; confirming uses a different
+  key than the one that opened it.
+- Riding: 3 pages (data, corridor map, climbs), bottom-left cycles pages. Top-left is contextual: map zoom on the
+  map page, auto-scroll on/off elsewhere.
+- One banner model, floating above the page and never over the key bar: info (blue, 3 s), attention (amber, while
+  true: off route, sensor lost), climb ahead, auto-pause. One at a time, by priority.
+- One route on the device, sent from the app at any time (even mid-ride). Rides are uploaded as soon as possible
+  (home Wi-Fi or app) and deleted only after the upload is confirmed.
+- Pause menu: sensors, finish ride. Switching off while paused keeps the ride; it resumes after power-on.
+
+### Features and app settings
+| Feature | Default | Notes |
+|---|---|---|
+| Off-route alert (banner + dashed line to the route + beep) | on, beep configurable | |
+| Auto-pause | on, configurable | timer stops when not moving |
+| Start reminder ("you are riding, start?") | on, configurable | never starts on its own |
+| Page auto-scroll | available, toggled on the device | interval set in the app |
+| Night mode at sunset | on, configurable | computed from GPS position |
+| Climb tracking (list, alert, live climb page) | on | climbs detected in the app when the route is prepared |
+| Turn announcements | **off (later)** | cues precomputed in the app (map matching or course points from the route file) |
+| Strava segments | **off (later)** | needs a Strava Live Segments licence + user subscription; starred segments otherwise |
+| Laps | **off (later)** | |
 
 ### Corridor map around the route
 The "no maps" limit only applies to a global map. A map restricted to the loaded route fits the CC600:

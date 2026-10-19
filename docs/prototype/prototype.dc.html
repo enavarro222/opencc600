@@ -16,7 +16,7 @@ button{font-family:inherit}
 @keyframes notifB{from{width:100%}to{width:0%}}
 </style>
 </helmet>
-<div style="width: 640px; height: 640px; box-sizing: border-box; padding: 40px; display: flex; gap: 48px; align-items: flex-start; font-family: 'Barlow Condensed', sans-serif; background: #E9E7E2; color: #111111">
+<div style="width: 820px; height: 640px; box-sizing: border-box; padding: 40px; display: flex; gap: 40px; align-items: flex-start; font-family: 'Barlow Condensed', sans-serif; background: #E9E7E2; color: #111111">
 
   <div style="position: relative; width: 300px; height: 480px; flex-shrink: 0; border-radius: 36px; background: #141416; box-shadow: 0 12px 28px rgba(0,0,0,0.25)">
     <button onClick="{{pressHG}}" onPointerDown="{{holdStart}}" onPointerUp="{{holdEnd}}" onPointerLeave="{{holdEnd}}" aria-label="Bouton haut gauche" style="position: absolute; left: -9px; top: 64px; width: 12px; height: 64px; padding: 0; border: none; border-radius: 4px; background: #3BB3E0; cursor: pointer"></button>
@@ -105,6 +105,7 @@ button{font-family:inherit}
             <sc-if value="{{is.p2}}" hint-placeholder-val="{{ false }}">
               <div style="position: relative; height: 100%; background: {{c.mapbg}}">
                 <svg width="240" height="256" viewBox="0 0 240 256" role="img" aria-label="Carte du corridor autour de la trace" style="display: block">
+                  <g style="transform: scale({{mapScale}}); transform-origin: 120px 192px">
                   <path d="M0 210 C 60 200, 110 175, 240 150" fill="none" stroke="{{c.road}}" stroke-width="3"></path>
                   <path d="M20 0 C 40 60, 70 110, 118 160" fill="none" stroke="{{c.road}}" stroke-width="2"></path>
                   <path d="M240 60 C 200 70, 175 85, 160 110" fill="none" stroke="{{c.road}}" stroke-width="2"></path>
@@ -112,8 +113,16 @@ button{font-family:inherit}
                   <path d="M0 140 C 40 135, 70 150, 100 130 S 170 60, 240 30" fill="none" stroke="{{c.water}}" stroke-width="2"></path>
                   <path d="M120 256 L 120 192" fill="none" stroke="{{c.done}}" stroke-width="5" stroke-linecap="round"></path>
                   <path d="M120 192 C 118 170, 120 145, 132 130 S 162 112, 164 92 S 150 60, 128 50 S 96 30, 92 0" fill="none" stroke="{{c.route}}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></path>
-                  <circle cx="120" cy="192" r="11" fill="{{c.bg}}" stroke="{{c.me}}" stroke-width="2"></circle>
-                  <path d="M120 183 L 126 198 L 120 195 L 114 198 Z" fill="{{c.me}}"></path>
+                  </g>
+                  <g opacity="{{onCourseOp}}">
+                    <circle cx="120" cy="192" r="11" fill="{{c.bg}}" stroke="{{c.me}}" stroke-width="2"></circle>
+                    <path d="M120 183 L 126 198 L 120 195 L 114 198 Z" fill="{{c.me}}"></path>
+                  </g>
+                  <g opacity="{{offCourseOp}}">
+                    <line x1="176" y1="214" x2="128" y2="150" stroke="#F59F00" stroke-width="3" stroke-dasharray="5 4"></line>
+                    <circle cx="176" cy="214" r="11" fill="{{c.bg}}" stroke="#F59F00" stroke-width="2.5"></circle>
+                    <path d="M176 205 L 182 220 L 176 217 L 170 220 Z" fill="#F59F00"></path>
+                  </g>
                 </svg>
                 <div style="position: absolute; top: 6px; left: 6px; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; line-height: 1">
                   <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: {{c.mute}}">Reste</span>
@@ -122,6 +131,10 @@ button{font-family:inherit}
                 <div style="position: absolute; top: 6px; right: 6px; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; align-items: flex-end; line-height: 1">
                   <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: {{c.mute}}">Vitesse</span>
                   <span style="font-size: 22px; font-weight: 700">{{speed}}</span>
+                </div>
+                <div style="position: absolute; bottom: 6px; right: 6px; padding: 2px 6px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; align-items: flex-end; gap: 2px">
+                  <span style="font-size: 13px; font-weight: 700">{{zoomLabel}}</span>
+                  <div style="width: 48px; height: 3px; background: {{c.fg}}"></div>
                 </div>
               </div>
             </sc-if>
@@ -232,10 +245,16 @@ button{font-family:inherit}
             </sc-if>
 
             <sc-if value="{{is.saved}}" hint-placeholder-val="{{ false }}">
-              <div style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 14px; text-align: center">
-                <span style="font-size: 44px; font-weight: 700; color: {{c.ok}}">✓</span>
-                <span style="font-size: 26px; font-weight: 700">Sortie enregistrée</span>
-                <span style="font-size: 18px; font-weight: 500">48,6 km · 1:42:08 · 812 m D+</span>
+              <div style="height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 10px 14px; text-align: center">
+                <span style="font-size: 24px; font-weight: 700; color: {{c.ok}}">✓ Sortie enregistrée</span>
+                <div style="width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; text-align: left">
+                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">DISTANCE</span><span style="font-size: 26px; font-weight: 700">48,6 km</span></div>
+                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">DURÉE</span><span style="font-size: 26px; font-weight: 700">1:42:08</span></div>
+                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">MOYENNE</span><span style="font-size: 26px; font-weight: 700">28,5</span></div>
+                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">D+</span><span style="font-size: 26px; font-weight: 700">812 m</span></div>
+                </div>
+                <svg width="212" height="34" viewBox="0 0 212 34" aria-hidden="true" style="display: block"><path d="M0 30 L 16 26 L 26 27 L 38 16 L 46 18 L 56 23 L 66 23 L 82 6 L 92 9 L 106 26 L 124 27 L 132 21 L 142 23 L 158 26 L 188 4 L 200 15 L 212 28 L 212 34 L 0 34 Z" fill="{{c.climbDone}}"></path></svg>
+                <span style="font-size: 15px; font-weight: 600">2 montées sur 4 · 12 min à l'arrêt</span>
                 <span style="font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}">Elle part dès que possible (Wi-Fi maison ou app), puis est effacée du compteur une fois reçue.</span>
               </div>
             </sc-if>
@@ -383,26 +402,36 @@ button{font-family:inherit}
     </div>
   </div>
 
-  <div style="width: 212px; display: flex; flex-direction: column; gap: 10px">
+  <div style="width: 400px; display: flex; flex-direction: column; gap: 8px">
     <span style="font-size: 26px; font-weight: 700">Prototype</span>
     <span style="font-size: 16px; font-weight: 500; line-height: 1.3; color: #444444">Clique sur les 3 boutons bleus du compteur, ou directement sur les libellés à l'écran.</span>
     <span style="font-size: 15px; font-weight: 600; color: #444444">{{offHint}}</span>
     <span style="font-size: 15px; font-weight: 700; color: #B35C00">{{simMsg}}</span>
-    <div style="height: 1px; background: #C8C5BE"></div>
-    <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Simuler pendant la sortie</span>
-    <button onClick="{{simApproach}}" style="height: 36px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Approche d'une montée</button>
-    <button onClick="{{simClimb}}" style="height: 36px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Pied de la montée</button>
-    <button onClick="{{simTop}}" style="height: 36px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Sommet atteint</button>
-    <button onClick="{{simLost}}" style="height: 36px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Ceinture FC décroche</button>
-    <div style="height: 1px; background: #C8C5BE"></div>
-    <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Depuis l'app</span>
-    <button onClick="{{simTrace}}" style="height: 36px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Envoyer une autre trace</button>
-    <div style="height: 1px; background: #C8C5BE"></div>
-    <button onClick="{{reset}}" style="height: 36px; border: none; border-radius: 6px; background: #D6D3CC; font-size: 17px; font-weight: 600; cursor: pointer; color: #111111">Recommencer</button>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 4px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Simuler la sortie</span>
+        <button onClick="{{simMove}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">{{moveLabel}}</button>
+        <button onClick="{{simOff}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">{{offLabel}}</button>
+        <button onClick="{{simClimbStep}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">{{climbLabel}}</button>
+        <button onClick="{{simLost}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Ceinture FC décroche</button>
+        <div style="height: 1px; margin: 4px 0; background: #C8C5BE"></div>
+        <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Depuis l'app</span>
+        <button onClick="{{simTrace}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Envoyer une autre trace</button>
+        <div style="height: 1px; margin: 4px 0; background: #C8C5BE"></div>
+        <button onClick="{{reset}}" style="height: 34px; border: none; border-radius: 6px; background: #D6D3CC; font-size: 17px; font-weight: 600; cursor: pointer; color: #111111">Recommencer</button>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Réglages (dans l'app)</span>
+        <sc-for list="{{settingRows}}" as="o" hint-placeholder-count="6">
+          <button onClick="{{o.toggle}}" style="height: 32px; border: none; border-radius: 6px; background: transparent; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 4px; color: #111111">{{o.box}} {{o.label}}</button>
+        </sc-for>
+        <span style="margin-top: 6px; font-size: 14px; font-weight: 500; line-height: 1.25; color: #555555">Les fonctions « bientôt » sont prévues mais désactivées par défaut.</span>
+      </div>
+    </div>
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"nuit":{"editor":"boolean","default":false},"$preview":{"width":640,"height":640}}'>
+<script type="text/x-dc" data-dc-script data-props='{"nuit":{"editor":"boolean","default":false},"$preview":{"width":820,"height":640}}'>
 class Component extends DCLogic {
   constructor(props) {
     super(props);
@@ -411,7 +440,8 @@ class Component extends DCLogic {
   }
   initial() {
     return {
-      scr: 'home', page: 0, ride: false, climb: 'none', toast: '', pending: 2, pmI: 0, pmBack: 'pause', lost: false,
+      scr: 'home', page: 0, ride: false, climb: 'none', toast: '', pending: 2, pmI: 0, pmBack: 'pause', lost: false, moving: false, off: false, zoomI: 0, scrollOn: false,
+      opt: { autoPause: true, startPrompt: true, offBeep: true, autoScroll: true, nightAuto: true, turns: false, strava: false },
       menuI: 0, sensI: 0, scanI: 0, traceI: 0, trace: 0, confirmFrom: 'pause',
       sensors: [
         { key: 'hr', title: 'Fréquence cardiaque', name: 'HRM-Pro · ANT+', val: '● 142', batt: 'OK', paired: true },
@@ -421,7 +451,17 @@ class Component extends DCLogic {
       ]
     };
   }
-  componentWillUnmount() { clearTimeout(this.timer); clearTimeout(this.holdT); clearTimeout(this.lostT); }
+  toggleScroll() {
+    const on = !this.state.scrollOn;
+    clearInterval(this.scrollT);
+    this.setState({ scrollOn: on });
+    if (on) this.scrollT = setInterval(() => {
+      const st = this.state;
+      if (st.scr === 'ride' && st.scrollOn) this.setState({ page: (st.page + 1) % 3 });
+    }, 4000);
+  }
+  stopScroll() { clearInterval(this.scrollT); if (this.state.scrollOn) this.setState({ scrollOn: false }); }
+  componentWillUnmount() { clearInterval(this.scrollT); clearTimeout(this.timer); clearTimeout(this.holdT); clearTimeout(this.lostT); }
   say(msg, ms) {
     if (this.timer) clearTimeout(this.timer);
     const d = ms || 3000;
@@ -451,15 +491,22 @@ class Component extends DCLogic {
       case 'home': return {
         hg: { l: '⏻ Maintenir', hold: true, f: set({ scr: 'off' }) },
         bg: { l: '≡ Menu', f: set({ scr: 'menu', menuI: 0 }) },
-        bd: { l: 'Démarrer ▶', k: 'go', f: set({ scr: 'ride', page: 0, ride: true, simMsg: '' }) } };
+        bd: { l: 'Démarrer ▶', k: 'go', f: set({ scr: 'ride', page: 0, ride: true, moving: true, simMsg: '' }) } };
       case 'traces': return {
         hg: { l: '◀ Retour', f: set({ scr: 'home' }) },
         bg: { l: 'Suivant ▼', f: set({ traceI: (s.traceI + 1) % 3 }) },
         bd: { l: 'Charger', k: 'sel', f: () => { this.setState({ scr: 'home', trace: s.traceI }); this.say('Trace chargée'); } } };
-      case 'ride': return {
-        hg: { l: '◀ Page', f: set({ page: (s.page + 2) % 3 }) },
+      case 'ride': {
+        const zooms = ['500 m', '1 km', '2 km'];
+        let hg;
+        if (s.page === 1) hg = { l: '⊕ Zoom ' + zooms[(s.zoomI + 1) % 3], f: set({ zoomI: (s.zoomI + 1) % 3 }) };
+        else if (s.opt.autoScroll) hg = { l: s.scrollOn ? '⟳ Défil. : oui' : '⟳ Défil. : non', f: () => this.toggleScroll() };
+        else hg = { l: '—', f: () => {} };
+        return {
+        hg,
         bg: { l: 'Page ▶', f: set({ page: (s.page + 1) % 3 }) },
-        bd: { l: 'Pause ❚❚', k: 'pause', f: set({ scr: 'pause' }) } };
+        bd: { l: 'Pause ❚❚', k: 'pause', f: () => { this.stopScroll(); this.setState({ scr: 'pause' }); } } };
+      }
       case 'pause': return {
         hg: { l: '⏻ Maintenir', hold: true, f: set({ scr: 'off' }) },
         bg: { l: '≡ Menu', f: set({ scr: 'pauseMenu', pmI: 0, pmBack: 'pause' }) },
@@ -583,8 +630,34 @@ class Component extends DCLogic {
       },
       holdEnd: () => clearTimeout(this.holdT),
       pressBG: () => k.bg.f(), pressBD: () => k.bd.f(),
-      dots: ride ? ['●○○', '○●○', '○○●'][s.page] : '',
-      speed: s.climb === 'in' ? '11,8' : '32,4',
+      dots: ride ? ['●○○', '○●○', '○○●'][s.page] + (s.scrollOn ? ' ⟳' : '') : '',
+      speed: (ride && !s.moving) ? '0,0' : (s.climb === 'in' ? '11,8' : '32,4'),
+      mapScale: [1.5, 1, 0.65][s.zoomI], zoomLabel: ['500 m', '1 km', '2 km'][s.zoomI],
+      onCourseOp: (ride && s.off) ? 0 : 1, offCourseOp: (ride && s.off) ? 1 : 0,
+      moveLabel: s.moving ? 'S’arrêter (feu rouge)' : 'Se mettre à rouler',
+      offLabel: s.off ? 'Revenir sur la trace' : 'Sortir de la trace',
+      climbLabel: { none: 'Montée : approche', approach: 'Montée : pied', in: 'Montée : sommet' }[s.climb],
+      settingRows: [
+        ['autoPause', 'Auto-pause'], ['startPrompt', 'Rappel de démarrage'], ['offBeep', 'Bip hors trace'],
+        ['autoScroll', 'Défilement auto des pages'], ['nightAuto', 'Nuit auto (coucher du soleil)'],
+        ['turns', 'Annonces de virage (bientôt)'], ['strava', 'Segments Strava (bientôt)']
+      ].map(([key, label]) => ({ label, box: s.opt[key] ? '☑' : '☐', toggle: () => {
+        const opt = Object.assign({}, s.opt, { [key]: !s.opt[key] });
+        if (key === 'autoScroll' && !opt.autoScroll) this.stopScroll();
+        this.setState({ opt });
+      } })),
+      simMove: () => this.setState({ moving: !s.moving, simMsg: (!s.moving && s.scr === 'home' && !s.opt.startPrompt) ? 'Rappel de démarrage désactivé dans l’app.' : ((s.moving && s.ride && !s.opt.autoPause) ? 'Auto-pause désactivée : le chrono continue.' : '') }),
+      simOff: () => {
+        if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
+        if (s.off) { this.setState({ off: false }); this.say('De retour sur la trace · guidage repris'); }
+        else this.setState({ off: true, page: 1 });
+      },
+      simClimbStep: () => {
+        if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
+        if (s.climb === 'none') this.setState({ climb: 'approach' });
+        else if (s.climb === 'approach') this.setState({ climb: 'in', page: 2 });
+        else { this.setState({ climb: 'none' }); this.say('Sommet atteint · 34:12 · 6,9 % de moyenne'); }
+      },
       climbDist: s.climb === 'approach' ? '0,4 km' : '1,2 km',
       showBanner: ride && s.climb === 'approach' && s.page !== 2,
       traceName: tr[s.trace].name, traceInfo: tr[s.trace].info,
@@ -598,7 +671,11 @@ class Component extends DCLogic {
       pendingColor: s.pending > 0 ? '#B35C00' : c.ok,
       ...(() => {
         let notif = null;
-        if (ride && s.lost) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'FC perdue', detail: 'Reconnexion automatique…' };
+        const autoPaused = ride && !s.moving && s.opt.autoPause;
+        if (ride && s.off) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'Hors trace · 120 m', detail: 'Rejoins le pointillé sur la carte' + (s.opt.offBeep ? ' · bip' : '') };
+        else if (ride && s.lost) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'FC perdue', detail: 'Reconnexion automatique…' };
+        else if (autoPaused) notif = { stripe: '#8A8F98', iconFg: '#FFFFFF', icon: '❚❚', timed: false, title: 'Auto-pause', detail: 'Le chrono repart dès que tu roules' };
+        else if (s.scr === 'home' && s.moving && s.opt.startPrompt) notif = { stripe: '#237A35', iconFg: '#FFFFFF', icon: '▶', timed: false, title: 'Tu roules', detail: 'Démarre la sortie : bouton bas droite' };
         else if (ride && s.climb === 'approach' && s.page !== 2) notif = { stripe: '#D9302C', iconFg: '#FFFFFF', icon: '▲', timed: false, title: 'Montée dans 400 m', detail: 'Col de la Galaube · 9,6 km · 6,9 %' };
         else if (s.toast) {
           const m = s.toast.match(/^(.*?)(?: · | : )(.*)$/);
@@ -620,7 +697,7 @@ class Component extends DCLogic {
         this.setState({ trace: nx });
         if (s.scr !== 'off') this.say('Trace remplacée · ' + tr[nx].name + ' (depuis l’app)', 3000);
       },
-      reset: () => { clearTimeout(this.timer); clearTimeout(this.lostT); this.setState(this.initial()); }
+      reset: () => { clearTimeout(this.timer); clearTimeout(this.lostT); clearInterval(this.scrollT); this.setState(this.initial()); }
     };
   }
 }
