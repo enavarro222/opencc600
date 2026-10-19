@@ -15,6 +15,7 @@ use esp_hal::Blocking;
 use esp_hal::delay::Delay;
 use esp_hal::dma::DmaTxBuf;
 use esp_hal::lcd_cam::lcd::i8080::{Command, I8080};
+use esp_hal::time::{Duration, Instant};
 
 pub const WIDTH: usize = 240;
 pub const HEIGHT: usize = 320;
@@ -68,6 +69,17 @@ pub struct Panel<'d> {
     bus: Option<I8080<'d, Blocking>>,
     buf: Option<DmaTxBuf>,
     delay: Delay,
+    stats: Stats,
+}
+
+/// Time spent in [`Panel`] transfers since the last [`Panel::take_stats`].
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Stats {
+    /// CPU filling the DMA buffer (pixel copy from the framebuffer, or a solid colour).
+    pub fill: Duration,
+    /// Waiting for the DMA + i8080 transfer (commands included).
+    pub transfer: Duration,
+    pub transfers: u32,
 }
 
 impl<'d> Panel<'d> {
@@ -78,6 +90,7 @@ impl<'d> Panel<'d> {
             bus: Some(bus),
             buf: Some(buf),
             delay: Delay::new(),
+            stats: Stats::default(),
         };
         panel.command(SWRESET, &[]);
         panel.delay.delay_millis(20);
@@ -98,8 +111,10 @@ impl<'d> Panel<'d> {
 
     /// Fills the DMA buffer with `fill`, sends it after `cmd`, waits for the end of the transfer.
     fn send<W: Into<u16> + Copy>(&mut self, cmd: Command<W>, fill: impl FnOnce(&mut DmaTxBuf)) {
+        let t0 = Instant::now();
         let mut buf = self.buf.take().unwrap();
         fill(&mut buf);
+        let t1 = Instant::now();
         let (res, bus, buf) = match self.bus.take().unwrap().send(cmd, 0, buf) {
             Ok(transfer) => transfer.wait(),
             Err((e, ..)) => panic!("i8080 send: {e:?}"),
@@ -107,6 +122,13 @@ impl<'d> Panel<'d> {
         res.unwrap();
         self.bus = Some(bus);
         self.buf = Some(buf);
+        self.stats.fill += t1 - t0;
+        self.stats.transfer += t1.elapsed();
+        self.stats.transfers += 1;
+    }
+
+    pub fn take_stats(&mut self) -> Stats {
+        core::mem::take(&mut self.stats)
     }
 
     fn set_window(&mut self, y0: usize, y1: usize) {
@@ -119,28 +141,37 @@ impl<'d> Panel<'d> {
         );
     }
 
-    /// Writes `lines` full-width lines from `y0`; `pixel(i)` gives the little-endian RGB565 value of pixel `i`.
+    /// Writes `lines` full-width lines from `y0`; `fill` writes their little-endian RGB565 bytes.
     /// 16-bit transfer: one pixel per bus clock.
-    fn write_lines(&mut self, y0: usize, lines: usize, pixel: impl Fn(usize) -> u16) {
+    fn write_lines(&mut self, y0: usize, lines: usize, fill: impl FnOnce(&mut [u8])) {
         self.set_window(y0, y0 + lines);
         self.send(Command::One(RAMWR as u16), |buf| {
             buf.set_length(lines * WIDTH * 2);
-            for (i, dst) in buf.as_mut_slice().chunks_exact_mut(2).enumerate() {
-                dst.copy_from_slice(&pixel(i).to_le_bytes());
-            }
+            fill(buf.as_mut_slice());
         });
     }
 
     pub fn clear(&mut self, color: Rgb565) {
-        let raw = RawU16::from(color).into_inner();
+        let raw = u32::from(RawU16::from(color).into_inner());
+        let word = raw | raw << 16;
         for band in 0..HEIGHT / BAND_LINES {
-            self.write_lines(band * BAND_LINES, BAND_LINES, |_| raw);
+            self.write_lines(band * BAND_LINES, BAND_LINES, |bytes| {
+                // SAFETY: any bit pattern is a valid u32; unaligned head/tail are handled below.
+                let (head, words, tail) = unsafe { bytes.align_to_mut::<u32>() };
+                assert!(head.is_empty() && tail.is_empty());
+                words.fill(word);
+            });
         }
     }
 
     pub fn flush(&mut self, fb: &FrameBuffer) {
         for (band, px) in fb.px.chunks(WIDTH * BAND_LINES).enumerate() {
-            self.write_lines(band * BAND_LINES, px.len() / WIDTH, |i| px[i]);
+            // SAFETY: u16 -> u8 view of the same memory; the target is little-endian, as the bus expects.
+            let bytes =
+                unsafe { core::slice::from_raw_parts(px.as_ptr().cast::<u8>(), px.len() * 2) };
+            self.write_lines(band * BAND_LINES, px.len() / WIDTH, |dst| {
+                dst.copy_from_slice(bytes)
+            });
         }
     }
 }

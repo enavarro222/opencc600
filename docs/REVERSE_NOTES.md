@@ -143,6 +143,20 @@ Needs OpenOCD's `60-openocd.rules` udev rule for non-root USB access.
   pixels as little-endian RGB565 words with the default (native) byte order. Test pattern checked on the
   device: orientation, colour order, smooth 32-step ramps on R/G/B (all 16 data lines OK), no offset.
 
+- **Display timings** (boot bench in `firmware/src/bin/main.rs`, 240 MHz, 20-run averages):
+
+  | | PSRAM 40 MHz (esp-hal default), per-pixel copy | PSRAM 80 MHz (vendor setting), memcpy |
+  |---|---|---|
+  | full framebuffer flush | 16.3 ms (copy 11.0 + transfer 5.3) | **11.1 ms** (copy 5.8 + transfer 5.3) |
+  | solid fill (no PSRAM read) | 7.9 ms (fill 2.6) | 6.3 ms (fill 1.0) |
+  | framebuffer clear in PSRAM | 19.5 ms | 10.5 ms |
+  | test pattern drawn in PSRAM | 31 ms | 18 ms |
+
+  The transfer is at the bus limit (76 800 px at 15 MHz = 5.12 ms; 15 MHz is the ST7789 write-cycle limit and
+  the vendor's setting). What is left is the CPU copy PSRAM → DMA buffer: two ping-pong DMA buffers would bring a
+  full frame down to ~6 ms, partial (dirty-area) updates further. Not needed for a 1 Hz data screen; to do with
+  the move to async transfers, so the CPU is not blocked during a flush.
+
 ## Safety rules
 
 - **Never** write eFuses (irreversible).

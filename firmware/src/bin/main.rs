@@ -29,7 +29,7 @@ use esp_hal::lcd_cam::lcd::i8080::{self, I8080};
 use esp_hal::ledc::channel::{self, ChannelIFace};
 use esp_hal::ledc::timer::{self, TimerIFace};
 use esp_hal::ledc::{LSGlobalClkSource, Ledc, LowSpeed};
-use esp_hal::time::Rate;
+use esp_hal::time::{self as hal_time, Rate};
 use esp_hal::timer::timg::TimerGroup;
 use log::info;
 use opencc600_firmware::panel::{self, FrameBuffer, Panel};
@@ -56,11 +56,13 @@ async fn main(_spawner: Spawner) -> ! {
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
     // 2 MB embedded quad PSRAM (AP_3v3); set explicitly, `Auto` probes octal first.
+    // 80 MHz like the vendor (`CONFIG_SPIRAM_SPEED_80M`); the esp-hal default is 40 MHz.
     esp_alloc::psram_allocator!(
         peripherals.PSRAM,
         esp_hal::psram,
         esp_hal::psram::PsramConfig {
             mode: esp_hal::psram::PsramMode::QuadSpi,
+            ram_frequency: esp_hal::psram::SpiRamFreq::Freq80m,
             ..Default::default()
         }
     );
@@ -128,6 +130,10 @@ async fn main(_spawner: Spawner) -> ! {
     .unwrap();
     info!("backlight on ({BACKLIGHT_PCT} %)");
 
+    bench(&mut panel, &mut fb);
+    draw_test_pattern(&mut fb);
+    panel.flush(&fb);
+
     let mut ticks: u32 = 0;
     loop {
         info!("alive {ticks}");
@@ -191,4 +197,53 @@ fn draw_test_pattern(fb: &mut FrameBuffer) {
     Text::with_alignment("R G B W Y C", Point::new(120, 270), text, Alignment::Center)
         .draw(fb)
         .unwrap();
+}
+
+/// Display timings, logged once at boot. Theory at 15 MHz, one pixel per clock: 76 800 px = 5.12 ms per frame.
+fn bench(panel: &mut Panel, fb: &mut FrameBuffer) {
+    const N: u32 = 20;
+    let log = |what: &str, total: hal_time::Duration, s: panel::Stats| {
+        info!(
+            "bench {what}: {} us/frame (fill {} us, transfer {} us, {} transfers)",
+            total.as_micros() / N as u64,
+            s.fill.as_micros() / N as u64,
+            s.transfer.as_micros() / N as u64,
+            s.transfers / N,
+        )
+    };
+
+    let t = hal_time::Instant::now();
+    for _ in 0..N {
+        fb.clear(Rgb565::BLACK).unwrap();
+    }
+    info!(
+        "bench framebuffer clear (PSRAM): {} us",
+        t.elapsed().as_micros() / N as u64
+    );
+
+    let t = hal_time::Instant::now();
+    for _ in 0..N {
+        draw_test_pattern(fb);
+    }
+    info!(
+        "bench draw test pattern (PSRAM): {} us",
+        t.elapsed().as_micros() / N as u64
+    );
+
+    panel.take_stats();
+    let t = hal_time::Instant::now();
+    for i in 0..N {
+        panel.clear(if i % 2 == 0 {
+            Rgb565::BLUE
+        } else {
+            Rgb565::BLACK
+        });
+    }
+    log("solid fill", t.elapsed(), panel.take_stats());
+
+    let t = hal_time::Instant::now();
+    for _ in 0..N {
+        panel.flush(fb);
+    }
+    log("flush framebuffer", t.elapsed(), panel.take_stats());
 }
