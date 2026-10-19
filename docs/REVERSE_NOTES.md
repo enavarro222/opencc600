@@ -261,6 +261,18 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   which agreed with each other to ~2 s. The RTC is therefore only set from a valid fix (RMC `A`). Also seen
   at boot: `PAIR010` aiding requests (GPS week 2441, TOW) and `PAIR001` acks for commands 002, 021 and 382,
   which the ESP32 did not send.
+- **Output setup** (`gnss::OUTPUT_SETUP`, checked 2026-10-19): `$PAIR062,<type>,<rate>` is acknowledged
+  (`PAIR001,062,0`) for types 0–10 (0 GGA, 1 GLL, 2 GSA, 3 GSV, 4 RMC, 5 VTG, 6 ZDA, 7–10 off by default), types ≥ 11
+  are refused (result 4); `$PAIR063,<type>` reads a rate back, `-1` lists them all. We keep GGA and RMC every
+  fix and GSV every 5 s: **~19 → ~7 sentences/s, ~2.0 → ~1.6 KB/s**. The setup is kept while the receiver stays
+  powered (it survives an ESP32 reset) and lost when it restarts; the firmware sends it again when a turned-off
+  sentence shows up.
+- **Left over, not controlled by `PAIR062`**: `GNACCURACY`, `GNEPE`, `PLSV`, `PAIRDGP` (1/s each) and `$PAIRSAT`
+  (4/s, ~300 chars, ~1.2 KB/s: most of the remaining traffic). The vendor's `$PAIR866,0,0,0` is accepted with no
+  visible effect, `$PAIR867,0/1` is refused (4). Probably custom outputs of the Magene receiver firmware; to find.
+- **`gps_power(1)` (`E2 02 07 01`) restarts a running receiver**: it reboots (`PAIR011,001`, then acks for
+  `PAIR002`, `021`, `382` sent by its own start-up) and loses its output setup. The firmware sends it only after
+  3 s of silence. *The silent-receiver path is not tested on the device yet.*
 - Fixtures: `crates/gnss/tests/fixtures/` holds an anonymised 10 s capture (fake position, randomised satellite
   geometry). Raw captures contain the real position and stay in `dump/`.
 

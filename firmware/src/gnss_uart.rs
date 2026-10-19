@@ -6,11 +6,11 @@
 //! [`GnssUart::drain`] hands over what arrived; call it at least every couple of seconds.
 
 use esp_hal::Blocking;
-use esp_hal::dma::DmaRxStreamBuf;
-use esp_hal::dma_rx_stream_buffer;
+use esp_hal::dma::{DmaRxStreamBuf, DmaTxBuf};
 use esp_hal::peripherals::{DMA_CH1, GPIO0, GPIO1, UART0, UHCI0};
 use esp_hal::uart::uhci::{self, Uhci, UhciDmaRxTransfer, UhciTx};
 use esp_hal::uart::{self, RxConfig, Uart};
+use esp_hal::{dma_rx_stream_buffer, dma_tx_buffer};
 
 pub const BAUD: u32 = 921_600;
 /// ~8 s of NMEA at the module's default output (~2 KB/s).
@@ -19,9 +19,12 @@ const CHUNK: usize = 1024;
 
 pub struct GnssUart {
     rx: UhciDmaRxTransfer<'static, Blocking, DmaRxStreamBuf>,
-    /// For the `$PAIR` commands, later.
-    _tx: UhciTx<'static, Blocking>,
+    /// For the `$PAIR` commands; `None` only while a write is in flight.
+    tx: Option<(UhciTx<'static, Blocking>, DmaTxBuf)>,
 }
+
+/// Longest command [`GnssUart::send`] takes.
+pub const MAX_COMMAND: usize = 64;
 
 impl GnssUart {
     pub fn new(
@@ -46,7 +49,32 @@ impl GnssUart {
         let rx = uhci_rx
             .read(ring)
             .unwrap_or_else(|(e, ..)| panic!("gnss dma: {e:?}"));
-        Self { rx, _tx: tx }
+        let buf = dma_tx_buffer!(MAX_COMMAND).unwrap();
+        Self {
+            rx,
+            tx: Some((tx, buf)),
+        }
+    }
+
+    /// Sends `data` (at most [`MAX_COMMAND`] bytes) and waits until it is out: ~0.5 ms for a `$PAIR` command.
+    pub fn send(&mut self, data: &[u8]) {
+        let (tx, mut buf) = self.tx.take().unwrap();
+        buf.as_mut_slice()[..data.len()].copy_from_slice(data);
+        buf.set_length(data.len());
+        let (tx, buf) = match tx.write(buf) {
+            Ok(transfer) => {
+                let (res, tx, buf) = transfer.wait();
+                if let Err(e) = res {
+                    log::warn!("gnss tx: {e:?}");
+                }
+                (tx, buf)
+            }
+            Err((e, tx, buf)) => {
+                log::warn!("gnss tx: {e:?}");
+                (tx, buf)
+            }
+        };
+        self.tx = Some((tx, buf));
     }
 
     /// Calls `f` with every byte slice received since the last call; returns the byte count.

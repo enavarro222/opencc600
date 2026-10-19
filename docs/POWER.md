@@ -37,8 +37,8 @@ measurement unless marked so.
   light sleep and no clock scaling.
 - The bring-up screen redraws on every state change (up to 5 Hz) and the full 150 KB frame is sent each time
   (11 ms of bus + CPU copy per frame, see REVERSE_NOTES.md).
-- The GNSS outputs ~23 sentences per second, including `GSV` ×12 and the long `$PAIRSAT`, most of which the
-  firmware throws away: UART, DMA and CPU work for nothing.
+- The GNSS output is trimmed to what we use (GGA, RMC, GSV every 5 s); the Airoha `$PAIRSAT` reports (~1.2 KB/s)
+  are still sent and thrown away.
 - The nRF powers the GNSS: it can be left **off** after a power cycle (seen once) and comes back with a cold
   start. The vendor parks the receiver in a low-power RTC mode with `$PAIR650,0` (c606-oss) instead of cutting
   it, which keeps ephemerides for a fast hot start.
@@ -84,8 +84,8 @@ Each lever below gets an A/B measurement before it becomes a default. Results go
    The GNSS DMA keeps receiving while the CPU sleeps; the nRF UART needs its FIFO drained in time
    (~11 ms at 115200 baud).
 3. **GNSS configuration** (Airoha `$PAIR` commands, values to check on this receiver):
-   - only the sentences we use (`RMC`, `GGA`, maybe `GSA`), `GSV` every few seconds for the satellite screen,
-     no `$PAIRSAT` (`$PAIR062`);
+   - only the sentences we use: **done** (`$PAIR062`: GGA + RMC every fix, GSV every 5 s, ~19 → ~7 sentences/s).
+     `$PAIRSAT` and the other Airoha outputs are not controlled by `$PAIR062` (still ~1.2 KB/s, command to find);
    - constellations (`$PAIR066`): e.g. GPS + Galileo vs all four; fewer constellations should save power but
      lengthen the time to fix and degrade it under trees and in valleys. User-selectable, default from measurements;
    - the receiver's own power-saving modes, if any are usable at 1 Hz on a bike;

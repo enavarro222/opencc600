@@ -45,7 +45,7 @@ use esp_storage::FlashStorage;
 use littlefs2::fs::{Allocation, Filesystem};
 use log::{debug, info, warn};
 use nrf_link::{Decoder, KeyAction, Message, RtcTime, command};
-use opencc600_firmware::gnss_uart::GnssUart;
+use opencc600_firmware::gnss_uart::{self, GnssUart};
 #[cfg(feature = "hil-storage")]
 use opencc600_firmware::hil_storage;
 use opencc600_firmware::panel::{self, FrameBuffer, Panel};
@@ -205,8 +205,6 @@ async fn main(spawner: Spawner) -> ! {
     // Vendor boot (`INIT_QUERY`): power-on command, then the power-on reason query.
     NRF_COMMANDS.send(command::power_on()).await;
     NRF_COMMANDS.send(command::check_power_on_reason()).await;
-    // The nRF powers the receiver and can leave it off after a power cycle (seen once).
-    NRF_COMMANDS.send(command::gps_power(1)).await;
 
     let mut shown = None;
     let mut last_power_on = Instant::now();
@@ -411,20 +409,45 @@ async fn gnss_task(mut uart: GnssUart) {
     let mut last_data = Instant::now();
     let mut silent = false;
     let mut last_rtc_set: Option<Instant> = None;
+    // Output setup: sent once the receiver talks, again when a sentence it turns off shows up (power cycle).
+    let mut setup_needed = true;
+    let mut last_setup: Option<Instant> = None;
     loop {
         let mut epoch = false;
         let n = uart.drain(|data| {
             reader.feed(data, |line| {
                 debug!("gnss {line}");
                 epoch |= fix.update(line) == gnss::Epoch::Complete;
+                if gnss::is_turned_off(line) {
+                    setup_needed = true;
+                }
+                if let Some((cmd, result)) = gnss::pair_ack(line) {
+                    info!("gnss: PAIR{cmd:03} -> {result}");
+                }
             })
         });
+        if n > 0
+            && setup_needed
+            && last_setup.is_none_or(|at| at.elapsed() >= Duration::from_secs(10))
+        {
+            info!("gnss: sending the output setup");
+            let mut out = [0; gnss_uart::MAX_COMMAND];
+            for body in gnss::OUTPUT_SETUP {
+                let len = gnss::write_command(body, &mut out).unwrap();
+                uart.send(&out[..len]);
+            }
+            setup_needed = false;
+            last_setup = Some(Instant::now());
+        }
         if n > 0 {
             last_data = Instant::now();
             silent = false;
         } else if !silent && last_data.elapsed() >= Duration::from_secs(3) {
             silent = true;
-            warn!("gnss: no data for 3 s (receiver off, or DMA stopped)");
+            // The nRF powers the receiver and can leave it off after a power cycle (seen once). Only when silent:
+            // `gps_power(1)` restarts a running receiver, which then loses its output setup.
+            warn!("gnss: no data for 3 s (receiver off, or DMA stopped), powering it on");
+            NRF_COMMANDS.send(command::gps_power(1)).await;
         }
         if epoch {
             STATUS.lock(|s| {

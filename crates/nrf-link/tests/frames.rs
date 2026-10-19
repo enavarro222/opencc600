@@ -340,5 +340,8 @@ fn rtc_time_arithmetic() {
     assert_eq!(t(1970, 1, 1, 0, 0, 0).weekday(), 4); // Thursday
     assert_eq!(t(2026, 10, 19, 0, 0, 0).weekday(), 1); // Monday
     assert_eq!(t(2024, 2, 29, 0, 0, 0).weekday(), 4);
-    assert_eq!(t(2026, 3, 1, 0, 0, 0).unix() - t(2026, 2, 28, 0, 0, 0).unix(), 86_400);
+    assert_eq!(
+        t(2026, 3, 1, 0, 0, 0).unix() - t(2026, 2, 28, 0, 0, 0).unix(),
+        86_400
+    );
 }

@@ -1,6 +1,6 @@
 //! Parsing checked against the anonymised CC600 capture (tests/fixtures/README.md).
 
-use gnss::{Epoch, Fix, LineReader, pair_ack, write_command};
+use gnss::{Epoch, Fix, LineReader, OUTPUT_SETUP, is_turned_off, pair_ack, write_command};
 
 const CAPTURE: &[u8] = include_bytes!("fixtures/ag3352q_10s.nmea");
 
@@ -108,4 +108,27 @@ fn pair_commands() {
     assert!(out[..n].ends_with(b"\r\n"));
     assert_eq!(pair_ack("PAIR001,062,0"), Some((62, 0)));
     assert_eq!(pair_ack("PAIR002,1"), None);
+}
+
+#[test]
+fn output_setup() {
+    // Each command fits the firmware's buffer and round-trips through the reader.
+    for body in OUTPUT_SETUP {
+        let mut out = [0u8; 32];
+        let n = write_command(body, &mut out).unwrap();
+        let mut seen = vec![];
+        LineReader::new().feed(&out[..n], |b| seen.push(b.to_string()));
+        assert_eq!(seen, [body]);
+    }
+    // Known checksum (forum list of PAIR commands): `$PAIR062,1,0*3F`.
+    let mut out = [0u8; 32];
+    let n = write_command(OUTPUT_SETUP[1], &mut out).unwrap();
+    assert_eq!(&out[..n], b"$PAIR062,1,0*3F\r\n");
+
+    for off in ["GNGLL,", "GNGSA,A,1", "GNVTG,", "GNZDA,1"] {
+        assert!(is_turned_off(off), "{off}");
+    }
+    for on in ["GNGGA,", "GNRMC,", "GPGSV,", "PAIR001,062,0", "GN"] {
+        assert!(!is_turned_off(on), "{on}");
+    }
 }

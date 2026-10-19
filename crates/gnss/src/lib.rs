@@ -120,4 +120,4 @@ fn check<'a>(line: &'a [u8], stats: &mut Stats) -> Option<&'a str> {
 }
 
 mod nmea;
-pub use nmea::{Date, Epoch, Fix, Time, pair_ack, write_command};
+pub use nmea::{Date, Epoch, Fix, OUTPUT_SETUP, Time, is_turned_off, pair_ack, write_command};

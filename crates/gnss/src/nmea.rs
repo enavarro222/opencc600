@@ -227,6 +227,25 @@ fn coord(value: Option<&str>, hemi: Option<&str>, deg_digits: usize) -> Option<i
     }
 }
 
+/// NMEA output the firmware wants, as `$PAIR062,<type>,<rate>` bodies (type 0 GGA, 1 GLL, 2 GSA, 3 GSV, 4 RMC,
+/// 5 VTG, 6 ZDA; rate = once every N fixes, 0 = off). GSV only feeds the satellites-in-view count: every 5 s.
+/// Not saved in the receiver: to send again after each power cycle (see [`is_turned_off`]).
+pub const OUTPUT_SETUP: [&str; 7] = [
+    "PAIR062,0,1",
+    "PAIR062,1,0",
+    "PAIR062,2,0",
+    "PAIR062,3,5",
+    "PAIR062,4,1",
+    "PAIR062,5,0",
+    "PAIR062,6,0",
+];
+
+/// True for a sentence that [`OUTPUT_SETUP`] turns off: seeing one means the receiver runs its default output
+/// again (powered off and on by the nRF), so the setup has to be sent again.
+pub fn is_turned_off(body: &str) -> bool {
+    matches!(body.get(2..6), Some("GLL," | "GSA," | "VTG," | "ZDA,"))
+}
+
 /// Airoha acknowledge `PAIR001,<command>,<result>` → (command, result); result 0 = success.
 pub fn pair_ack(body: &str) -> Option<(u16, u8)> {
     let mut f = body.strip_prefix("PAIR001,")?.split(',');
