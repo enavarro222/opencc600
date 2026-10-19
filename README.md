@@ -23,6 +23,7 @@ Source: [docs/prototype/prototype.dc.html](docs/prototype/prototype.dc.html); th
 - `tools/read_pins.py`: reads the pin routing of a running ESP32-S3 over its built-in USB-JTAG
   (Espressif OpenOCD), read-only.
 - `tools/build_prototype.py`: rebuilds the standalone UI prototype page.
+- `tools/check_prototype_layout.py`: checks in headless Chromium that nothing on the prototype screen changes size between states.
 
 ## License
 GPL-3.0-or-later, see [LICENSE](LICENSE).
