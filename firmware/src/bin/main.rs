@@ -369,6 +369,7 @@ async fn nrf_rx(mut rx: UartRx<'static, Async>) -> ! {
             let msg = Message::parse(&frame);
             match msg {
                 Message::Unknown => info!("nrf ? {frame:?}"),
+                Message::Rtc(t) if t.second % 5 == 0 => info!("nrf {msg:?}"),
                 Message::Battery { .. } | Message::Status(_) | Message::Rtc(_) => {
                     debug!("nrf {msg:?}")
                 }
@@ -441,6 +442,21 @@ async fn gnss_task(mut uart: GnssUart) {
         }
         Timer::after(Duration::from_millis(50)).await;
     }
+}
+
+/// 0 = Sunday (days since 1970-01-01, a Thursday).
+fn weekday(y: u16, m: u8, d: u8) -> u8 {
+    let (y, m) = if m <= 2 {
+        (y as i32 - 1, m as i32 + 9)
+    } else {
+        (y as i32, m as i32 - 3)
+    };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * m + 2) / 5 + d as i32 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    (days + 4).rem_euclid(7) as u8
 }
 
 /// What the bring-up screen shows, updated from the nRF messages.

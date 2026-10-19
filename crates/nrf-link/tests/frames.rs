@@ -68,6 +68,40 @@ fn commands() {
 }
 
 #[test]
+fn set_rtc_mirrors_the_rtc_frame() {
+    // checked on the CC600: the nRF then reports this time back, month 0-based as usual
+    let t = RtcTime {
+        year: 2026,
+        month: 10,
+        day: 19,
+        hour: 8,
+        minute: 40,
+        second: 27,
+    };
+    let f = command::set_rtc(&t, 1);
+    assert_eq!(
+        &f[..14],
+        &[
+            0xA5,
+            0x0C,
+            0x6F,
+            0xF1,
+            0x02,
+            0x00,
+            0x53,
+            0xFF,
+            27,
+            40,
+            8,
+            19 | 1 << 5,
+            10,
+            126
+        ]
+    );
+    assert_eq!(frames(&f).len(), 1);
+}
+
+#[test]
 fn battery() {
     let m = parse_one(&[
         0xA5, 0x0C, 0x6F, 0xF1, 0x04, 0x00, 0x52, 0xFF, 0xFF, 0xFF, 0xF7, 0x10, 0x64, 0xFF,

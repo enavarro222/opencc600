@@ -349,6 +349,25 @@ pub mod command {
         ctrl(TYPE_SET, 0x02, 0x00, 0x00)
     }
 
+    /// Sets the nRF RTC: the RTC frame it sends (`cmd 00`, `'S'`), as a type 2 (set) frame (CC600, checked).
+    /// `weekday`: 0 = Sunday, in the 3 high bits of the day byte like the nRF's own frames. Unlike them, the month
+    /// is 1..12 here (writing month - 1 moved the RTC back one month).
+    pub fn set_rtc(t: &RtcTime, weekday: u8) -> [u8; CTRL_FRAME] {
+        let mut out = [0; CTRL_FRAME];
+        let payload = [
+            0x53,
+            0xFF,
+            t.second,
+            t.minute,
+            t.hour,
+            t.day | (weekday << 5),
+            t.month,
+            (t.year - 1900) as u8,
+        ];
+        encode(TYPE_SET, 0x00, &payload, &mut out).unwrap();
+        out
+    }
+
     /// GNSS module power: 0 off, 1 on, 2 (vendor value, meaning unknown).
     pub fn gps_power(val: u8) -> [u8; CTRL_FRAME] {
         ctrl(TYPE_SET, 0x02, 0x07, val)

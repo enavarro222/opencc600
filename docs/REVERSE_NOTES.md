@@ -164,6 +164,12 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
 - **nRF firmware 1.2.16** (`cmd 01` version frame; the C606 in c606-oss reports 0.2.19).
 - Every `SendPowerOnCmd` (sent every 5 s, like c606-oss) is answered by an `Ack`, the power-on reason and the version.
   Power-on reason seen: 4 (manual) at the first boot, then 5 and 6 after esptool resets with USB plugged in.
+- **RTC write found and checked**: the ESP32 sends the nRF's own RTC frame back as a type 2 (set) frame,
+  `A5 0C 6F F1 02 00 | 53 FF ss mm hh dd MM yy | CRC`, day byte = day | weekday << 5 (0 = Sunday, as in the frames the
+  nRF sends: `0x91` = Thursday 17), **but month 1..12** where the nRF reports 0..11 (writing month - 1 moved the RTC
+  back one month at each write; repaired). Applied at once, reported back within a second.
+- **The nRF can switch the GNSS off**: after a power cycle the receiver stayed silent until a long press on key 0
+  (the nRF's power-on gesture), then cold-started. Our firmware must send `gps_power(1)` at boot.
 - **Power off checked**: `SendPowerOffCmd` (`E2 02 00 00 00 00 00 00`) cuts the ESP32 at once, **even with USB
   plugged in** (the USB-Serial/JTAG port disappears). A long press on the power key then boots our ota_0 image
   again from cold, power-on reason 4 (manual).
