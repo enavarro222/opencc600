@@ -19,9 +19,13 @@ use ride_store::littlefs2::io::{Error, Result, SeekFrom};
 
 /// Appends at most this often (seconds of ride time): each append is a littlefs commit (a block copy).
 pub const FLUSH_EVERY_S: u32 = 10;
-/// RAM buffer: a flush period of records (30 bytes each) plus events, and the file start (~230 bytes).
+/// RAM buffer: a flush period of records (34 bytes each) plus events, and the file start (~230 bytes).
 const BUF: usize = 384;
 /// Altitude hysteresis for the ascent / descent totals, decimetres.
+///
+/// The totals count the pressure altitude of the records (`absolute_pressure`), not their altitude: the altitude
+/// is the barometer with a bias calibrated on the GNSS, whose corrections would count as climbing
+/// (docs/ALTITUDE.md). No pressure, no ascent: never from the GNSS altitude.
 pub const CLIMB_HYSTERESIS_DM: i32 = 20;
 
 /// Totals over the ride, fed with the messages of the file in order.
@@ -66,7 +70,8 @@ impl Summary {
         if let Some(v) = r.speed_mm_s {
             self.max_speed_mm_s = self.max_speed_mm_s.max(v);
         }
-        if let Some(alt) = r.altitude_dm {
+        if let Some(pa) = r.pressure_pa {
+            let alt = altitude::pressure_altitude_dm(pa);
             let reference = self.climb_ref_dm.get_or_insert(alt);
             if alt >= *reference + CLIMB_HYSTERESIS_DM {
                 self.ascent_dm += (alt - *reference) as u32;

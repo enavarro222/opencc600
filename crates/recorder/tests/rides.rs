@@ -4,7 +4,7 @@
 use fit::{Record, timestamp};
 use fitparser::profile::MesgNum;
 use fitparser::{FitDataRecord, Value};
-use recorder::{EpochClock, FLUSH_EVERY_S, Odometer, Recorder, Recovered, recover};
+use recorder::{EpochClock, FLUSH_EVERY_S, Odometer, Recorder, Recovered, Summary, recover};
 use ride_store::littlefs2::fs::{Allocation, Filesystem};
 use ride_store::littlefs2::io::Result;
 use ride_store::ram::RamFlash;
@@ -34,8 +34,14 @@ fn sample(i: u32) -> Record {
         speed_mm_s: Some(8_000),
         distance_cm: Some(i * 800),
         temperature_c: Some(12),
+        pressure_pa: Some(pressure(alt)),
         ..Default::default()
     }
+}
+
+/// FIT `absolute_pressure` at a pressure altitude in decimetres.
+fn pressure(alt_dm: i32) -> u32 {
+    altitude::pressure_at_m(alt_dm as f64 / 10.0).round() as u32
 }
 
 /// What the ride was told had been done.
@@ -314,4 +320,39 @@ fn epoch_clock_follows_rtc_and_gnss() {
     assert_eq!(c.next(15, Some(513), None), Some(513));
     assert_eq!(c.next(0, None, None), None); // midnight wrap of a receiver restart: step 86_385 s ignored
     assert_eq!(c.next(1, None, None), Some(514));
+}
+
+#[test]
+fn ascent_from_the_pressure_only() {
+    // 1 h flat: the pressure has the sensor noise (0.8 Pa ≈ 7 cm, rounded to 1 Pa), the altitude jumps by ±10 m
+    // (a GNSS altitude, or a filtered altitude whose bias is being corrected): no ascent, no descent
+    let mut s = Summary::default();
+    s.event(&fit::Event {
+        timestamp: t0(),
+        kind: fit::EventType::Start,
+    });
+    let mut x = 1u32;
+    for i in 0..3600 {
+        x = x.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let noise_pa = (x >> 30) as i32 - 1; // -1, 0, 1, 2
+        s.record(&Record {
+            timestamp: t0() + i,
+            altitude_dm: Some(2_500 + if i % 120 < 60 { 100 } else { -100 }),
+            pressure_pa: Some((pressure(2_500) as i32 + noise_pa) as u32),
+            ..Default::default()
+        });
+    }
+    let t = s.totals();
+    assert_eq!((t.ascent_m, t.descent_m), (0, 0));
+
+    // without a pressure, the altitude is not counted
+    let mut s = Summary::default();
+    for i in 0..100 {
+        s.record(&Record {
+            timestamp: t0() + i,
+            altitude_dm: Some(1_000 + i as i32 * 10),
+            ..Default::default()
+        });
+    }
+    assert_eq!(s.totals().ascent_m, 0);
 }

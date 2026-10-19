@@ -7,9 +7,11 @@ rust-version.workspace = true
 version.workspace      = true
 
 [dependencies]
+altitude   = { path = "../altitude" }
 fit        = { path = "../fit" }
 ride-store = { path = "../ride-store" }
 
 [dev-dependencies]
+fit        = { path = "../fit" }
 fitparser  = "0.11.0"
 ride-store = { path = "../ride-store", features = ["ram"] }

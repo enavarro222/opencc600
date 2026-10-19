@@ -26,6 +26,8 @@ tested on a PC with `cargo test`:
 - [crates/fit/](crates/fit/): FIT activity writer; every file of its tests is decoded again with `fitparser`.
 - [crates/recorder/](crates/recorder/): ride recording as FIT on ride-store, pauses, totals, closing of interrupted
   rides; its test cuts the power at every flash operation of a ride and of the recovery.
+- [crates/altitude/](crates/altitude/): barometric altitude whose bias is calibrated on the GNSS (Kalman filter),
+  tested on synthetic rides; see [docs/ALTITUDE.md](docs/ALTITUDE.md).
 
 Hardware-in-the-loop tests on a CC600 plugged in over USB (keys injected over USB, storage read back):
 `uv run --project tests/hil pytest tests/hil`, see [tests/hil/](tests/hil/) and docs/DEV_PROCESS.md.

@@ -1,0 +1,10 @@
+[package]
+name         = "altitude"
+description  = "Barometric altitude whose bias is estimated from the GNSS altitude (3-state Kalman filter), no_std"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dependencies]
+libm = "0.2.16"

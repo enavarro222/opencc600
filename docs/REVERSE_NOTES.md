@@ -300,6 +300,56 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   2-byte FIT CRC. Inflated, header + records + CRC is a valid FIT file (all 24 rides decode, CRC OK; ~30 % smaller
   stored). `tools/vendor_fit.py` does the conversion.
 
+## Vendor altitude and D+ (2026-10-19)
+
+From the vendor app in ota_1 (decompiled with Ghidra 12.1, see *Tools* below) and its 24 ride files (`dump/fits`).
+Our design: [ALTITUDE.md](ALTITUDE.md). Addresses are in the ota_1 image as mapped (flash code 0x42.., rodata
+0x3C1E.., the globals in PSRAM 0x3C3A..).
+
+**Pressure → altitude** (`FUN_4203bd74`, the nRF frame dispatcher, branch `F1 03`): temperature = int16 / 100 °C,
+pressure = u32 / 100 Pa, then in double:
+
+    h = 44330 × (1 − (p_hPa / 1013.25)^0.190295)     (standard atmosphere, exponent 1/5.255), stored × 10 (dm)
+
+|h| ≤ 1e-6 is stored as 0. Same formula as ours to < 0.2 m per 1000 m.
+
+**Calibration: once, on the first fix** (`FUN_4214217c`, the big activity task, around the `*baseAltitude`
+strings). While no base is set: if the phone app gave an altitude, `base = app altitude`
+(`APPbaseAltitude`), else on the first valid GNSS fix `base = GGA altitude` (`GPSbaseAltitude`), a single
+sample. The barometric altitude at that moment is kept, then
+
+    altitude = (baro altitude now − baro altitude at calibration) + base     (base clamped to −2000..100000 m)
+
+No continuous GNSS correction: the offset stays for the whole session (the −12 m step seen in one ride is not
+from here). In mode 5 of a session field (`+0x16c`, an indoor / simulated mode?) the altitude comes from
+elsewhere.
+
+**D+ / D−** (same function, two mirrored state machines on the altitude in dm, once per sample, plus
+`FUN_42140aac` / `FUN_42140bc4` that close the open segment at a lap or a pause):
+
+- idle: follow the lowest altitude; when the altitude is **more than 0.5 m** above it, enter *climbing* and start
+  the segment **at the current altitude** (the first 0.5 m of each climb is not counted);
+- climbing: follow the top; the live total is the committed total + (top − start) if that is **≥ 1.1 m**; when
+  the altitude falls **0.5 m** below the top, commit the segment if ≥ 1.1 m and go back to idle;
+- the same for the lap totals; the descent machine runs only once the base altitude is set.
+
+Also: VAM from 1 s differences above 0.1 m (× 3600), and an instant value written to a ring buffer.
+
+**Checked against the vendor files**: `tools/vendor_dplus.py` replays this state machine on the recorded
+`enhanced_altitude` and gets the vendor `total_ascent` / `total_descent` to **1.0 % / 0.6 % (median)** over 23
+rides. The rest comes from the 0.2 m rounding of the file. A plain 2 m hysteresis on the same series gives 3 %
+less in total, up to 10 % on a ride.
+
+Black-box observations that led there: records hold `enhanced_altitude` (+ `altitude`), `grade`, `temperature`,
+**no pressure**; altitude in 0.2 m steps, little smoothing (RMS of the second difference 0.15–0.25 m at 1 Hz);
+altitude jumps > 5 m only across pauses or power-offs, plus one −12 m in 1 s mid-ride (1780739728, 5 h 30 min).
+
+**Tools**: `tools/esp_image_elf.py` (app image → ELF), Ghidra 12.1.4 headless with
+`tools/ghidra/AddRomSymbols.java` (ESP32-S3 ROM names from esp-rom-sys `ld/esp32s3/rom/*.ld`: the soft-float
+calls read as `__divdf3`...) and `tools/ghidra/DecompileRefs.java` (decompiles the users of strings or literal
+pool constants). Ghidra prints the float literals of the pools wrong when they are integers (`1.4013e-45` is 1):
+read the pool words (`DAT_...`) from the image.
+
 ## Safety rules
 
 - **Never** write eFuses (irreversible).

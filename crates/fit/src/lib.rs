@@ -357,6 +357,8 @@ pub struct Record {
     pub heart_rate: Option<u8>,
     pub cadence: Option<u8>,
     pub power_w: Option<u16>,
+    /// Barometric pressure, Pa (`absolute_pressure`): the elevation gain is computed from it.
+    pub pressure_pa: Option<u32>,
 }
 
 /// Degrees × 10⁷ → semicircles (2³¹ semicircles = 180°), rounded.
@@ -408,6 +410,7 @@ impl Record {
             heart_rate: valid(i.u8(), invalid::UINT8),
             cadence: valid(i.u8(), invalid::UINT8),
             power_w: valid(i.u16(), invalid::UINT16),
+            pressure_pa: valid(i.u32(), invalid::UINT32),
         })
     }
 }
@@ -427,6 +430,7 @@ impl Message for Record {
             Field(3, 1, base::UINT8),    // heart_rate
             Field(4, 1, base::UINT8),    // cadence
             Field(7, 2, base::UINT16),   // power
+            Field(91, 4, base::UINT32),  // absolute_pressure
         ],
     };
     fn fields(&self, o: &mut Out<'_>) {
@@ -440,6 +444,7 @@ impl Message for Record {
         o.u8(self.heart_rate.unwrap_or(invalid::UINT8));
         o.u8(self.cadence.unwrap_or(invalid::UINT8));
         o.u16(self.power_w.unwrap_or(invalid::UINT16));
+        o.u32(self.pressure_pa.unwrap_or(invalid::UINT32));
     }
 }
 

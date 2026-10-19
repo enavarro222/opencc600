@@ -1,5 +1,5 @@
 #!/usr/bin/env -S uv run -q --with littlefs-python --with garmin-fit-sdk python3
-"""Copy the rides recorded by opencc600 to the PC and check them with the official Garmin FIT SDK.
+"""Copy the rides (and the raw sensor logs /logs/*.csv) recorded by opencc600 to the PC and check them with the official Garmin FIT SDK.
 
 Reads the storage partition (read only: `esptool read-flash`, the device then resets, which also tests the
 recovery of a ride being recorded), mounts our littlefs on the PC and copies /rides/* to OUT_DIR
@@ -59,6 +59,13 @@ def main():
         ok &= integrity and not errors
     if not names:
         print("no rides")
+    # raw sensor logs of the firmware (/logs/<start>.csv, real positions: stay in dump/)
+    for name in sorted(fs.listdir("/logs")) if "logs" in fs.listdir("/") else []:
+        with fs.open(f"/logs/{name}", "rb") as f:
+            body = f.read()
+        (a.out / name).write_bytes(body)
+        lines = body.count(b"\n") - 1
+        print(f"log {name}: {lines} lines")
     sys.exit(0 if ok else 1)
 
 

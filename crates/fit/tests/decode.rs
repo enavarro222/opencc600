@@ -46,6 +46,7 @@ fn ride() -> Vec<u8> {
                 distance_cm: Some(i * 833),
                 temperature_c: Some(-3),
                 heart_rate: (i > 10).then_some(120),
+                pressure_pa: Some(98_765),
                 ..Default::default()
             },
         );
@@ -161,6 +162,7 @@ fn whole_ride_decodes() {
     );
     assert!((f64_of(field(r, "enhanced_speed")) - 8.333).abs() < 1e-6);
     assert_eq!(f64_of(field(r, "temperature")), -3.0);
+    assert_eq!(f64_of(field(r, "absolute_pressure")), 98_765.0);
     // invalid values are dropped by the decoder: no heart rate before 10 s, no power at all
     assert!(
         r.fields()
@@ -224,6 +226,7 @@ fn messages_read_back() {
         heart_rate: None,
         cadence: Some(90),
         power_w: Some(250),
+        pressure_pa: Some(101_234),
     };
     let mut buf = [0u8; 64];
     let n = r.encode(&mut buf).unwrap();

@@ -72,7 +72,8 @@ core a rider checks after every ride.
   pressure reading; handle the first minutes and fast temperature swings.
 - Also derived from the same filtered altitude: **gradient (%)**, VAM, D+ per lap.
 - Recorded in the FIT file: per-record `altitude` (enhanced_altitude) and session/lap `total_ascent` / `total_descent`.
-- Pure logic in `core` (`no_std`), fed by a `PressureSource` trait → fully testable on a PC.
+- Pure logic in `crates/altitude` (`no_std`), tested on a PC with synthetic rides. Algorithm, tuning and
+  references: [ALTITUDE.md](ALTITUDE.md).
 
 ## Product questions
 1. **Use case**: outdoor rides, **road and MTB**, for the author or anyone with a CC600.

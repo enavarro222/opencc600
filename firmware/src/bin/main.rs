@@ -221,6 +221,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut last_power_on = Instant::now();
     let mut power_prompt: Option<Instant> = None;
     let mut ride: Option<Box<Ride>> = None;
+    let mut trip_log: Option<TripLog> = None;
     loop {
         let _ = with_timeout(Duration::from_secs(1), STATUS_CHANGED.wait()).await;
         // The vendor repeats SendPowerOnCmd; c606-oss does it every 5 s. No nRF watchdog seen so far.
@@ -271,6 +272,12 @@ async fn main(spawner: Spawner) -> ! {
             if let Some(r) = ride.as_mut() {
                 r.sample(fs, &state);
             }
+            if trip_log.is_none() {
+                trip_log = TripLog::start(fs, &state);
+            }
+            if let Some(log) = trip_log.as_mut() {
+                log.sample(fs, &state, ride.as_deref().map(Ride::info));
+            }
         }
         if power_prompt.is_some_and(|at| at.elapsed() >= Duration::from_secs(8)) {
             power_prompt = None;
@@ -311,6 +318,7 @@ static NRF_KEYS: Channel<CriticalSectionRawMutex, (u8, KeyAction), 8> = Channel:
 
 static NRF_COMMANDS: Channel<CriticalSectionRawMutex, [u8; command::CTRL_FRAME], 4> =
     Channel::new();
+
 
 /// UART2, TX GPIO42 / RX GPIO41, 115200 8N1. Built here: the async UART halves are not `Send`, so they cannot be
 /// handed over from the thread-mode executor.
@@ -441,12 +449,21 @@ async fn gnss_task(mut uart: GnssUart) {
             NRF_COMMANDS.send(command::gps_power(1)).await;
         }
         if epoch {
-            STATUS.lock(|s| {
+            let calibration = STATUS.lock(|s| {
                 let mut status = s.get();
                 status.fix = Some(fix);
                 status.gnss = Some(reader.stats);
+                let calibration = calibrate(&mut status.altimeter, &fix);
                 s.set(status);
+                calibration
             });
+            match calibration {
+                Some(altitude::Gnss::Reset) => {
+                    warn!("altitude: the GNSS disagreed for a minute, reset on it")
+                }
+                Some(altitude::Gnss::Rejected) => debug!("altitude: GNSS altitude rejected"),
+                _ => {}
+            }
             STATUS_CHANGED.signal(());
             sync_rtc(&fix, &mut last_rtc_set).await;
         }
@@ -464,6 +481,15 @@ async fn gnss_task(mut uart: GnssUart) {
         }
         Timer::after(Duration::from_millis(50)).await;
     }
+}
+
+/// Calibrates the barometer on the GNSS altitude of a valid fix good enough for it.
+fn calibrate(altimeter: &mut altitude::Altimeter, fix: &gnss::Fix) -> Option<altitude::Gnss> {
+    let (true, Some(alt_dm), Some(hdop_c)) = (fix.valid, fix.alt_dm, fix.hdop_c) else {
+        return None;
+    };
+    let sigma = altitude::gnss_sigma_m(hdop_c as f64 / 100.0, fix.sats_used)?;
+    Some(altimeter.gnss(alt_dm as f64 / 10.0, sigma))
 }
 
 /// Writes the GNSS time to the nRF RTC when they differ by 2 s or more (the RTC frame has a 1 s resolution and
@@ -505,6 +531,13 @@ struct Status {
     last_key: Option<(u8, KeyAction)>,
     keys: u32,
     baro: Option<(i16, u32)>,
+    /// Barometer altitude, its bias calibrated on the GNSS (docs/ALTITUDE.md); fed by each pressure frame (5 Hz)
+    /// and each GNSS epoch.
+    altimeter: altitude::Altimeter,
+    baro_at: Option<Instant>,
+    /// Pressures (centi-pascals) received since the trip log took them (5 Hz frames, logged once a second).
+    baro_recent: [u32; 8],
+    baro_recent_n: u8,
     /// Ambient light (raw) per measurement tag (`param` 600, 2000, 3000), and the raw sensor stream subtype `0A`
     /// (meaning unknown).
     light: [Option<u16>; 3],
@@ -527,6 +560,10 @@ impl Status {
             last_key: None,
             keys: 0,
             baro: None,
+            altimeter: altitude::Altimeter::new(altitude::Tuning::DEFAULT),
+            baro_at: None,
+            baro_recent: [0; 8],
+            baro_recent_n: 0,
             light: [None; 3],
             stream0a: None,
             storage: None,
@@ -556,7 +593,19 @@ impl Status {
             Message::Baro {
                 centi_celsius,
                 centi_pascal,
-            } => self.baro = Some((centi_celsius, centi_pascal)),
+            } => {
+                self.baro = Some((centi_celsius, centi_pascal));
+                let now = Instant::now();
+                let dt = self
+                    .baro_at
+                    .map_or(0.0, |at| (now - at).as_micros() as f64 / 1e6);
+                self.baro_at = Some(now);
+                self.altimeter.baro(dt, centi_pascal as f64 / 100.0);
+                if (self.baro_recent_n as usize) < self.baro_recent.len() {
+                    self.baro_recent[self.baro_recent_n as usize] = centi_pascal;
+                    self.baro_recent_n += 1;
+                }
+            }
             Message::Light { level, param } => {
                 if let Some(i) = [600, 2000, 3000].iter().position(|&p| p == param) {
                     self.light[i] = Some(level);
@@ -604,6 +653,140 @@ struct Ride {
 }
 
 type Fs<'a> = Filesystem<'a, storage::Partition<'a>>;
+
+/// Raw sensor log, always on: one CSV line per GNSS epoch (or every 2 s if the receiver is silent) in
+/// `/logs/<start unix>.csv`, appended every 10 s. For replaying the altitude filter and the GNSS on a PC, and a
+/// first battery-life record. Contains real positions: copy it to `dump/` only.
+struct TripLog {
+    path: littlefs2::path::PathBuf,
+    buf: String,
+    last_epoch: Option<gnss::Time>,
+    last_line: Instant,
+    last_flush: Instant,
+    started: Instant,
+    lines: u32,
+}
+
+const TRIP_LOG_HEADER: &str = "unix,uptime_s,fix,quality,sats_used,sats_in_view,hdop_c,lat_e7,lon_e7,gnss_alt_dm,\
+speed_mm_s,course_cdeg,baro_c_celsius,pressures_cpa,altitude_dm,battery_mv,battery_pct,charger,light,ride\n";
+
+impl TripLog {
+    #[allow(
+        clippy::large_stack_frames,
+        reason = "littlefs file handle and a Status copy on the main stack, once a second at most"
+    )]
+    fn start(fs: &Fs<'_>, s: &Status) -> Option<Self> {
+        let unix = now_unix(s)?;
+        let dir = littlefs2::path!("/logs");
+        if !fs.exists(dir) && fs.create_dir(dir).is_err() {
+            return None;
+        }
+        let path = littlefs2::path::PathBuf::try_from(format!("/logs/{unix}.csv").as_str()).ok()?;
+        info!("trip log: /logs/{unix}.csv");
+        let now = Instant::now();
+        Some(Self {
+            path,
+            buf: String::from(TRIP_LOG_HEADER),
+            last_epoch: None,
+            last_line: now,
+            last_flush: now,
+            started: now,
+            lines: 0,
+        })
+    }
+
+    #[allow(
+        clippy::large_stack_frames,
+        reason = "littlefs file handle and a Status copy on the main stack, once a second at most"
+    )]
+    fn sample(&mut self, fs: &Fs<'_>, s: &Status, ride: Option<RideInfo>) {
+        let epoch = s.fix.and_then(|f| f.time);
+        let new_epoch = epoch.is_some() && epoch != self.last_epoch;
+        if !new_epoch && self.last_line.elapsed() < Duration::from_secs(2) {
+            return;
+        }
+        self.last_epoch = epoch;
+        self.last_line = Instant::now();
+        let pressures = STATUS.lock(|c| {
+            let mut st = c.get();
+            let p = (st.baro_recent, st.baro_recent_n);
+            st.baro_recent_n = 0;
+            c.set(st);
+            p
+        });
+        let opt = |v: Option<i64>| v.map_or_else(String::new, |v| format!("{v}"));
+        let f = s.fix.unwrap_or_default();
+        let mut p = String::new();
+        for (i, v) in pressures.0[..pressures.1 as usize].iter().enumerate() {
+            if i > 0 {
+                p.push(';');
+            }
+            p.push_str(&format!("{v}"));
+        }
+        let line = format!(
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+            opt(now_unix(s).map(i64::from)),
+            self.started.elapsed().as_secs(),
+            f.valid as u8,
+            f.quality,
+            f.sats_used,
+            f.sats_in_view,
+            opt(f.hdop_c.map(i64::from)),
+            opt(f.lat_e7.map(i64::from)),
+            opt(f.lon_e7.map(i64::from)),
+            opt(f.alt_dm.map(i64::from)),
+            opt(f.speed_mm_s.map(i64::from)),
+            opt(f.course_cdeg.map(i64::from)),
+            opt(s.baro.map(|(c, _)| i64::from(c))),
+            p,
+            opt(s.altimeter.altitude_dm().map(i64::from)),
+            opt(s.battery.map(|(mv, _)| i64::from(mv))),
+            opt(s.battery.map(|(_, pct)| i64::from(pct))),
+            opt(s.charger.map(i64::from)),
+            opt(s.light[0].map(i64::from)),
+            match ride {
+                None => 0,
+                Some(r) if r.running => 1,
+                Some(_) => 2,
+            },
+        );
+        self.buf.push_str(&line);
+        self.lines += 1;
+        if self.last_flush.elapsed() >= Duration::from_secs(10) || self.buf.len() > 2048 {
+            self.flush(fs);
+        }
+    }
+
+    fn flush(&mut self, fs: &Fs<'_>) {
+        self.last_flush = Instant::now();
+        let res = fs.open_file_with_options_and_then(
+            |o| o.write(true).create(true).append(true),
+            &self.path,
+            |file| {
+                let mut rest = self.buf.as_bytes();
+                while !rest.is_empty() {
+                    let n = file.write(rest)?;
+                    rest = &rest[n..];
+                }
+                Ok(())
+            },
+        );
+        match res {
+            Ok(()) => {
+                if self.lines % 60 < 10 {
+                    info!("trip log: {} lines", self.lines);
+                }
+                self.buf.clear();
+            }
+            Err(e) => {
+                warn!("trip log: littlefs error {}", e.code());
+                if self.buf.len() > 16 * 1024 {
+                    self.buf.clear(); // storage full or broken: keep running
+                }
+            }
+        }
+    }
+}
 
 impl Ride {
     #[allow(
@@ -674,10 +857,15 @@ impl Ride {
             timestamp,
             lat_e7: fix.lat_e7,
             lon_e7: fix.lon_e7,
-            altitude_dm: fix.valid.then_some(fix.alt_dm).flatten(),
+            // the barometer calibrated on the GNSS; the raw GNSS altitude until then, or without a barometer
+            altitude_dm: s
+                .altimeter
+                .altitude_dm()
+                .or(fix.valid.then_some(fix.alt_dm).flatten()),
             speed_mm_s: speed,
             distance_cm: Some(distance_cm),
             temperature_c: s.baro.map(|(c, _)| (c / 100) as i8),
+            pressure_pa: s.baro.map(|(_, p)| (p + 50) / 100),
             ..Default::default()
         };
         if let Err(e) = self.recorder.record(fs, &record) {
@@ -977,16 +1165,19 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status, ride: Option<RideInfo>) {
             ),
         ),
         (
-            "baro",
+            "baro: temperature, pressure, altitude",
             s.baro.map_or_else(
                 || String::from("- (long press key 0)"),
                 |(t, p)| {
                     format!(
-                        "{}.{:02}C {}.{:01}hPa",
+                        "{}.{:01}C {}.{:01}hPa {}",
                         t / 100,
-                        (t % 100).abs(),
+                        (t % 100).abs() / 10,
                         p / 10_000,
-                        p / 1000 % 10
+                        p / 1000 % 10,
+                        s.altimeter
+                            .altitude_dm()
+                            .map_or_else(|| String::from("-"), |a| format!("{}m", a / 10))
                     )
                 },
             ),
