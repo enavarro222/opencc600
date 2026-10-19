@@ -14,7 +14,8 @@ JS = """() => {
   const rect = el => { const r = el.getBoundingClientRect(); return [Math.round(r.x-r0.x), Math.round(r.y-r0.y), Math.round(r.width), Math.round(r.height)]; };
   const top = scr.querySelector('button');
   const bar = [...scr.querySelectorAll('div')].find(d => (d.getAttribute('style')||'').includes('32px minmax'));
-  const right = top.nextElementSibling;
+  // the battery block: the last child of the top bar (the clock in between is centred out of the flow)
+  const right = top.parentElement.lastElementChild;
   const cut = [...scr.querySelectorAll('button, span')].filter(e => e.scrollWidth > e.clientWidth + 0.5 && getComputedStyle(e).overflow === 'hidden').map(e => e.textContent.trim());
   return { top: rect(top), bar: [...bar.children].map(rect), right: rect(right),
            rightCut: right.scrollWidth > right.clientWidth + 0.5, cut,

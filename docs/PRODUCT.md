@@ -107,6 +107,8 @@ Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [pro
   key than the one that opened it.
 - Riding: up to 4 pages, picked automatically (see "Data pages"), bottom-left cycles pages. Top-left is contextual: map zoom on the
   map page, auto-scroll on/off elsewhere.
+- Top bar: the clock in the middle ("GPS ◌" in its place while searching or lost during a ride), the battery on
+  the right, the top key on the left in a fixed 100 px box that leaves the middle free.
 - Nothing changes size: fixed-width top key, key bar in 3 fixed columns, fixed-height rows; long text is cut
   with "…" rather than pushing the rest (checked by `tools/check_prototype_layout.py`).
 - One banner model, floating above the page and never over the key bar: info (blue, 3 s), attention (amber, while
