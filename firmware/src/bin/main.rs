@@ -64,10 +64,6 @@ use alloc::vec::Vec;
 // App descriptor read by the ESP-IDF second-stage bootloader (the vendor one stays in place).
 esp_bootloader_esp_idf::esp_app_desc!();
 
-/// Backlight on GPIO45, LEDC low-speed timer 0 / channel 0, 10-bit, 20 kHz, active high
-/// (c606-oss `main/backlight.c`, mirrors the vendor `MidLcdPwmInit()`).
-const BACKLIGHT_PCT: u8 = 50;
-
 #[allow(
     clippy::large_stack_frames,
     reason = "it's not unusual to allocate larger buffers etc. in main"
@@ -153,12 +149,17 @@ async fn main(spawner: Spawner) -> ! {
         .ok()
         .and_then(|fs| recorder::interrupted(fs).ok().flatten());
     if let Ok(fs) = fs.as_ref()
-        && let Err(e) = recorder::recover(fs, UTC_OFFSET_S, interrupted, |r| {
+        && let Err(e) = recorder::recover(fs, utc_offset(None), interrupted, |r| {
             info!("ride recovered: {r:?}")
         })
     {
         warn!("ride recovery: littlefs error {}", e.code());
     }
+    let loaded = fs
+        .as_ref()
+        .map_or_else(|_| settings::Settings::default(), load_settings);
+    SETTINGS.lock(|s| s.set(Some(loaded)));
+    SOUND_ON.store(loaded.sound, Ordering::Relaxed);
     let storage_info = fs.as_ref().map_err(|&code| code).and_then(storage_summary);
     STATUS.lock(|s| {
         let mut status = s.get();
@@ -200,14 +201,16 @@ async fn main(spawner: Spawner) -> ! {
             frequency: Rate::from_khz(20),
         })
         .unwrap();
+    // Backlight on GPIO45, LEDC low-speed timer 0 / channel 0, 10-bit, 20 kHz, active high (c606-oss
+    // `main/backlight.c`, mirrors the vendor `MidLcdPwmInit()`); its level is the `backlight` setting.
     let mut bl = ledc.channel(channel::Number::Channel0, peripherals.GPIO45);
     bl.configure(channel::config::Config {
         timer: &bl_timer,
-        duty_pct: BACKLIGHT_PCT,
+        duty_pct: settings().backlight,
         drive_mode: DriveMode::PushPull,
     })
     .unwrap();
-    info!("backlight on ({BACKLIGHT_PCT} %)");
+    info!("backlight on ({} %)", settings().backlight);
 
     if RUN_BENCH {
         bench(&mut panel, &mut fb);
@@ -228,6 +231,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut shown = None;
     let mut last_power_on = Instant::now();
     let mut ui = ui::Ui::new();
+    ui.set_scroll_s(settings().scroll_s);
     let mut ride: Option<Box<Ride>> = None;
     if let (Some(id), Ok(fs)) = (interrupted, fs.as_ref()) {
         ride = Ride::reopen(fs, id, false);
@@ -245,6 +249,16 @@ async fn main(spawner: Spawner) -> ! {
     let mut trip_log: Option<TripLog> = None;
     loop {
         let _ = with_timeout(Duration::from_secs(1), STATUS_CHANGED.wait()).await;
+        if SETTINGS_CHANGED.signaled() {
+            SETTINGS_CHANGED.reset();
+            let s = settings();
+            if let Ok(fs) = fs.as_ref() {
+                save_settings(fs, &s);
+            }
+            SOUND_ON.store(s.sound, Ordering::Relaxed);
+            let _ = bl.set_duty(s.backlight);
+            ui.set_scroll_s(s.scroll_s);
+        }
         // The vendor repeats SendPowerOnCmd; c606-oss does it every 5 s. No nRF watchdog seen so far.
         if last_power_on.elapsed() >= Duration::from_secs(5) {
             NRF_COMMANDS.send(command::power_on()).await;
@@ -346,7 +360,7 @@ async fn main(spawner: Spawner) -> ! {
         let status_shown = (ui.screen() == ui::Screen::Status).then_some(state);
         let screen = (ui, view, status_shown);
         if shown != Some(screen) {
-            ui::draw(&mut fb, &ui, &view, &THEME).unwrap();
+            ui::draw(&mut fb, &ui, &view, &theme()).unwrap();
             if status_shown.is_some() {
                 draw_status(&mut fb, &state, ride_info);
             }
@@ -822,8 +836,59 @@ fn storage_summary(fs: &Filesystem<'_, storage::Partition<'_>>) -> Result<(u16, 
     Ok((rides, free, total))
 }
 
-/// Local time offset written in the FIT activity (`local_timestamp`). *To make a setting.*
-const UTC_OFFSET_S: i32 = 0;
+/// Offset from UTC of the local time (the `tz` setting, summer time included) at Unix time `unix` (now when
+/// unknown: the rule's offset at 1970, standard time).
+fn utc_offset(unix: Option<u32>) -> i32 {
+    settings().tz.offset_s(unix.unwrap_or(0) as i64)
+}
+
+/// The settings (`/settings`), loaded at boot; changed by the test hook (`set key value`) until the app does it.
+static SETTINGS: Mutex<CriticalSectionRawMutex, Cell<Option<settings::Settings>>> =
+    Mutex::new(Cell::new(None));
+/// A setting changed: to save and apply.
+static SETTINGS_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+const SETTINGS_FILE: &str = "/settings";
+
+fn settings() -> settings::Settings {
+    SETTINGS.lock(Cell::get).unwrap_or_default()
+}
+
+#[allow(
+    clippy::large_stack_frames,
+    reason = "littlefs file handle and a 512-byte buffer, once at boot from main"
+)]
+fn load_settings(fs: &Fs<'_>) -> settings::Settings {
+    let path = littlefs2::path::PathBuf::try_from(SETTINGS_FILE).unwrap();
+    match fs.read::<512>(&path) {
+        Ok(data) => {
+            let s = settings::Settings::parse(core::str::from_utf8(&data).unwrap_or(""));
+            info!("settings: {s:?}");
+            s
+        }
+        Err(e) => {
+            info!("settings: defaults (no file, littlefs {})", e.code());
+            settings::Settings::default()
+        }
+    }
+}
+
+/// The whole file in one commit: a power cut keeps the old one.
+fn save_settings(fs: &Fs<'_>, s: &settings::Settings) {
+    let mut text = String::new();
+    let _ = s.write(&mut text);
+    let path = littlefs2::path::PathBuf::try_from(SETTINGS_FILE).unwrap();
+    match fs.write(&path, text.as_bytes()) {
+        Ok(()) => info!("settings: saved"),
+        Err(e) => warn!("settings: save failed, littlefs error {}", e.code()),
+    }
+}
+
+fn theme() -> ui::Theme {
+    match settings().theme {
+        settings::Theme::Day => ui::DAY,
+        settings::Theme::Night => ui::NIGHT,
+    }
+}
 
 /// What the screen shows of the ride.
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -1007,7 +1072,7 @@ impl Ride {
             warn!("ride: no time yet (no GNSS fix, no RTC), not started");
             return None;
         };
-        match recorder::Recorder::start(fs, unix, fit::timestamp(unix), SERIAL) {
+        match recorder::Recorder::start(fs, unix, fit::timestamp(unix), serial()) {
             Ok(recorder) => {
                 info!("ride {unix}: started");
                 sound(SOUND_BEEP);
@@ -1130,7 +1195,7 @@ impl Ride {
         let t = now_unix(s)
             .map_or(self.last_timestamp, fit::timestamp)
             .max(self.last_timestamp);
-        match self.recorder.stop(fs, t, UTC_OFFSET_S) {
+        match self.recorder.stop(fs, t, utc_offset(now_unix(s))) {
             Ok(totals) => {
                 info!("ride {id}: saved, {totals:?}");
                 sound(command::SOUND_JINGLE);
@@ -1157,14 +1222,19 @@ impl Ride {
     }
 }
 
-/// `file_id.serial_number` of the FIT files. *To read from the device (MAC address).*
-const SERIAL: u32 = 600;
+/// `file_id.serial_number` of the FIT files: the last 4 bytes of the MAC address, unique to the device.
+fn serial() -> u32 {
+    let mac = esp_hal::efuse::base_mac_address();
+    let b = mac.as_bytes();
+    u32::from_be_bytes([b[2], b[3], b[4], b[5]])
+}
 /// Short beep on the buzzer (`E2 01 00`).
 const SOUND_BEEP: u8 = 0x00;
 /// Buzzer on; `sound off` on the USB test hook mutes it (tests next to people).
 static SOUND_ON: AtomicBool = AtomicBool::new(true);
 /// The screen shown, for the test hook.
-static SCREEN: Mutex<CriticalSectionRawMutex, Cell<ui::Screen>> = Mutex::new(Cell::new(ui::Screen::Home));
+static SCREEN: Mutex<CriticalSectionRawMutex, Cell<ui::Screen>> =
+    Mutex::new(Cell::new(ui::Screen::Home));
 
 fn sound(id: u8) {
     if SOUND_ON.load(Ordering::Relaxed) {
@@ -1203,16 +1273,17 @@ fn unix_of(t: &RtcTime) -> Option<u32> {
         .filter(|&u| u > fit::FIT_EPOCH_OFFSET)
 }
 
-/// Colours of the screens. *To make a setting (day / night, or from the ambient light).*
-const THEME: ui::Theme = ui::DAY;
-
 /// What the screens show (crates/ui).
+#[allow(
+    clippy::large_stack_frames,
+    reason = "the view (two altitude profiles) and the status, from main"
+)]
 fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
     let fix = s.fix;
     let altitude_dm = s.altimeter.altitude_dm();
     ui::View {
         clock: now_unix(s).map(|unix| {
-            let day_s = (unix as i64 + UTC_OFFSET_S as i64).rem_euclid(86_400) as u32;
+            let day_s = (unix as i64 + utc_offset(Some(unix)) as i64).rem_euclid(86_400) as u32;
             ((day_s / 3600) as u8, (day_s / 60 % 60) as u8)
         }),
         battery_pct: s.battery.map(|(_, pct)| pct),
@@ -1259,7 +1330,8 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
     reason = "task future: line buffer, statically allocated by embassy"
 )]
 async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
-    let mut line = [0u8; 32];
+    // room for `set tz` and a time zone rule with summer time, after a sequence number
+    let mut line = [0u8; 64];
     let mut len = 0;
     let mut last_seq = None;
     loop {
@@ -1292,6 +1364,31 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                     }
                     Some(UsbCommand::Gnss(request)) => GNSS_REQUESTS.send(request).await,
                     Some(UsbCommand::Screen) => info!("screen {:?}", SCREEN.lock(Cell::get)),
+                    Some(UsbCommand::Set(key, value)) => {
+                        let mut s = settings();
+                        match s.set(key, value) {
+                            Ok(()) => {
+                                SETTINGS.lock(|c| c.set(Some(s)));
+                                SETTINGS_CHANGED.signal(());
+                                info!("usb: set {key}={value}");
+                            }
+                            Err(e) => warn!("usb: set {key}={value}: {e:?}"),
+                        }
+                    }
+                    Some(UsbCommand::Get(key)) => {
+                        let mut v = String::new();
+                        match settings().get(key, &mut v) {
+                            Ok(()) => info!("usb: {key}={v}"),
+                            Err(e) => warn!("usb: get {key}: {e:?}"),
+                        }
+                    }
+                    Some(UsbCommand::Settings) => {
+                        let mut v = String::new();
+                        let _ = settings().write(&mut v);
+                        for line in v.lines() {
+                            info!("usb: {line}");
+                        }
+                    }
                     Some(UsbCommand::RtcShift(s)) => match STATUS.lock(Cell::get).rtc {
                         Some(rtc) => {
                             let t = RtcTime::from_unix(rtc.unix() + s as i64);
@@ -1322,7 +1419,7 @@ fn split_seq(line: &str) -> (Option<u32>, &str) {
     }
 }
 
-enum UsbCommand {
+enum UsbCommand<'a> {
     Key(u8, &'static [KeyAction]),
     Sound(bool),
     Gnss(GnssRequest),
@@ -1330,9 +1427,13 @@ enum UsbCommand {
     RtcShift(i32),
     /// Logs the screen shown (`screen Home`), for the HIL tests.
     Screen,
+    /// `set key value`: changes a setting (saved); `get key`, `settings ?`: logs them.
+    Set(&'a str, &'a str),
+    Get(&'a str),
+    Settings,
 }
 
-fn usb_command(line: &str) -> Option<UsbCommand> {
+fn usb_command(line: &str) -> Option<UsbCommand<'_>> {
     let mut words = line.split_whitespace();
     match (words.next()?, words.next()?, words.next()) {
         ("sound", "on", None) => Some(UsbCommand::Sound(true)),
@@ -1352,6 +1453,9 @@ fn usb_command(line: &str) -> Option<UsbCommand> {
         }
         ("rtc", "shift", Some(s)) => Some(UsbCommand::RtcShift(s.parse().ok()?)),
         ("screen", "?", None) => Some(UsbCommand::Screen),
+        ("set", key, Some(value)) => Some(UsbCommand::Set(key, value)),
+        ("get", key, None) => Some(UsbCommand::Get(key)),
+        ("settings", "?", None) => Some(UsbCommand::Settings),
         ("key", key, Some(action)) => {
             let key = key.parse().ok().filter(|&k: &u8| k <= 2)?;
             let actions: &[KeyAction] = match action {
@@ -1389,8 +1493,8 @@ fn draw_message(fb: &mut FrameBuffer, text: &str) {
 )]
 /// The bring-up values, in the content area of the status screen (between the key bars of crates/ui).
 fn draw_status(fb: &mut FrameBuffer, s: &Status, ride: Option<RideInfo>) {
-    let label = MonoTextStyle::new(&FONT_6X10, THEME.mute);
-    let value = MonoTextStyle::new(&FONT_10X20, THEME.fg);
+    let label = MonoTextStyle::new(&FONT_6X10, theme().mute);
+    let value = MonoTextStyle::new(&FONT_10X20, theme().fg);
 
     let none = || String::from("-");
     let rows: [(&str, String); 9] = [

@@ -20,7 +20,7 @@ use fonts::Line;
 
 /// Pages of a ride at most.
 pub const MAX_PAGES: usize = 4;
-/// Auto-scroll of the ride pages, one page every this long.
+/// Auto-scroll of the ride pages, one page every this long (default of [`Ui::set_scroll_s`]).
 pub const SCROLL_MS: u64 = 4_000;
 /// An information banner stays this long.
 pub const INFO_MS: u64 = 3_000;
@@ -297,6 +297,7 @@ pub struct Ui {
     page: u8,
     item: u8,
     scroll: bool,
+    scroll_ms: u64,
     scrolled_at: u64,
     banner: Option<Banner>,
     /// The GNSS had a fix during this ride ("lost" rather than "searching").
@@ -321,11 +322,17 @@ impl Ui {
             page: 0,
             item: 0,
             scroll: false,
+            scroll_ms: SCROLL_MS,
             scrolled_at: 0,
             banner: None,
             had_fix: false,
             fix: false,
         }
+    }
+
+    /// Auto-scroll interval (the `scroll_s` setting).
+    pub fn set_scroll_s(&mut self, s: u8) {
+        self.scroll_ms = s as u64 * 1000;
     }
 
     /// At power-on with a paused ride: the screen that offers to resume or finish it.
@@ -473,7 +480,7 @@ impl Ui {
         };
         if self.scroll
             && self.screen == Ride
-            && now_ms.saturating_sub(self.scrolled_at) >= SCROLL_MS
+            && now_ms.saturating_sub(self.scrolled_at) >= self.scroll_ms
         {
             self.next_page();
             self.scrolled_at = now_ms;

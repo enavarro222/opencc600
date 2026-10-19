@@ -1512,6 +1512,7 @@ dependencies = [
  "nrf-link",
  "recorder",
  "ride-store",
+ "settings",
  "static_cell",
  "ui",
 ]
@@ -1788,6 +1789,10 @@ dependencies = [
  "serde",
  "unsafe-libyaml",
 ]
+
+[[package]]
+name = "settings"
+version = "0.1.0"
 
 [[package]]
 name = "sha2"

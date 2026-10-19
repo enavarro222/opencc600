@@ -174,7 +174,7 @@ The "no maps" limit only applies to a global map. A map restricted to the loaded
   a server, then pushed over Wi-Fi. The CC600 only draws polylines on its 240x320 framebuffer (`embedded-graphics`).
 
 ### MVP
-Status on 2026-10-19 (updated by the bring-up work; altitude is worked on in parallel, see
+Status on 2026-10-20 (updated by the bring-up work; altitude is worked on in parallel, see
 [ALTITUDE.md](ALTITUDE.md)).
 
 - [x] **Reliable FIT recording** on littlefs, `/rides/<start>.fit`; survives a crash or an empty battery: appends
@@ -197,8 +197,11 @@ Status on 2026-10-19 (updated by the bring-up work; altitude is worked on in par
       low battery, recording started/stopped. Every beep comes with a message on screen.
 - [ ] **Load a GPX route and display the route line** (no background map yet), and switch to a free ride without
       it (route kept, see UI rules).
-- [ ] **Settings kept in flash**: sound on/off (the USB test hook already mutes), time zone (UTC hard-coded in the
-      FIT `local_timestamp` today), backlight level; FIT `serial_number` from the MAC address (600 today).
+- [x] **Settings kept in flash** (`crates/settings`, `/settings`, one `key=value` line each, written in one
+      commit): sound, time zone as a POSIX rule with summer time (default `CET-1CEST,M3.5.0,M10.5.0/3`, used
+      for the clock and the FIT `local_timestamp`), theme day / night, backlight, usage (explore / train, for the
+      pages), auto-scroll interval. Changed with `set key value` on the USB test hook until the app does it. FIT
+      `serial_number` from the MAC address.
 - [ ] **GPS fix as early as possible**: the GNSS is powered and configured first thing at boot, before the UI and
       the storage checks, and stays on from the home screen (not only when a ride starts). Hot start: last position
       and time saved in flash at power off and sent to the receiver at boot (`$PAIR` time/position aiding), the RTC
