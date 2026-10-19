@@ -33,8 +33,8 @@ measurement unless marked so.
 
 ## What we already know (2026-10-19)
 
-- The ESP32-S3 runs at **240 MHz with both executors busy-waiting nothing**: Embassy already idles the CPU
-  between events (`waiti`), but no light sleep, no clock scaling.
+- The ESP32-S3 runs at **240 MHz**. Embassy already idles the CPU between events (`waiti`), but there is no
+  light sleep and no clock scaling.
 - The bring-up screen redraws on every state change (up to 5 Hz) and the full 150 KB frame is sent each time
   (11 ms of bus + CPU copy per frame, see REVERSE_NOTES.md).
 - The GNSS outputs ~23 sentences per second, including `GSV` ×12 and the long `$PAIRSAT`, most of which the
