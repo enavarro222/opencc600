@@ -285,6 +285,13 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   unplugged) with the body attenuating the signal (acquisition needs a stronger signal than tracking). The vendor
   parks the receiver (`$PAIR650`), gives A-GNSS data and probably the time (`$PAIR590`). To measure with
   `tools/ttff.py`.
+- **Vendor GNSS commands** (ota_1 strings; reply parser `FUN_420ec2b0`): restarts `$PAIR004`..`007`, `$PAIR020`
+  (version, 6 chars kept), `$PAIR023`, `$PAIR382,0/1`, `$PAIR866,0,0,0`, `$PAIR867`, time `$PAIR590,`, and EPO:
+  `$PAIR490,0` is sent with the log line `CloseEPOCSend` (end of an EPO upload), `$PAIR491` reads the EPO status
+  (vendor logs: `PAIR491,1,0` and once `PAIR491,1,3`), `$PAIR470` lines are its data or status. The parser waits
+  for `PAIR001,650` (parking ack). **No position aiding command** in the strings (no `PAIR600`). The vendor logs
+  `GpsPthreadGetAgnssFileInfor:AgnssTimeOut!` at its last boots: its A-GNSS file had expired, so the vendor started
+  without EPO too; what it had more than us is the parking and the time.
 - Fixtures: `crates/gnss/tests/fixtures/` holds an anonymised 10 s capture (fake position, randomised satellite
   geometry). Raw captures contain the real position and stay in `dump/`.
 

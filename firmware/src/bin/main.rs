@@ -421,7 +421,9 @@ async fn gnss_task(mut uart: GnssUart) {
     let mut link = GnssLink::new();
     // Last (re)start of the receiver, for the time to first fix: ESP32 boot, restart seen, or commanded.
     let mut started = (Instant::now(), "boot");
-    let mut answer_time = false;
+    // Answer the receiver's time requests with the RTC time (`$PAIR590`): after a power cycle it starts without
+    // the time. `gnss time off` turns it off for the TTFF measurements.
+    let mut answer_time = true;
     let mut time_aid_at: Option<Instant> = None;
     loop {
         while let Ok(request) = GNSS_REQUESTS.try_receive() {
@@ -1127,9 +1129,10 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                 let text = core::str::from_utf8(&line[..len]).unwrap_or("");
                 let (seq, text) = split_seq(text);
                 if let Some(seq) = seq {
-                    // acknowledged again when repeated (the host resends until it sees the ack), run once
+                    // acknowledged again when repeated (the host resends until it sees the ack), run once; only
+                    // the last number counts: a new host session starts again from 1
                     info!("usb ack {seq}");
-                    if last_seq.is_some_and(|last| seq <= last) {
+                    if last_seq == Some(seq) {
                         len = 0;
                         continue;
                     }
