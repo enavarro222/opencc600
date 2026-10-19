@@ -129,6 +129,15 @@ Needs OpenOCD's `60-openocd.rules` udev rule for non-root USB access.
 - Verdict: the drivers work on the CC600, but the c606-oss app is not what we want → c606-oss becomes our
   hardware layer, with our own firmware on top. See [PRODUCT.md](PRODUCT.md).
 
+## First run of our Rust spike (step 0)
+
+- The vendor second-stage bootloader logs on the USB-Serial/JTAG port (partition table, segments), then loads
+  our esp-hal image from ota_0. Quad PSRAM 2 MB OK.
+- **The panel keeps its frame memory across an ESP32 reset**: its reset line is on the nRF side
+  (c606-oss `LCD_PIN_RST -1`), so an esptool reset does not clear it. With only the backlight turned on, the
+  spike showed the vendor's last frame ("Batterie actuelle: 100%", its USB charging screen). → the panel init must
+  clear the GRAM (SWRESET + fill) before the backlight goes on, or stale frames from another firmware show up.
+
 ## Safety rules
 
 - **Never** write eFuses (irreversible).
