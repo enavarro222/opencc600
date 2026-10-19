@@ -4,7 +4,10 @@
 use fit::{Record, timestamp};
 use fitparser::profile::MesgNum;
 use fitparser::{FitDataRecord, Value};
-use recorder::{EpochClock, FLUSH_EVERY_S, Odometer, Recorder, Recovered, Summary, recover};
+use recorder::{
+    EpochClock, FLUSH_EVERY_S, Odometer, Recorder, Recovered, Summary, interrupted, last_finished,
+    recover,
+};
 use ride_store::littlefs2::fs::{Allocation, Filesystem};
 use ride_store::littlefs2::io::Result;
 use ride_store::ram::RamFlash;
@@ -185,7 +188,7 @@ fn mount_and_recover(flash: &mut Flash) -> Result<Vec<Recovered>> {
     let mut alloc = Allocation::new();
     let fs = Filesystem::mount(&mut alloc, flash)?;
     let mut done = vec![];
-    recover(&fs, 7200, |r| done.push(r))?;
+    recover(&fs, 7200, None, |r| done.push(r))?;
     Ok(done)
 }
 
@@ -355,4 +358,231 @@ fn ascent_from_the_pressure_only() {
         });
     }
     assert_eq!(s.totals().ascent_m, 0);
+}
+
+/// Event types of a FIT file, in order.
+fn events(file: &[u8]) -> Vec<String> {
+    fitparser::from_bytes(file)
+        .unwrap()
+        .iter()
+        .filter(|m| m.kind() == MesgNum::Event)
+        .map(|m| {
+            format!(
+                "{}",
+                m.fields()
+                    .iter()
+                    .find(|f| f.name() == "event_type")
+                    .unwrap()
+                    .value()
+            )
+        })
+        .collect()
+}
+
+fn session(file: &[u8]) -> FitDataRecord {
+    let msgs = fitparser::from_bytes(file).unwrap();
+    let sessions: Vec<_> = msgs
+        .into_iter()
+        .filter(|m| m.kind() == MesgNum::Session)
+        .collect();
+    assert_eq!(sessions.len(), 1, "one session");
+    sessions.into_iter().next().unwrap()
+}
+
+fn records(file: &[u8]) -> usize {
+    fitparser::from_bytes(file)
+        .unwrap()
+        .iter()
+        .filter(|m| m.kind() == MesgNum::Record)
+        .count()
+}
+
+/// Sample `i` of the part resumed at `at` (seconds after t0), the distance going on from `from` metres.
+fn later(at: u32, from: u32, i: u32) -> Record {
+    Record {
+        timestamp: t0() + at + i,
+        distance_cm: Some((from + i * 8) * 100),
+        ..sample(i)
+    }
+}
+
+#[test]
+fn an_interrupted_ride_is_reopened_paused() {
+    let mut flash = Flash::new();
+    Filesystem::format(&mut flash).unwrap();
+    let mut alloc = Allocation::new();
+    let fs = Filesystem::mount(&mut alloc, &mut flash).unwrap();
+    let mut r = Recorder::start(&fs, ID, t0(), 42).unwrap();
+    for i in 0..30 {
+        r.record(&fs, &sample(i)).unwrap();
+    }
+    r.flush(&fs).unwrap();
+    // the power goes while the timer runs: nothing more is written
+    drop(r);
+    assert_eq!(interrupted(&fs).unwrap(), Some(ID));
+    let mut r = Recorder::reopen(&fs, ID).unwrap();
+    assert!(!r.summary().running(), "reopened paused");
+    assert_eq!(r.summary().records, 30);
+    // back on an hour later
+    r.resume(&fs, t0() + 3600).unwrap();
+    for i in 0..20 {
+        r.record(&fs, &later(3600, 29 * 8, i)).unwrap();
+    }
+    r.stop(&fs, t0() + 3619, 7200).unwrap();
+    let file = read_fit(&fs);
+    assert_eq!(events(&file), ["start", "stop", "start", "stop_all"]);
+    let s = session(&file);
+    // the timer stopped at the last record on flash; the hour switched off does not count
+    assert_eq!(num(&s, "total_timer_time"), 29.0 + 19.0);
+    assert_eq!(num(&s, "total_elapsed_time"), 3619.0);
+    assert_eq!(records(&file), 50);
+}
+
+#[test]
+fn a_finished_ride_is_resumed() {
+    let mut flash = Flash::new();
+    Filesystem::format(&mut flash).unwrap();
+    let mut alloc = Allocation::new();
+    let fs = Filesystem::mount(&mut alloc, &mut flash).unwrap();
+    ride(&fs, &mut Acked::default()).unwrap();
+    assert_eq!(last_finished(&fs).unwrap(), Some(ID));
+    let mut r = Recorder::reopen_finished(&fs, ID).unwrap();
+    assert!(!r.summary().running(), "reopened paused");
+    assert_eq!(last_finished(&fs).unwrap(), None);
+    r.resume(&fs, t0() + 200).unwrap();
+    for i in 0..10 {
+        r.record(&fs, &later(200, (SAMPLES - 1) * 8, i)).unwrap();
+    }
+    let totals = r.stop(&fs, t0() + 209, 7200).unwrap();
+    let file = read_fit(&fs);
+    // the ride had been stopped while running: reopening stopped its timer where it had ended
+    assert_eq!(
+        events(&file),
+        ["start", "stop", "start", "stop", "start", "stop_all"]
+    );
+    let s = session(&file);
+    let first = (SAMPLES - 1 - PAUSE.len() as u32) as f64;
+    assert_eq!(num(&s, "total_timer_time"), first + 9.0);
+    assert_eq!(num(&s, "total_elapsed_time"), 209.0);
+    assert_eq!(totals.timer_ms, (first as u32 + 9) * 1000);
+    assert_eq!(records(&file), SAMPLES as usize - PAUSE.len() + 10);
+}
+
+/// What the resumed part was told had been done.
+#[derive(Debug, Default)]
+struct AckedResume {
+    reopened: bool,
+    recorded: u32,
+    stopped: bool,
+}
+
+const MORE: u32 = 30;
+
+fn resume_finished(fs: &Filesystem<'_, Flash>, acked: &mut AckedResume) -> Result<()> {
+    let mut r = Recorder::reopen_finished(fs, ID)?;
+    acked.reopened = true;
+    r.resume(fs, t0() + 200)?;
+    for i in 0..MORE {
+        r.record(fs, &later(200, (SAMPLES - 1) * 8, i))?;
+        acked.recorded += 1;
+    }
+    r.stop(fs, t0() + 200 + MORE - 1, 7200)?;
+    acked.stopped = true;
+    Ok(())
+}
+
+/// The firmware's boot: the newest interrupted ride is reopened (here closed at once, to check it), the others
+/// closed.
+fn boot(flash: &mut Flash) -> Result<()> {
+    let mut alloc = Allocation::new();
+    let fs = Filesystem::mount(&mut alloc, flash)?;
+    let keep = interrupted(&fs)?;
+    recover(&fs, 7200, keep, |_| {})?;
+    if let Some(id) = keep {
+        Recorder::reopen(&fs, id)?.stop(&fs, 0, 7200)?;
+    }
+    Ok(())
+}
+
+/// After a cut while resuming and a boot: one finished ride, whole, with every resumed record acknowledged but
+/// the RAM buffer.
+fn check_resumed(flash: &mut Flash, acked: &AckedResume, ctx: &str) {
+    let mut alloc = Allocation::new();
+    let fs = Filesystem::mount(&mut alloc, flash).unwrap_or_else(|e| panic!("{ctx}: mount {e:?}"));
+    let mut unfinished = 0;
+    ride_store::unfinished(&fs, |_, _| unfinished += 1).unwrap();
+    assert_eq!(unfinished, 0, "{ctx}: still unfinished");
+    let file = read_fit(&fs);
+    fitparser::from_bytes(&file).unwrap_or_else(|e| panic!("{ctx}: undecodable: {e}"));
+    session(&file);
+    let first = SAMPLES - PAUSE.len() as u32;
+    let kept = records(&file) as u32 - first;
+    assert!(
+        kept <= acked.recorded + 1,
+        "{ctx}: {kept} records, {acked:?}"
+    );
+    assert!(
+        kept + FLUSH_EVERY_S + 1 >= acked.recorded,
+        "{ctx}: {kept} records kept, {acked:?}"
+    );
+    if acked.stopped {
+        assert_eq!(kept, MORE, "{ctx}");
+    }
+}
+
+#[test]
+fn a_resumed_ride_survives_any_power_cut() {
+    let mut base = Flash::new();
+    Filesystem::format(&mut base).unwrap();
+    {
+        let mut alloc = Allocation::new();
+        let fs = Filesystem::mount(&mut alloc, &mut base).unwrap();
+        ride(&fs, &mut Acked::default()).unwrap();
+    }
+    let mut cut = 1;
+    let mut nested = 0;
+    loop {
+        let mut flash = base.clone();
+        flash.cut_after(cut);
+        let mut acked = AckedResume::default();
+        let done = {
+            let mut alloc = Allocation::new();
+            let fs = Filesystem::mount(&mut alloc, &mut flash).unwrap();
+            resume_finished(&fs, &mut acked).is_ok()
+        };
+        if done {
+            break;
+        }
+        assert!(flash.is_off(), "cut {cut}: failed without a power cut");
+        flash.power_on();
+        let ctx = format!("cut at op {cut}");
+        // the boot is cut too, at each of its operations, every 3rd first cut
+        if cut % 3 == 0 {
+            let mut second = 1;
+            loop {
+                let mut again = flash.clone();
+                again.cut_after(second);
+                if boot(&mut again).is_ok() {
+                    break;
+                }
+                assert!(
+                    again.is_off(),
+                    "{ctx}, boot cut {second}: failed without a cut"
+                );
+                again.power_on();
+                boot(&mut again).unwrap_or_else(|e| panic!("{ctx}, boot cut {second}: {e:?}"));
+                check_resumed(&mut again, &acked, &format!("{ctx}, boot cut {second}"));
+                second += 1;
+                nested += 1;
+            }
+        }
+        boot(&mut flash).unwrap_or_else(|e| panic!("{ctx}: boot {e:?}"));
+        check_resumed(&mut flash, &acked, &ctx);
+        cut += 1;
+    }
+    println!(
+        "resume: {} flash operations, each cut; {nested} cuts during boots",
+        cut - 1
+    );
+    assert!(cut > 10, "suspiciously few operations: {cut}");
 }

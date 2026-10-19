@@ -210,6 +210,40 @@ impl Recorder {
         Ok(r)
     }
 
+    /// Opens interrupted ride `id` again, paused, whatever the state it was left in: a timer that was running is
+    /// stopped at the last message on flash (the time switched off does not count); closing messages written, or
+    /// the file even sealed, are removed. Then [`Recorder::resume`], [`Recorder::record`] and [`Recorder::stop`] as
+    /// for a new ride. Every step is one commit and leaves a ride that this, or [`recover`], takes again.
+    pub fn reopen<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<Self> {
+        let mut scan = scan(fs, id)?;
+        if let Some(at) = scan.closing_at {
+            // the closing messages and the seal go in one commit, with the placeholder header back
+            ride_store::update(fs, id, |file| {
+                file.set_len(at)?;
+                file.seek(SeekFrom::Start(0))?;
+                write_all(file, &fit::header(0))
+            })?;
+            scan = self::scan(fs, id)?;
+        }
+        let mut r = Self {
+            id,
+            summary: scan.summary,
+            buf: [0; BUF],
+            len: 0,
+            last_flush: scan.summary.last_time,
+        };
+        let end = r.summary.last_time;
+        r.pause(fs, end)?;
+        Ok(r)
+    }
+
+    /// Opens finished ride `id` again, paused (the "resume" of the end screen): back to an unfinished ride, then
+    /// [`Recorder::reopen`].
+    pub fn reopen_finished<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<Self> {
+        ride_store::unfinish(fs, id)?;
+        Self::reopen(fs, id)
+    }
+
     pub fn id(&self) -> u32 {
         self.id
     }
@@ -396,11 +430,27 @@ pub enum Recovered {
     Empty { id: u32 },
 }
 
-/// Closes every ride whose recording was interrupted (power cut, crash), calling `f` for each. The closing
-/// messages are stamped with the last timestamp found in the file.
+/// The newest interrupted ride (power cut, crash, switched off during a pause): the one to offer to resume with
+/// [`Recorder::reopen`]; [`recover`] closes the others.
+pub fn interrupted<S: Storage>(fs: &Filesystem<'_, S>) -> Result<Option<u32>> {
+    let mut newest = None;
+    ride_store::unfinished(fs, |id, _| newest = newest.max(Some(id)))?;
+    Ok(newest)
+}
+
+/// The newest finished ride: the one the end screen and the menu offer to resume ([`Recorder::reopen_finished`]).
+pub fn last_finished<S: Storage>(fs: &Filesystem<'_, S>) -> Result<Option<u32>> {
+    let mut newest = None;
+    ride_store::finished(fs, |id, _| newest = newest.max(Some(id)))?;
+    Ok(newest)
+}
+
+/// Closes every ride whose recording was interrupted (power cut, crash) except `keep` (the one to resume), calling
+/// `f` for each. The closing messages are stamped with the last timestamp found in the file.
 pub fn recover<S: Storage>(
     fs: &Filesystem<'_, S>,
     utc_offset_s: i32,
+    keep: Option<u32>,
     mut f: impl FnMut(Recovered),
 ) -> Result<()> {
     let mut ids = [0u32; 8];
@@ -411,7 +461,7 @@ pub fn recover<S: Storage>(
             count += 1;
         }
     })?;
-    for &id in &ids[..count] {
+    for &id in ids[..count].iter().filter(|&&id| Some(id) != keep) {
         let mut head = [0u8; HEADER_LEN];
         let n = ride_store::read(fs, id, false, &mut head)?;
         if n == HEADER_LEN && head[4..8] != [0; 4] {
@@ -419,7 +469,11 @@ pub fn recover<S: Storage>(
             f(Recovered::Renamed { id });
             continue;
         }
-        let (mut summary, closed) = replay(fs, id)?;
+        let Scan {
+            mut summary,
+            closing_at,
+        } = scan(fs, id)?;
+        let closed = closing_at.is_some();
         if summary.records == 0 {
             ride_store::remove_unfinished(fs, id)?;
             f(Recovered::Empty { id });
@@ -437,14 +491,31 @@ pub fn recover<S: Storage>(
     Ok(())
 }
 
-/// Reads the messages of unfinished ride `id` back into a summary; true if its closing messages are there.
-fn replay<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<(Summary, bool)> {
+/// What [`scan`] read back from an unfinished ride.
+struct Scan {
+    summary: Summary,
+    /// Offset of the closing messages (from the `stop_all` event), when they are there.
+    closing_at: Option<usize>,
+}
+
+/// Reads the messages of unfinished ride `id` back into a summary (closing messages included), up to the data
+/// size of its header when it is sealed (the CRC follows).
+fn scan<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<Scan> {
     let mut summary = Summary::default();
-    let mut closed = false;
+    let mut closing_at = None;
+    let mut head = [0u8; HEADER_LEN];
+    let n = ride_store::read(fs, id, false, &mut head)?;
+    let data_size = if n == HEADER_LEN {
+        u32::from_le_bytes([head[4], head[5], head[6], head[7]])
+    } else {
+        0
+    };
+    let end = (data_size > 0).then(|| HEADER_LEN + data_size as usize);
     let mut buf = [0u8; 256];
     let mut offset = HEADER_LEN;
     loop {
-        let n = ride_store::read_at(fs, id, false, offset, &mut buf)?;
+        let want = end.map_or(buf.len(), |e| e.saturating_sub(offset).min(buf.len()));
+        let n = ride_store::read_at(fs, id, false, offset, &mut buf[..want])?;
         // Appends are atomic and end on a message boundary: a message cut at the end of the file is corruption,
         // one cut at the end of a full window continues in the next read.
         let more = n == buf.len();
@@ -461,13 +532,20 @@ fn replay<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<(Summary, bool)
                 break;
             }
             let msg = &buf[pos..pos + len];
-            closed |= Activity::is(msg);
+            if closing_at.is_none()
+                && Event::decode(msg).is_some_and(|e| e.kind == EventType::StopAll)
+            {
+                closing_at = Some(offset + pos);
+            }
             feed(&mut summary, msg);
             pos += len;
         }
         if !more {
             return if pos == n {
-                Ok((summary, closed))
+                Ok(Scan {
+                    summary,
+                    closing_at,
+                })
             } else {
                 Err(Error::CORRUPTION)
             };

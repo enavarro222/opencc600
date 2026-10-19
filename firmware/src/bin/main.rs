@@ -148,7 +148,8 @@ async fn main(spawner: Spawner) -> ! {
     };
     // Rides interrupted by a power cut or a crash: closed with what had been written.
     if let Ok(fs) = fs.as_ref()
-        && let Err(e) = recorder::recover(fs, UTC_OFFSET_S, |r| info!("ride recovered: {r:?}"))
+        && let Err(e) =
+            recorder::recover(fs, UTC_OFFSET_S, None, |r| info!("ride recovered: {r:?}"))
     {
         warn!("ride recovery: littlefs error {}", e.code());
     }

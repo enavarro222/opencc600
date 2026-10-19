@@ -76,6 +76,11 @@ pub fn finish<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
     fs.rename(&ride_path(id, PART), &ride_path(id, FIT))
 }
 
+/// Opens finished ride `id` again: `/rides/<id>.fit` becomes `/rides/<id>.part` (atomic), to resume it.
+pub fn unfinish<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
+    fs.rename(&ride_path(id, FIT), &ride_path(id, PART))
+}
+
 /// Deletes finished ride `id` (e.g. once uploaded).
 pub fn remove<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
     fs.remove(&ride_path(id, FIT))
