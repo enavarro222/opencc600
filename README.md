@@ -42,6 +42,8 @@ Source: [docs/prototype/prototype.dc.html](docs/prototype/prototype.dc.html); th
 - `tools/read_pins.py`: reads the pin routing of a running ESP32-S3 over its built-in USB-JTAG
   (Espressif OpenOCD), read-only.
 - `tools/serial_log.py`: prints the USB serial log for N seconds, each line with the host time (no reset).
+- `tools/sound_probe.py`: records the PC microphone while the firmware scans the nRF sound commands, then lists
+  the notes of each sound.
 - `tools/build_prototype.py`: rebuilds the standalone UI prototype page.
 - `tools/check_prototype_layout.py`: checks in headless Chromium that nothing on the prototype screen changes size between states.
 
