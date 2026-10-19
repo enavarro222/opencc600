@@ -39,8 +39,10 @@ esp-println = { version = "0.18.0", features = ["esp32s3", "log-04"] }
 critical-section  = "1.2.0"
 embedded-graphics = "0.8.2"
 embassy-sync      = "0.8.0"
+fit               = { path = "../crates/fit" }
 gnss              = { path = "../crates/gnss" }
 nrf-link          = { path = "../crates/nrf-link" }
+recorder          = { path = "../crates/recorder" }
 ride-store        = { path = "../crates/ride-store" }
 static_cell      = "2.1.1"
 littlefs2 = { version = "0.8.1", default-features = false, features = ["c-stubs"] }

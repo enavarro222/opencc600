@@ -4,7 +4,7 @@
 use fit::{Record, timestamp};
 use fitparser::profile::MesgNum;
 use fitparser::{FitDataRecord, Value};
-use recorder::{FLUSH_EVERY_S, Recorder, Recovered, recover};
+use recorder::{FLUSH_EVERY_S, Odometer, Recorder, Recovered, recover};
 use ride_store::littlefs2::fs::{Allocation, Filesystem};
 use ride_store::littlefs2::io::Result;
 use ride_store::ram::RamFlash;
@@ -269,4 +269,15 @@ fn a_ride_survives_any_power_cut() {
         cut - 1
     );
     assert!(cut > 50, "suspiciously few operations: {cut}");
+}
+
+#[test]
+fn odometer() {
+    let mut o = Odometer::default();
+    assert_eq!(o.update(100, Some(8_000)), 0); // first speed: nothing to integrate yet
+    assert_eq!(o.update(101, Some(8_000)), 800);
+    assert_eq!(o.update(102, Some(300)), 800); // GNSS noise at rest
+    assert_eq!(o.update(103, None), 800); // no fix
+    assert_eq!(o.update(104, Some(10_000)), 800 + 2 * 1000); // 2 s since the last speed
+    assert_eq!(o.update(160, Some(10_000)), 2800 + 5 * 1000); // long gap: counted 5 s
 }

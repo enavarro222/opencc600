@@ -1062,6 +1062,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
 
 [[package]]
+name = "fit"
+version = "0.1.0"
+
+[[package]]
 name = "float-cmp"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1487,10 +1491,12 @@ dependencies = [
  "esp-println",
  "esp-rtos",
  "esp-storage",
+ "fit",
  "gnss",
  "littlefs2",
  "log",
  "nrf-link",
+ "recorder",
  "ride-store",
  "static_cell",
 ]
@@ -1566,6 +1572,14 @@ name = "rand_core"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
+
+[[package]]
+name = "recorder"
+version = "0.1.0"
+dependencies = [
+ "fit",
+ "ride-store",
+]
 
 [[package]]
 name = "regex"

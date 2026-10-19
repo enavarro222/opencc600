@@ -143,6 +143,12 @@ async fn main(spawner: Spawner) -> ! {
             Err(e.code())
         }
     };
+    // Rides interrupted by a power cut or a crash: closed with what had been written.
+    if let Ok(fs) = fs.as_ref()
+        && let Err(e) = recorder::recover(fs, UTC_OFFSET_S, |r| info!("ride recovered: {r:?}"))
+    {
+        warn!("ride recovery: littlefs error {}", e.code());
+    }
     let storage_info = fs.as_ref().map_err(|&code| code).and_then(storage_summary);
     STATUS.lock(|s| {
         let mut status = s.get();
@@ -208,9 +214,8 @@ async fn main(spawner: Spawner) -> ! {
 
     let mut shown = None;
     let mut last_power_on = Instant::now();
-    let mut probe_index: Option<usize> = None;
-    let mut scan: Option<(u8, Instant)> = None;
     let mut power_prompt: Option<Instant> = None;
+    let mut ride: Option<Box<Ride>> = None;
     loop {
         let _ = with_timeout(Duration::from_secs(1), STATUS_CHANGED.wait()).await;
         // The vendor repeats SendPowerOnCmd; c606-oss does it every 5 s. No nRF watchdog seen so far.
@@ -218,16 +223,17 @@ async fn main(spawner: Spawner) -> ! {
             NRF_COMMANDS.send(command::power_on()).await;
             last_power_on = Instant::now();
         }
-        // Buzzer hunt: key 1 = next probe, key 2 = send the same again, key 0 = previous;
-        // long press on key 1 = automatic scan of E2 01 00..1B, one every 3 s (tools/sound_probe.py records it).
-        let mut send = None;
-        let mut scan_done = false;
+        // Ride keys: click on key 1 = start / pause / resume, long press on key 1 = stop and save.
+        let mut ride_key = None;
         while let Ok((key, action)) = NRF_KEYS.try_receive() {
             // Power off like the vendor: long press on key 0 asks, a click on key 0 confirms, any other click or
             // 8 s cancels. The nRF repeats LongPress while the key is held: only the first one opens the prompt.
             if power_prompt.is_some() {
                 match (key, action) {
                     (0, KeyAction::Click) => {
+                        if let (Some(r), Ok(fs)) = (ride.take(), fs.as_ref()) {
+                            r.stop(fs, &STATUS.lock(Cell::get));
+                        }
                         info!("power off");
                         draw_message(&mut fb, "Power off");
                         panel.flush(&fb);
@@ -243,47 +249,31 @@ async fn main(spawner: Spawner) -> ! {
             }
             match (key, action) {
                 (0, KeyAction::LongPress) => power_prompt = Some(Instant::now()),
-                (1, KeyAction::LongRelease) if scan.is_none() => {
-                    info!("scan start");
-                    scan = Some((0u8, Instant::now() - SCAN_STEP));
-                }
-                (_, KeyAction::Click) => {
-                    probe_index = match key {
-                        0 => probe_index.map(|i: usize| i.saturating_sub(1)),
-                        1 => Some(probe_index.map_or(0, |i| (i + 1).min(PROBES.len() - 1))),
-                        _ => probe_index.or(Some(0)),
-                    };
-                    send = Some(PROBES[probe_index.unwrap_or(0)]);
-                }
+                (1, KeyAction::Click) => ride_key = Some(false),
+                (1, KeyAction::LongPress) => ride_key = Some(true),
                 _ => {}
             }
         }
-        if let Some((id, at)) = scan
-            && at.elapsed() >= SCAN_STEP
-        {
-            send = Some(id);
-            scan = (id < SCAN_LAST).then(|| (id + 1, Instant::now()));
-            scan_done = scan.is_none();
-        }
-        if let Some(id) = send {
-            info!("probe E2 01 {id:02X}");
-            NRF_COMMANDS.send(command::misc(id)).await;
-            STATUS.lock(|s| {
-                let mut status = s.get();
-                status.probe = Some(id);
-                s.set(status);
-            });
-            if scan_done {
-                info!("scan done");
+        let state = STATUS.lock(Cell::get);
+        if let Ok(fs) = fs.as_ref() {
+            match (ride_key, ride.as_mut()) {
+                (Some(false), None) => ride = Ride::start(fs, &state),
+                (Some(false), Some(r)) => r.toggle_pause(fs, &state),
+                // the nRF repeats LongPress while the key is held: only the first one stops
+                (Some(true), Some(_)) => ride.take().unwrap().stop(fs, &state),
+                _ => {}
+            }
+            if let Some(r) = ride.as_mut() {
+                r.sample(fs, &state);
             }
         }
         if power_prompt.is_some_and(|at| at.elapsed() >= Duration::from_secs(8)) {
             power_prompt = None;
         }
-        let state = STATUS.lock(Cell::get);
-        let screen = (state, power_prompt.is_some());
+        let ride_info = ride.as_deref().map(Ride::info);
+        let screen = (state, power_prompt.is_some(), ride_info);
         if shown != Some(screen) {
-            draw_status(&mut fb, &state);
+            draw_status(&mut fb, &state, ride_info);
             if power_prompt.is_some() {
                 draw_message(&mut fb, "Power off?\nkey 0: yes\nother: no");
             }
@@ -313,14 +303,6 @@ static STATUS: Mutex<CriticalSectionRawMutex, Cell<Status>> = Mutex::new(Cell::n
 static STATUS_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 static NRF_KEYS: Channel<CriticalSectionRawMutex, (u8, KeyAction), 8> = Channel::new();
 
-const SCAN_STEP: Duration = Duration::from_secs(3);
-const SCAN_LAST: u8 = 0x1B;
-
-/// Buzzer hunt: `E2 01 XX` values, the ones the vendor sends first, then the rest of 0..0x1C.
-const PROBES: [u8; 28] = [
-    0x13, 0x17, 0x18, 0x19, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B,
-    0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x14, 0x15, 0x16, 0x1A, 0x1B,
-];
 static NRF_COMMANDS: Channel<CriticalSectionRawMutex, [u8; command::CTRL_FRAME], 4> =
     Channel::new();
 
@@ -518,8 +500,6 @@ struct Status {
     /// (meaning unknown).
     light: [Option<u16>; 3],
     stream0a: Option<[u8; 6]>,
-    /// Last `E2 01 XX` probe sent (buzzer hunt).
-    probe: Option<u8>,
     /// Storage partition: Ok((finished rides, free blocks, total blocks)) or the littlefs error code.
     storage: Option<Result<(u16, u16, u16), i32>>,
     /// GNSS link counters and latest complete fix.
@@ -540,7 +520,6 @@ impl Status {
             baro: None,
             light: [None; 3],
             stream0a: None,
-            probe: None,
             storage: None,
             gnss: None,
             fix: None,
@@ -594,6 +573,160 @@ fn storage_summary(fs: &Filesystem<'_, storage::Partition<'_>>) -> Result<(u16, 
     Ok((rides, free, total))
 }
 
+/// Local time offset written in the FIT activity (`local_timestamp`). *To make a setting.*
+const UTC_OFFSET_S: i32 = 0;
+
+/// What the screen shows of the ride.
+#[derive(Clone, Copy, PartialEq)]
+struct RideInfo {
+    running: bool,
+    timer_s: u32,
+    distance_cm: u32,
+}
+
+/// The ride being recorded: one FIT record per GNSS epoch (1 Hz) while the timer runs.
+struct Ride {
+    recorder: recorder::Recorder,
+    odometer: recorder::Odometer,
+    /// GNSS time of the last epoch recorded.
+    last_epoch: Option<gnss::Time>,
+    last_timestamp: u32,
+}
+
+type Fs<'a> = Filesystem<'a, storage::Partition<'a>>;
+
+impl Ride {
+    #[allow(
+        clippy::large_stack_frames,
+        reason = "littlefs file handles (cache included) on the main stack, once per ride"
+    )]
+    fn start(fs: &Fs<'_>, s: &Status) -> Option<Box<Self>> {
+        let Some(unix) = now_unix(s) else {
+            warn!("ride: no time yet (no GNSS fix, no RTC), not started");
+            return None;
+        };
+        match recorder::Recorder::start(fs, unix, fit::timestamp(unix), SERIAL) {
+            Ok(recorder) => {
+                info!("ride {unix}: started");
+                let _ = NRF_COMMANDS.try_send(command::misc(SOUND_BEEP));
+                Some(Box::new(Self {
+                    recorder,
+                    odometer: recorder::Odometer::default(),
+                    last_epoch: None,
+                    last_timestamp: fit::timestamp(unix),
+                }))
+            }
+            Err(e) => {
+                warn!("ride: start failed, littlefs error {}", e.code());
+                None
+            }
+        }
+    }
+
+    fn toggle_pause(&mut self, fs: &Fs<'_>, s: &Status) {
+        let t = now_unix(s)
+            .map_or(self.last_timestamp, fit::timestamp)
+            .max(self.last_timestamp);
+        let running = self.recorder.summary().running();
+        let res = if running {
+            self.recorder.pause(fs, t)
+        } else {
+            self.recorder.resume(fs, t)
+        };
+        match res {
+            Ok(()) => {
+                info!("ride: {}", if running { "paused" } else { "resumed" });
+                let _ = NRF_COMMANDS.try_send(command::misc(SOUND_BEEP));
+            }
+            Err(e) => warn!("ride: pause/resume failed, littlefs error {}", e.code()),
+        }
+    }
+
+    /// Records the latest GNSS epoch if it is new.
+    fn sample(&mut self, fs: &Fs<'_>, s: &Status) {
+        let Some(fix) = s.fix else { return };
+        if fix.time.is_none() || fix.time == self.last_epoch {
+            return;
+        }
+        self.last_epoch = fix.time;
+        let Some(unix) = now_unix(s) else { return };
+        let timestamp = fit::timestamp(unix);
+        if timestamp <= self.last_timestamp && self.recorder.summary().records > 0 {
+            return; // clock went back (RTC set from the GNSS meanwhile): keep the records in order
+        }
+        self.last_timestamp = timestamp;
+        let speed = fix.valid.then_some(fix.speed_mm_s).flatten();
+        let distance_cm = self.odometer.update(timestamp, speed);
+        let record = fit::Record {
+            timestamp,
+            lat_e7: fix.lat_e7,
+            lon_e7: fix.lon_e7,
+            altitude_dm: fix.valid.then_some(fix.alt_dm).flatten(),
+            speed_mm_s: speed,
+            distance_cm: Some(distance_cm),
+            temperature_c: s.baro.map(|(c, _)| (c / 100) as i8),
+            ..Default::default()
+        };
+        if let Err(e) = self.recorder.record(fs, &record) {
+            warn!("ride: record failed, littlefs error {}", e.code());
+        }
+    }
+
+    fn stop(self: Box<Self>, fs: &Fs<'_>, s: &Status) {
+        let id = self.recorder.id();
+        let t = now_unix(s)
+            .map_or(self.last_timestamp, fit::timestamp)
+            .max(self.last_timestamp);
+        match self.recorder.stop(fs, t, UTC_OFFSET_S) {
+            Ok(totals) => {
+                info!("ride {id}: saved, {totals:?}");
+                let _ = NRF_COMMANDS.try_send(command::misc(command::SOUND_JINGLE));
+            }
+            Err(e) => warn!(
+                "ride {id}: stop failed, littlefs error {} (closed at next boot)",
+                e.code()
+            ),
+        }
+    }
+
+    fn info(&self) -> RideInfo {
+        let t = self.recorder.summary().totals();
+        RideInfo {
+            running: self.recorder.summary().running(),
+            timer_s: t.timer_ms / 1000,
+            distance_cm: self.odometer.distance_cm(),
+        }
+    }
+}
+
+/// `file_id.serial_number` of the FIT files. *To read from the device (MAC address).*
+const SERIAL: u32 = 600;
+/// Short beep on the buzzer (`E2 01 00`).
+const SOUND_BEEP: u8 = 0x00;
+
+/// Current time, Unix seconds: the GNSS time with a valid fix, else the nRF RTC.
+fn now_unix(s: &Status) -> Option<u32> {
+    let t = match s.fix {
+        Some(gnss::Fix {
+            valid: true,
+            time: Some(time),
+            date: Some(date),
+            ..
+        }) => RtcTime {
+            year: date.year,
+            month: date.month,
+            day: date.day,
+            hour: time.hour,
+            minute: time.minute,
+            second: time.second,
+        },
+        _ => s.rtc?,
+    };
+    u32::try_from(t.unix())
+        .ok()
+        .filter(|&u| u > fit::FIT_EPOCH_OFFSET)
+}
+
 /// Centred box over the current screen.
 fn draw_message(fb: &mut FrameBuffer, text: &str) {
     let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
@@ -616,7 +749,7 @@ fn draw_message(fb: &mut FrameBuffer, text: &str) {
     clippy::large_stack_frames,
     reason = "bring-up screen, called from main, ~1.5 KB"
 )]
-fn draw_status(fb: &mut FrameBuffer, s: &Status) {
+fn draw_status(fb: &mut FrameBuffer, s: &Status, ride: Option<RideInfo>) {
     let title = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
     let label = MonoTextStyle::new(&FONT_6X10, Rgb565::CSS_LIGHT_GRAY);
     let value = MonoTextStyle::new(&FONT_10X20, Rgb565::YELLOW);
@@ -626,7 +759,22 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status) {
         .unwrap();
 
     let none = || String::from("-");
-    let rows: [(&str, String); 8] = [
+    let rows: [(&str, String); 9] = [
+        (
+            "ride: timer, km (key 1: start/pause, long: stop)",
+            ride.map_or_else(none, |r| {
+                let t = r.timer_s;
+                format!(
+                    "{} {}:{:02}:{:02} {}.{:02}km",
+                    if r.running { "REC" } else { "PAUSE" },
+                    t / 3600,
+                    t / 60 % 60,
+                    t % 60,
+                    r.distance_cm / 100_000,
+                    r.distance_cm / 1000 % 100
+                )
+            }),
+        ),
         (
             "GNSS fix: sats used/in view, hdop, km/h",
             s.fix.map_or_else(none, |f| {

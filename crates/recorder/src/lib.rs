@@ -19,8 +19,8 @@ use ride_store::littlefs2::io::{Error, Result, SeekFrom};
 
 /// Appends at most this often (seconds of ride time): each append is a littlefs commit (a block copy).
 pub const FLUSH_EVERY_S: u32 = 10;
-/// RAM buffer: ~30 s of records.
-const BUF: usize = 1024;
+/// RAM buffer: a flush period of records (30 bytes each) plus events, and the file start (~230 bytes).
+const BUF: usize = 384;
 /// Altitude hysteresis for the ascent / descent totals, decimetres.
 pub const CLIMB_HYSTERESIS_DM: i32 = 20;
 
@@ -97,6 +97,38 @@ impl Summary {
             descent_m: (self.descent_dm / 10).min(u16::MAX as u32) as u16,
             max_speed_mm_s: self.max_speed_mm_s,
         }
+    }
+}
+
+/// Below this GNSS speed the bike is taken as stopped: the receiver reports ~0.1–0.3 m/s of noise at rest.
+pub const MOVING_MM_S: u32 = 500;
+/// Longest gap between two speeds integrated as is (a lost fix); longer gaps count this long.
+const MAX_GAP_S: u32 = 5;
+
+/// Distance from the GNSS speed (until a wheel sensor gives a better one).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Odometer {
+    last: Option<u32>,
+    distance_mm: u64,
+}
+
+impl Odometer {
+    /// Adds the speed at FIT timestamp `timestamp`; returns the distance since the start, centimetres.
+    pub fn update(&mut self, timestamp: u32, speed_mm_s: Option<u32>) -> u32 {
+        if let (Some(last), Some(v)) = (self.last, speed_mm_s)
+            && v >= MOVING_MM_S
+        {
+            let dt = timestamp.saturating_sub(last).min(MAX_GAP_S);
+            self.distance_mm += v as u64 * dt as u64;
+        }
+        if speed_mm_s.is_some() {
+            self.last = Some(timestamp);
+        }
+        self.distance_cm()
+    }
+
+    pub fn distance_cm(&self) -> u32 {
+        (self.distance_mm / 10) as u32
     }
 }
 
