@@ -14,8 +14,10 @@ Embassy)**; the hardware layer is a rewrite based on [c606-oss](https://github.c
 
 ## Firmware
 [firmware/](firmware/) is a standalone Cargo project for the Xtensa target (`esp` toolchain from `espup`).
-The host-testable crates (`core`, `ui`, `fit`, …) will live in a separate workspace at the root,
-on the stable toolchain.
+The hardware-independent `no_std` crates live in the host workspace at the root, on the stable toolchain, and are
+tested on a PC with `cargo test`:
+- [crates/nrf-link/](crates/nrf-link/): UART protocol with the nRF co-processor (frames, CRC, keys, battery, RTC,
+  barometer, commands).
 
 ```sh
 cargo install espup espflash --locked && espup install --targets esp32s3 && uv tool install esptool
@@ -23,7 +25,7 @@ cargo install espup espflash --locked && espup install --targets esp32s3 && uv t
 cd firmware && cargo build --release
 espflash save-image --chip esp32s3 --flash-size 16mb target/xtensa-esp32s3-none-elf/release/opencc600 ../dump/opencc600.bin
 ../tools/flash_ota0.py ../dump/opencc600.bin     # ota_0 only; --restore-vendor boots ota_1 again
-espflash monitor --chip esp32s3                   # logs over the USB serial
+../tools/serial_log.py 30                         # logs over the USB serial, host-timestamped
 ```
 
 ## UI prototype
@@ -39,6 +41,7 @@ Source: [docs/prototype/prototype.dc.html](docs/prototype/prototype.dc.html); th
   writes it back. Refuses any other offset.
 - `tools/read_pins.py`: reads the pin routing of a running ESP32-S3 over its built-in USB-JTAG
   (Espressif OpenOCD), read-only.
+- `tools/serial_log.py`: prints the USB serial log for N seconds, each line with the host time (no reset).
 - `tools/build_prototype.py`: rebuilds the standalone UI prototype page.
 - `tools/check_prototype_layout.py`: checks in headless Chromium that nothing on the prototype screen changes size between states.
 

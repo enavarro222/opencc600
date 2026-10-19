@@ -157,6 +157,29 @@ Needs OpenOCD's `60-openocd.rules` udev rule for non-root USB access.
   full frame down to ~6 ms, partial (dirty-area) updates further. Not needed for a 1 Hz data screen; to do with
   the move to async transfers, so the CPU is not blocked during a flush.
 
+## nRF link on the CC600 (`crates/nrf-link`, 2026-10-19)
+
+Same framing, CRC and messages as the C606 documented by c606-oss, with these differences and measurements:
+
+- **nRF firmware 1.2.16** (`cmd 01` version frame; the C606 in c606-oss reports 0.2.19).
+- Every `SendPowerOnCmd` (sent every 5 s, like c606-oss) is answered by an `Ack`, the power-on reason and the version.
+  Power-on reason seen: 4 (manual) at the first boot, then 5 and 6 after esptool resets with USB plugged in.
+- Keys: indexes 0..2, `1` click on release, `4` long press repeated while held, `5` release after a long press
+  (all three keys checked). A long press on key 0 also makes the nRF send its power-on reason and version again.
+- Rates (host timestamps, 30 s): RTC and barometer **5 Hz**; battery, status (`F0`, 0 with USB plugged in at
+  100 %) and the stream subtypes `04` / `0A` **3.3 Hz** (300 ms).
+- The RTC keeps UTC set by the vendor firmware (checked against the host clock).
+- **Barometer**: as on the C606, the stream starts only after a long press of key 0. Resolution 0.01 Pa,
+  **noise 0.8 Pa standard deviation at rest (≈ 7 cm of altitude)**, range 2.8 Pa over 30 s.
+  The temperature reads ~30 °C in a 20–22 °C room, rising slowly: the sensor is inside the case, heated by the
+  ESP32 (240 MHz, never sleeping), the backlight and the charger. Fine for the sensor's own compensation, not an
+  air temperature. *(To compare with the vendor firmware in the same conditions.)*
+- **No accelerometer / gyro frames** (`F1 01` / `F1 02`) on the CC600. Two subtypes not seen on the C606, meaning
+  unknown: `F1 04` = u32 `600` (constant) + u16 ~1000 varying (996..2779), `F1 0A` = u16 ~3000..3100 varying.
+- **UART FIFO**: 128 bytes = ~11 ms at 115200 baud. Reading it from the thread-mode executor lost frames
+  (`FifoOverflowed`) during a redraw + flush (~25 ms); the nRF task now runs on an interrupt executor. The GNSS at
+  921600 baud fills the FIFO in 1.4 ms: it will need UART DMA (UHCI) or the same high-priority reader.
+
 ## Safety rules
 
 - **Never** write eFuses (irreversible).

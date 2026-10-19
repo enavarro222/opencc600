@@ -1,0 +1,10 @@
+[package]
+name         = "nrf-link"
+description  = "UART protocol between the CC600 ESP32-S3 and its nRF co-processor"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dev-dependencies]
+proptest = "1"

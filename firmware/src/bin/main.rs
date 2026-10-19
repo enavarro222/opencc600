@@ -12,29 +12,44 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
+use core::cell::Cell;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_sync::signal::Signal;
+use embassy_time::{Duration, Instant, Timer, with_timeout};
 use embedded_graphics::mono_font::MonoTextStyle;
-use embedded_graphics::mono_font::ascii::FONT_10X20;
+use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_10X20};
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
 use embedded_graphics::text::{Alignment, Text};
 use esp_backtrace as _;
+use esp_hal::Async;
 use esp_hal::clock::CpuClock;
 use esp_hal::dma_tx_buffer;
 use esp_hal::gpio::{DriveMode, Level, Output, OutputConfig};
+use esp_hal::interrupt::Priority;
 use esp_hal::lcd_cam::LcdCam;
 use esp_hal::lcd_cam::lcd::i8080::{self, I8080};
 use esp_hal::ledc::channel::{self, ChannelIFace};
 use esp_hal::ledc::timer::{self, TimerIFace};
 use esp_hal::ledc::{LSGlobalClkSource, Ledc, LowSpeed};
+use esp_hal::peripherals::{GPIO41, GPIO42, UART2};
 use esp_hal::time::{self as hal_time, Rate};
 use esp_hal::timer::timg::TimerGroup;
-use log::info;
+use esp_hal::uart::{self, Uart, UartRx, UartTx};
+use esp_rtos::embassy::InterruptExecutor;
+use log::{debug, info, warn};
+use nrf_link::{Decoder, KeyAction, Message, RtcTime, command};
 use opencc600_firmware::panel::{self, FrameBuffer, Panel};
+use static_cell::StaticCell;
 
 extern crate alloc;
+
+use alloc::format;
+use alloc::string::String;
 
 // App descriptor read by the ESP-IDF second-stage bootloader (the vendor one stays in place).
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -70,7 +85,7 @@ async fn main(_spawner: Spawner) -> ! {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
-    info!("opencc600 spike: booted from ota_0");
+    info!("opencc600: booted from ota_0");
     info!("heap: {}", esp_alloc::HEAP.stats());
 
     // Panel before backlight, so the stale frame left in the GRAM is never shown.
@@ -130,15 +145,246 @@ async fn main(_spawner: Spawner) -> ! {
     .unwrap();
     info!("backlight on ({BACKLIGHT_PCT} %)");
 
-    bench(&mut panel, &mut fb);
-    draw_test_pattern(&mut fb);
-    panel.flush(&fb);
+    if RUN_BENCH {
+        bench(&mut panel, &mut fb);
+    }
 
-    let mut ticks: u32 = 0;
+    // nRF link on an interrupt executor, so it preempts the main loop: the UART FIFO holds 128 bytes, ~11 ms at
+    // 115200 baud, less than a screen redraw + flush (~25 ms) on the thread-mode executor.
+    static NRF_EXECUTOR: StaticCell<InterruptExecutor<1>> = StaticCell::new();
+    let nrf_spawner = NRF_EXECUTOR
+        .init(InterruptExecutor::new(peripherals.FROM_CPU_INTR1))
+        .start(Priority::Priority2);
+    nrf_spawner.spawn(nrf_link(peripherals.UART2, peripherals.GPIO42, peripherals.GPIO41).unwrap());
+
+    // Vendor boot (`INIT_QUERY`): power-on command, then the power-on reason query.
+    NRF_COMMANDS.send(command::power_on()).await;
+    NRF_COMMANDS.send(command::check_power_on_reason()).await;
+
+    let mut shown = None;
+    let mut last_power_on = Instant::now();
     loop {
-        info!("alive {ticks}");
-        ticks += 1;
-        Timer::after(Duration::from_secs(1)).await;
+        let _ = with_timeout(Duration::from_secs(1), STATUS_CHANGED.wait()).await;
+        // The vendor repeats SendPowerOnCmd; c606-oss does it every 5 s. No nRF watchdog seen so far.
+        if last_power_on.elapsed() >= Duration::from_secs(5) {
+            NRF_COMMANDS.send(command::power_on()).await;
+            last_power_on = Instant::now();
+        }
+        let state = STATUS.lock(Cell::get);
+        if shown != Some(state) {
+            draw_status(&mut fb, &state);
+            panel.flush(&fb);
+            shown = Some(state);
+        }
+        // At most 5 redraws per second; the nRF task keeps updating STATUS meanwhile, nothing is lost.
+        Timer::after(Duration::from_millis(200)).await;
+    }
+}
+
+const RUN_BENCH: bool = false;
+
+/// Latest state from the nRF, written by the nRF task, read by the display loop.
+static STATUS: Mutex<CriticalSectionRawMutex, Cell<Status>> = Mutex::new(Cell::new(Status::new()));
+static STATUS_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+static NRF_COMMANDS: Channel<CriticalSectionRawMutex, [u8; command::CTRL_FRAME], 4> =
+    Channel::new();
+
+/// UART2, TX GPIO42 / RX GPIO41, 115200 8N1. Built here: the async UART halves are not `Send`, so they cannot be
+/// handed over from the thread-mode executor.
+#[embassy_executor::task]
+#[allow(
+    clippy::large_stack_frames,
+    reason = "task future: decoder + buffers, statically allocated by embassy"
+)]
+async fn nrf_link(uart: UART2<'static>, tx_pin: GPIO42<'static>, rx_pin: GPIO41<'static>) {
+    let uart = Uart::new(uart, uart::Config::default().with_baudrate(115_200))
+        .unwrap()
+        .with_tx(tx_pin)
+        .with_rx(rx_pin)
+        .into_async();
+    let (rx, tx) = uart.split();
+    // SAFETY: awaited from a task, i.e. with the Context of the Embassy interrupt executor running it.
+    let spawner = unsafe { Spawner::for_current_executor() }.await;
+    spawner.spawn(nrf_tx(tx).unwrap());
+    nrf_rx(rx).await
+}
+
+#[embassy_executor::task]
+async fn nrf_tx(mut tx: UartTx<'static, Async>) {
+    loop {
+        let frame = NRF_COMMANDS.receive().await;
+        if let Err(e) = tx.write_async(&frame).await {
+            warn!("nrf uart tx: {e:?}");
+        }
+    }
+}
+
+async fn nrf_rx(mut rx: UartRx<'static, Async>) -> ! {
+    let mut decoder = Decoder::new();
+    let mut buf = [0u8; 64];
+    loop {
+        let n = match rx.read_async(&mut buf).await {
+            Ok(n) => n,
+            Err(e) => {
+                warn!("nrf uart: {e:?}");
+                continue;
+            }
+        };
+        decoder.feed(&buf[..n], |frame| {
+            let msg = Message::parse(&frame);
+            match msg {
+                Message::Unknown => info!("nrf ? {frame:?}"),
+                Message::Battery { .. } | Message::Status(_) | Message::Rtc(_) => {
+                    debug!("nrf {msg:?}")
+                }
+                Message::Accel(_)
+                | Message::Gyro(_)
+                | Message::Baro { .. }
+                | Message::Stream { .. } => {
+                    debug!("nrf {msg:?}")
+                }
+                _ => info!("nrf {msg:?}"),
+            }
+            STATUS.lock(|s| {
+                let mut status = s.get();
+                status.update(msg);
+                s.set(status);
+            });
+            STATUS_CHANGED.signal(());
+        });
+    }
+}
+
+/// What the bring-up screen shows, updated from the nRF messages.
+#[derive(Clone, Copy, PartialEq)]
+struct Status {
+    battery: Option<(u16, u8)>,
+    charger: Option<u8>,
+    rtc: Option<RtcTime>,
+    version: Option<(u8, u8, u8)>,
+    power_on_reason: Option<u8>,
+    last_key: Option<(u8, KeyAction)>,
+    keys: u32,
+    baro: Option<(i16, u32)>,
+}
+
+impl Status {
+    const fn new() -> Self {
+        Self {
+            battery: None,
+            charger: None,
+            rtc: None,
+            version: None,
+            power_on_reason: None,
+            last_key: None,
+            keys: 0,
+            baro: None,
+        }
+    }
+
+    fn update(&mut self, msg: Message) {
+        match msg {
+            Message::Battery {
+                millivolts,
+                percent,
+            } => self.battery = Some((millivolts, percent)),
+            Message::Status(s) => self.charger = Some(s),
+            Message::Rtc(t) => self.rtc = Some(t),
+            Message::Version {
+                major,
+                minor,
+                patch,
+            } => self.version = Some((major, minor, patch)),
+            Message::PowerOnReason(r) => self.power_on_reason = Some(r),
+            Message::Key { key, action } => {
+                self.last_key = Some((key, action));
+                self.keys += 1;
+            }
+            Message::Baro {
+                centi_celsius,
+                centi_pascal,
+            } => self.baro = Some((centi_celsius, centi_pascal)),
+            Message::Ack
+            | Message::Accel(_)
+            | Message::Gyro(_)
+            | Message::Stream { .. }
+            | Message::Unknown => {}
+        }
+    }
+}
+
+#[allow(
+    clippy::large_stack_frames,
+    reason = "bring-up screen, called from main, ~1.5 KB"
+)]
+fn draw_status(fb: &mut FrameBuffer, s: &Status) {
+    let title = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+    let label = MonoTextStyle::new(&FONT_6X10, Rgb565::CSS_LIGHT_GRAY);
+    let value = MonoTextStyle::new(&FONT_10X20, Rgb565::YELLOW);
+    fb.clear(Rgb565::BLACK).unwrap();
+    Text::with_alignment("opencc600", Point::new(120, 24), title, Alignment::Center)
+        .draw(fb)
+        .unwrap();
+
+    let none = || String::from("-");
+    let rows: [(&str, String); 7] = [
+        (
+            "battery",
+            s.battery
+                .map_or_else(none, |(mv, pct)| format!("{pct}% {mv}mV")),
+        ),
+        (
+            "charger status",
+            s.charger.map_or_else(none, |c| format!("{c}")),
+        ),
+        (
+            "nRF RTC (UTC)",
+            s.rtc.map_or_else(none, |t| {
+                format!(
+                    "{:02}/{:02} {:02}:{:02}:{:02}",
+                    t.day, t.month, t.hour, t.minute, t.second
+                )
+            }),
+        ),
+        (
+            "last key",
+            s.last_key.map_or_else(none, |(k, a)| match a {
+                KeyAction::Click => format!("{k} click"),
+                KeyAction::LongPress => format!("{k} long"),
+                KeyAction::LongRelease => format!("{k} release"),
+                KeyAction::Other(v) => format!("{k} ?{v}"),
+            }),
+        ),
+        ("key events", format!("{}", s.keys)),
+        (
+            "nRF fw / power-on reason",
+            format!(
+                "{} / {}",
+                s.version
+                    .map_or_else(none, |(a, b, c)| format!("{a}.{b}.{c}")),
+                s.power_on_reason.map_or_else(none, |r| format!("{r}"))
+            ),
+        ),
+        (
+            "baro",
+            s.baro.map_or_else(
+                || String::from("- (long press key 0)"),
+                |(t, p)| {
+                    format!(
+                        "{}.{:02}C {}.{:01}hPa",
+                        t / 100,
+                        (t % 100).abs(),
+                        p / 10_000,
+                        p / 1000 % 10
+                    )
+                },
+            ),
+        ),
+    ];
+    for (i, (name, v)) in rows.iter().enumerate() {
+        let y = 52 + i as i32 * 38;
+        Text::new(name, Point::new(8, y), label).draw(fb).unwrap();
+        Text::new(v, Point::new(8, y + 20), value).draw(fb).unwrap();
     }
 }
 

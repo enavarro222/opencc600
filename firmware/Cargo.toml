@@ -34,6 +34,8 @@ esp-println = { version = "0.18.0", features = ["esp32s3", "log-04"] }
 
 critical-section  = "1.2.0"
 embedded-graphics = "0.8.2"
+embassy-sync      = "0.8.0"
+nrf-link          = { path = "../crates/nrf-link" }
 static_cell      = "2.1.1"
 
 

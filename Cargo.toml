@@ -1,0 +1,12 @@
+# Host workspace: hardware-independent `no_std` crates, tested on a PC (stable toolchain).
+# The Xtensa firmware is a separate project in firmware/ (esp toolchain), which uses these crates by path.
+[workspace]
+resolver = "3"
+members  = ["crates/*"]
+exclude  = ["firmware"]
+
+[workspace.package]
+edition      = "2024"
+license      = "GPL-3.0-or-later"
+rust-version = "1.95"
+version      = "0.1.0"
