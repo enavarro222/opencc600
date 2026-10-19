@@ -10,6 +10,7 @@
 #![no_std]
 
 mod draw;
+pub mod fonts;
 
 pub use draw::{CONTENT, DAY, NIGHT, Theme, draw};
 
@@ -82,22 +83,10 @@ pub enum Kind {
     Select,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Icon {
-    Play,
-    Pause,
-    Stop,
-    Power,
-    Left,
-    Right,
-}
-
-/// What a key does now, written next to it.
+/// What a key does now, written next to it; the icons are characters of the fonts ([`fonts::icon`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Hint {
     pub text: &'static str,
-    pub before: Option<Icon>,
-    pub after: Option<Icon>,
     pub kind: Kind,
 }
 
@@ -105,20 +94,8 @@ impl Hint {
     const fn new(text: &'static str) -> Self {
         Self {
             text,
-            before: None,
-            after: None,
             kind: Kind::Plain,
         }
-    }
-
-    const fn before(mut self, icon: Icon) -> Self {
-        self.before = Some(icon);
-        self
-    }
-
-    const fn after(mut self, icon: Icon) -> Self {
-        self.after = Some(icon);
-        self
     }
 
     const fn kind(mut self, kind: Kind) -> Self {
@@ -282,33 +259,33 @@ impl Ui {
     /// Labels of the top left, bottom left and bottom right keys.
     pub fn hints(&self) -> [Option<Hint>; 3] {
         use Screen::*;
-        const HOLD_OFF: Hint = Hint::new("Maintenir").before(Icon::Power);
-        const BACK: Hint = Hint::new("Retour").before(Icon::Left);
+        const HOLD_OFF: Hint = Hint::new("\u{e005} Maintenir");
+        const BACK: Hint = Hint::new("\u{e003} Retour");
         match self.screen {
             Home => [
                 Some(HOLD_OFF),
                 Some(Hint::new("État")),
-                Some(Hint::new("Démarrer").kind(Kind::Go)),
+                Some(Hint::new("Démarrer \u{e000}").kind(Kind::Go)),
             ],
             Status => [Some(BACK), None, None],
             Ride => [
-                Some(Hint::new("Page").before(Icon::Left)),
-                Some(Hint::new("Page").after(Icon::Right)),
-                Some(Hint::new("Pause").after(Icon::Pause).kind(Kind::Pause)),
+                Some(Hint::new("\u{e003} Page")),
+                Some(Hint::new("Page \u{e004}")),
+                Some(Hint::new("Pause \u{e001}").kind(Kind::Pause)),
             ],
             Paused => [
                 Some(HOLD_OFF),
-                Some(Hint::new("Terminer")),
-                Some(Hint::new("Reprendre").kind(Kind::Go)),
+                Some(Hint::new("Terminer \u{e002}")),
+                Some(Hint::new("Reprendre \u{e000}").kind(Kind::Go)),
             ],
             ConfirmStop => [
-                Some(Hint::new("Annuler").before(Icon::Left)),
+                Some(Hint::new("\u{e003} Annuler")),
                 Some(Hint::new("Annuler")),
-                Some(Hint::new("Terminer").kind(Kind::Danger)),
+                Some(Hint::new("Terminer \u{e002}").kind(Kind::Danger)),
             ],
             Saved => [None, None, Some(Hint::new("OK").kind(Kind::Select))],
             PowerOff => [
-                Some(Hint::new("Oui").before(Icon::Power).kind(Kind::Danger)),
+                Some(Hint::new("\u{e005} Oui").kind(Kind::Danger)),
                 Some(Hint::new("Non")),
                 Some(Hint::new("Non")),
             ],

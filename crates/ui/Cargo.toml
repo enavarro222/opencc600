@@ -8,7 +8,6 @@ version.workspace      = true
 
 [dependencies]
 embedded-graphics = "0.8.2"
-u8g2-fonts        = { version = "0.8.0", features = ["embedded_graphics_textstyle"] }
 
 [dev-dependencies]
 png = "0.18.1"
