@@ -1,0 +1,103 @@
+# opencc600 — power and battery life
+
+Battery life is a core requirement of a bike computer: a firmware that records perfectly but dies after 6 hours
+is useless on a long ride. This document collects what consumes, what we know, how we measure, and the levers.
+Context: [PRODUCT.md](PRODUCT.md), hardware: [REVERSE_NOTES.md](REVERSE_NOTES.md).
+
+## Target
+
+- **At least the vendor firmware's battery life** in the same use (GNSS recording, screen on, sensors).
+  *(To find: the CC600 rated autonomy, and to measure: the vendor firmware on our unit, same scenario.)*
+- Battery: **1800 mAh** Li-ion. Rough budget: 20 h needs ~90 mA average, 30 h ~60 mA, 40 h ~45 mA
+  (ignoring the end-of-discharge margin).
+- Off / standby: the nRF stays powered when the ESP32 is off; its drain sets how long the unit can sit on a shelf.
+  *(To measure.)*
+
+## Who consumes
+
+Only order-of-magnitude figures from datasheets until we measure on this board: nothing below is a CC600
+measurement unless marked so.
+
+| Consumer | Controlled by | What we know | Levers |
+|---|---|---|---|
+| ESP32-S3 CPU (240 MHz, dual core) | us | runs at max clock, **never sleeps** today | async idle, lower clock, light sleep |
+| 2 MB quad PSRAM | us | on, 80 MHz | keep it, but avoid needless traffic (framebuffer copies) |
+| Backlight (GPIO45, LEDC 20 kHz) | us | 50 % fixed today | ambient light sensor (`F1 04`), timeout, dimming |
+| ST7789 panel | us | full redraws at ≤ 5 Hz today | redraw only on change, 1 Hz data screens, panel sleep / idle mode |
+| AG3352Q GNSS | us (power through the nRF, `$PAIR`) | 4 constellations, 1 Hz, ~2.6 KB/s of NMEA | constellations, sentences, power modes, off when not recording |
+| nRF co-processor | its own firmware | sensor stream 5 Hz once started, ANT+ | little; its UART traffic wakes the ESP32 |
+| BLE (ESP32) | us | not used yet | connection parameters, scan windows |
+| Wi-Fi (ESP32) | us | not used yet | only for the sync at home, short sessions |
+| Flash writes | us | ride appends, sector erases | batch writes (trade-off with crash loss) |
+| Buzzer | us (through the nRF) | short sounds | negligible |
+
+## What we already know (2026-10-19)
+
+- The ESP32-S3 runs at **240 MHz with both executors busy-waiting nothing**: Embassy already idles the CPU
+  between events (`waiti`), but no light sleep, no clock scaling.
+- The bring-up screen redraws on every state change (up to 5 Hz) and the full 150 KB frame is sent each time
+  (11 ms of bus + CPU copy per frame, see REVERSE_NOTES.md).
+- The GNSS outputs ~23 sentences per second, including `GSV` ×12 and the long `$PAIRSAT`, most of which the
+  firmware throws away: UART, DMA and CPU work for nothing.
+- The nRF powers the GNSS: it can be left **off** after a power cycle (seen once) and comes back with a cold
+  start. The vendor parks the receiver in a low-power RTC mode with `$PAIR650,0` (c606-oss) instead of cutting
+  it, which keeps ephemerides for a fast hot start.
+- The vendor keeps A-GNSS data in `/CONFIG/<t>_agnss.bin` (157 KB): assisted start = less time with the GNSS at
+  full power before a fix.
+- The ambient light sensor works (`F1 04`, raw level ~1000 indoors at night): automatic backlight is possible.
+- The board temperature reads ~30 °C in a 20–22 °C room with USB plugged in and the CPU never sleeping: the
+  heat is wasted energy, and a first rough indicator.
+
+## How we measure
+
+The case is not opened, so no current probe on the rails. Three complementary ways:
+
+1. **Battery discharge runs (reference method)**: the firmware logs, every minute, the battery voltage and percent
+   from the nRF, the configuration under test and the uptime, into the storage partition (`/power/<run>.csv`).
+   Run each configuration on battery for a few hours from a full charge; average current
+   ≈ capacity used / time. Slow, but it measures the real thing, nRF included.
+2. **USB input current with a full battery** *(hypothesis to check)*: once the charger has finished, the USB input
+   current should be close to the system draw. A USB power meter then gives a fast A/B comparison (backlight
+   levels, CPU clock, GNSS modes) in minutes instead of hours. To validate against method 1 before trusting it.
+3. **Firmware counters**: time spent awake vs idle per executor, redraws per minute, bytes received per link.
+   Cheap, always on in debug builds, and they explain *why* a configuration draws more.
+
+Each lever below gets an A/B measurement before it becomes a default. Results go in the table at the end.
+
+## Levers, by expected gain
+
+1. **Backlight**: likely the largest consumer while the screen is lit. Automatic level from the ambient light
+   sensor (off in daylight if the panel stays readable, *to check: is the CC600 panel transflective?*), timeout
+   with wake on key press, lower default level, short boost on alerts.
+2. **CPU sleep and clock**: let the CPU sleep between events (light sleep with the UART / timer wake-ups that
+   the links need), run at 80 or 160 MHz when 240 MHz is not needed (the display flush and FIT writes are short).
+   The GNSS DMA keeps receiving while the CPU sleeps; the nRF UART needs its FIFO drained in time
+   (~11 ms at 115200 baud).
+3. **GNSS configuration** (Airoha `$PAIR` commands, values to check on this receiver):
+   - only the sentences we use (`RMC`, `GGA`, maybe `GSA`), `GSV` every few seconds for the satellite screen,
+     no `$PAIRSAT` (`$PAIR062`);
+   - constellations (`$PAIR066`): e.g. GPS + Galileo vs all four; fewer constellations should save power but
+     lengthen the time to fix and degrade it under trees and in valleys. User-selectable, default from measurements;
+   - the receiver's own power-saving modes, if any are usable at 1 Hz on a bike;
+   - parked in RTC / backup mode (`$PAIR650`) instead of off between rides, plus A-GNSS / EPO, for hot starts.
+4. **Display work**: redraw only what changed and at most once per second on data screens (partial windows,
+   CASET/RASET already supported), panel sleep (`SLPIN`) when the screen is off.
+5. **Radios**: Wi-Fi only for the sync at home, BLE with relaxed connection intervals, ANT+ left on the nRF.
+6. **Storage**: keep appends batched (e.g. every 10–30 s); each append costs a flash program and sometimes an
+   erase. Balance with the power-cut guarantee (what is buffered in RAM is lost on a crash).
+7. **Standby**: auto power-off after inactivity when not recording, through the nRF (`power_off`), never during
+   a ride.
+
+## Open questions
+
+- Vendor battery life on this unit, same scenario (reference to beat).
+- nRF and GNSS current in each state; whether the nRF can lower its sensor stream rate.
+- Is method 2 (USB current at full charge) reliable on this charger?
+- Is the panel readable in sunlight with the backlight off?
+- Which ESP32-S3 sleep mode is compatible with keeping both UART links and the BLE link alive.
+
+## Measurements
+
+| Date | Firmware / config | Method | Result |
+|---|---|---|---|
+| — | — | — | *none yet* |

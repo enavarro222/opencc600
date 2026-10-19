@@ -7,6 +7,7 @@ Embassy)**; the hardware layer is a rewrite based on [c606-oss](https://github.c
 
 ## Docs
 - [docs/PRODUCT.md](docs/PRODUCT.md): decisions, constraints, product questions, technical plan, flash / rollback workflow.
+- [docs/POWER.md](docs/POWER.md): battery life target, consumers, how we measure without opening the case, levers.
 - [docs/DEV_PROCESS.md](docs/DEV_PROCESS.md): development and test process (PC, simulator, QEMU, hardware bench, CI).
 - [docs/REVERSE_NOTES.md](docs/REVERSE_NOTES.md): reverse engineering notes (hardware, eFuses, partitions,
   pinout read over JTAG, first run of c606-oss).

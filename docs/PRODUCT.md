@@ -48,7 +48,7 @@ Not ported: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, `ui_port.c` (LVGL), Maps
   our own layout `/rides/<start>.part` while recording, `.fit` once closed (`crates/ride-store`, power-cut tested
   at every flash operation on a RAM fake).
 - BLE + Wi-Fi on the ESP32; ANT+ through the nRF (its firmware is not replaced).
-- 1800 mAh battery: battery life is a requirement (Wi-Fi and backlight are expensive).
+- 1800 mAh battery: battery life is a requirement (Wi-Fi and backlight are expensive). See [POWER.md](POWER.md).
 - The nRF RTC is not written by c606-oss → wrong time before the first GPS fix.
 - Barometric pressure + temperature come **from the nRF over UART2** (no direct sensor access from the ESP32).
   Their resolution and rate set the floor for altitude/D+ quality. See [REVERSE_NOTES.md](REVERSE_NOTES.md).
