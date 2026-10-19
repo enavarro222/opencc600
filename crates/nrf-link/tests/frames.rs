@@ -345,3 +345,21 @@ fn rtc_time_arithmetic() {
         86_400
     );
 }
+
+proptest! {
+    #[test]
+    fn rtc_time_from_unix_round_trips(unix in 0i64..4_102_444_800) {
+        prop_assert_eq!(RtcTime::from_unix(unix).unix(), unix);
+    }
+}
+
+#[test]
+fn rtc_time_from_unix() {
+    let t = RtcTime::from_unix(1_792_399_227);
+    assert_eq!(
+        (t.year, t.month, t.day, t.hour, t.minute, t.second),
+        (2026, 10, 19, 8, 40, 27)
+    );
+    let leap = RtcTime::from_unix(951_782_400);
+    assert_eq!((leap.year, leap.month, leap.day), (2000, 2, 29));
+}

@@ -211,6 +211,20 @@ impl RtcTime {
             + self.second as i64
     }
 
+    /// Inverse of [`RtcTime::unix`].
+    pub fn from_unix(unix: i64) -> Self {
+        let (days, secs) = (unix.div_euclid(86_400), unix.rem_euclid(86_400));
+        let (year, month, day) = civil_from_days(days);
+        Self {
+            year,
+            month,
+            day,
+            hour: (secs / 3600) as u8,
+            minute: (secs / 60 % 60) as u8,
+            second: (secs % 60) as u8,
+        }
+    }
+
     /// 0 = Sunday, the value [`command::set_rtc`] expects.
     pub fn weekday(&self) -> u8 {
         // 1970-01-01 was a Thursday
@@ -230,6 +244,20 @@ fn days_from_civil(y: u16, m: u8, d: u8) -> i64 {
     let doy = (153 * m + 2) / 5 + d as i64 - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     era * 146_097 + doe - 719_468
+}
+
+/// Date of a day count since 1970-01-01 (H. Hinnant's `civil_from_days`).
+fn civil_from_days(z: i64) -> (u16, u8, u8) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u8;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u8;
+    let y = yoe + era * 400 + (m <= 2) as i64;
+    (y as u16, m, d)
 }
 
 /// nRF → ESP32 messages known so far.

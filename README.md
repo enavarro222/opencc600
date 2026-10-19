@@ -66,7 +66,8 @@ Source: [docs/prototype/prototype.dc.html](docs/prototype/prototype.dc.html); th
   no acknowledged ride data is lost.
 - `tools/vendor_fit.py`: extracts the vendor's recorded rides from a storage partition image as standard FIT files.
 - `tools/serial_log.py`: prints the USB serial log for N seconds, each line with the host time (no reset);
-  `--send T:TEXT` types a test command at T seconds (`key 1 click`, `sound off`, `gnss cold`, `gnss time on`).
+  `--send T:TEXT` types a test command at T seconds (`key 1 click`, `sound off`, `gnss cold`, `gnss time on`,
+  `rtc shift -300`).
 - `tools/ttff.py`: measures the GNSS time to first fix after forced restarts (full cold, cold with the RTC time,
   hot...), to run by a window; results in `dump/ttff.csv`.
 - `tools/pull_rides.py`: copies the rides from the CC600 to `dump/rides/` and checks them with the Garmin FIT SDK.

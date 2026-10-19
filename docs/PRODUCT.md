@@ -165,8 +165,10 @@ Status on 2026-10-19 (updated by the bring-up work; altitude is worked on in par
       every 10 s, interrupted rides closed at the next boot (`crates/fit`, `crates/recorder`; power cut at every
       flash operation of a ride and of its recovery on a PC, resets during a ride on the device, files checked
       with the Garmin FIT SDK). Key 1: start / pause / resume, long press: stop.
-- [ ] **GPS time written back to the nRF RTC**: done in the code (valid fix only, at most once a minute, 2 s
-      tolerance); *to check on the device with a real fix*.
+- [x] **GPS time written back to the nRF RTC** (valid fix only, at most once a minute, 2 s tolerance). Checked on
+      the device on 2026-10-19 with a fix: `rtc shift -300` on the USB test hook moved the RTC 5 min back, the next
+      fix set it right again, and the trip log shows rtc − gnss = 0 s over the whole session
+      (`dump/log_rtc_shift.txt`).
 - [x] **Barometric altitude and D+** (see above and ALTITUDE.md), written to the FIT file (altitude from the filter,
       `absolute_pressure`, D+ from the pressure only) and shown on the ride pages.
 - [x] **Data screens driven by the 3 keys** (`crates/ui`, after the prototype; key 0 top left, 1 bottom left, 2 bottom

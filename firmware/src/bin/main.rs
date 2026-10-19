@@ -1200,6 +1200,14 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                         SOUND_ON.store(on, Ordering::Relaxed);
                     }
                     Some(UsbCommand::Gnss(request)) => GNSS_REQUESTS.send(request).await,
+                    Some(UsbCommand::RtcShift(s)) => match STATUS.lock(Cell::get).rtc {
+                        Some(rtc) => {
+                            let t = RtcTime::from_unix(rtc.unix() + s as i64);
+                            info!("usb: rtc {rtc:?} -> {t:?} (shift {s} s)");
+                            NRF_COMMANDS.send(command::set_rtc(&t, t.weekday())).await;
+                        }
+                        None => warn!("usb: rtc shift, no RTC time yet"),
+                    },
                     None if !text.is_empty() => warn!("usb: unknown command {text:?}"),
                     None => {}
                 }
@@ -1226,6 +1234,8 @@ enum UsbCommand {
     Key(u8, &'static [KeyAction]),
     Sound(bool),
     Gnss(GnssRequest),
+    /// Moves the nRF RTC by this many seconds, to check that a fix sets it right again.
+    RtcShift(i32),
 }
 
 fn usb_command(line: &str) -> Option<UsbCommand> {
@@ -1246,6 +1256,7 @@ fn usb_command(line: &str) -> Option<UsbCommand> {
             };
             Some(UsbCommand::Gnss(GnssRequest::Start(start)))
         }
+        ("rtc", "shift", Some(s)) => Some(UsbCommand::RtcShift(s.parse().ok()?)),
         ("key", key, Some(action)) => {
             let key = key.parse().ok().filter(|&k: &u8| k <= 2)?;
             let actions: &[KeyAction] = match action {
