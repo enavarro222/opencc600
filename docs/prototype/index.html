@@ -59,39 +59,32 @@ button{font-family:inherit}
         <div style="width: 240px; height: 320px; display: flex; flex-direction: column; position: relative">
 
           <div style="height: 30px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid {{c.rule}}">
-            <button onClick="{{pressHG}}" onPointerDown="{{holdStart}}" onPointerUp="{{holdEnd}}" onPointerLeave="{{holdEnd}}" style="height: 100%; box-sizing: border-box; padding: 0 10px; border: none; box-shadow: inset 0 5px 0 #3BB3E0; white-space: nowrap; font-size: 19px; font-weight: 700; cursor: pointer; background: {{c.chip}}; color: {{hgColor}}">{{hgLabel}}</button>
-            <div style="padding: 0 8px; display: flex; align-items: center; gap: 8px; white-space: nowrap; flex-shrink: 0; font-size: 14px; font-weight: 600; color: {{c.mute}}">
-              <span style="color: #B35C00">{{gpsTop}}</span>
-              <span>{{clock}}</span>
+            <button onClick="{{pressHG}}" onPointerDown="{{holdStart}}" onPointerUp="{{holdEnd}}" onPointerLeave="{{holdEnd}}" style="height: 100%; width: 124px; flex-shrink: 0; box-sizing: border-box; padding: 0 8px; border: none; box-shadow: inset 0 5px 0 #3BB3E0; text-align: left; white-space: nowrap; overflow: hidden; font-size: 18px; font-weight: 700; cursor: pointer; background: {{c.chip}}; color: {{hgColor}}">{{hgLabel}}</button>
+            <div style="width: 116px; box-sizing: border-box; padding: 0 6px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; overflow: hidden; flex-shrink: 0; font-size: 14px; font-weight: 600; color: {{c.mute}}">
+              <span style="color: {{clockColor}}">{{clockText}}</span>
               <span style="display: flex; align-items: center; gap: 3px"><svg width="18" height="10" viewBox="0 0 18 10" aria-hidden="true"><rect x="0.75" y="0.75" width="14.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"></rect><rect x="16" y="3" width="1.5" height="4" fill="currentColor"></rect><rect x="2.5" y="2.5" width="7.3" height="5" fill="currentColor"></rect></svg>81 %</span>
             </div>
           </div>
 
-          <div style="flex-grow: 1; position: relative; overflow: hidden">
+          <div style="flex-grow: 1; min-height: 0; position: relative; overflow: hidden">
 
             <sc-if value="{{is.home}}" hint-placeholder-val="{{ true }}">
-              <div style="height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 7px; padding: 10px 12px">
-                <div style="display: flex; flex-direction: column; gap: 2px">
-                  <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Trace</span>
-                  <div style="display: flex; align-items: center; gap: 8px">
-                    <div style="width: 18px; height: 4px; border-radius: 2px; flex-shrink: 0; background: {{traceChip}}"></div>
-                    <span style="font-size: 24px; font-weight: 700; line-height: 1.05">{{traceName}}</span>
+              <div style="height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 5px; padding: 8px 12px; overflow: hidden">
+                <div style="height: 82px; flex-shrink: 0; display: flex; flex-direction: column; gap: 1px">
+                  <span style="height: 15px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Trace</span>
+                  <div style="height: 46px; display: flex; align-items: flex-start; gap: 8px">
+                    <div style="width: 18px; height: 4px; margin-top: 9px; border-radius: 2px; flex-shrink: 0; background: {{traceChip}}"></div>
+                    <span style="min-width: 0; height: 46px; font-size: 22px; font-weight: 700; line-height: 1.05; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical">{{traceName}}</span>
                   </div>
-                  <span style="font-size: 17px; font-weight: 500; color: {{c.mute}}">{{traceInfo}}</span>
+                  <span style="height: 19px; font-size: 16px; font-weight: 500; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: {{c.mute}}">{{traceInfo}}</span>
                 </div>
-                <div style="height: 1px; background: {{c.rule}}"></div>
-                <div style="display: flex; flex-direction: column; gap: 3px">
-                  <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">GPS</span><span style="color: {{gpsColor}}">{{gpsLabel}}</span></div>
-                  <sc-if value="{{gpsSearching}}" hint-placeholder-val="{{ false }}">
-                    <div style="height: 4px; border-radius: 2px; background: {{c.chip}}"><div style="height: 4px; border-radius: 2px; background: #F59F00; animation: gpsBar 6s linear forwards"></div></div>
-                  </sc-if>
-                </div>
-                <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Capteurs</span><span style="color: {{c.ok}}">{{presentSummary}}</span></div>
-                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Pages</span><span style="text-align: right">{{pagesPreview}}</span></div>
-                <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">À envoyer</span><span style="color: {{pendingColor}}">{{pendingLabel}}</span></div>
-                <sc-if value="{{canResume}}" hint-placeholder-val="{{ false }}">
-                  <span style="font-size: 15px; font-weight: 600; color: {{c.mute}}">↺ Dernière sortie reprenable : ≡ Menu</span>
-                </sc-if>
+                <div style="height: 1px; flex-shrink: 0; background: {{c.rule}}"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; height: 22px; flex-shrink: 0; font-size: 18px; font-weight: 600; white-space: nowrap"><span style="color: {{c.mute}}">GPS</span><span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; color: {{gpsColor}}">{{gpsLabel}}</span></div>
+                <div style="height: 4px; flex-shrink: 0; margin-top: -3px; border-radius: 2px; background: {{gpsTrack}}"><sc-if value="{{gpsSearching}}" hint-placeholder-val="{{ false }}"><div style="height: 4px; border-radius: 2px; background: #F59F00; animation: gpsBar 6s linear forwards"></div></sc-if></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; height: 22px; flex-shrink: 0; font-size: 18px; font-weight: 600; white-space: nowrap"><span style="color: {{c.mute}}">Capteurs</span><span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; color: {{c.ok}}">{{presentSummary}}</span></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; height: 22px; flex-shrink: 0; font-size: 18px; font-weight: 600; white-space: nowrap"><span style="color: {{c.mute}}">Pages</span><span style="min-width: 0; overflow: hidden; text-overflow: ellipsis">{{pagesPreview}}</span></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; height: 22px; flex-shrink: 0; font-size: 18px; font-weight: 600; white-space: nowrap"><span style="color: {{c.mute}}">À envoyer</span><span style="min-width: 0; overflow: hidden; text-overflow: ellipsis; color: {{pendingColor}}">{{pendingLabel}}</span></div>
+                <span style="height: 18px; flex-shrink: 0; font-size: 15px; font-weight: 600; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: {{c.mute}}">{{resumeHint}}</span>
               </div>
             </sc-if>
 
@@ -201,15 +194,15 @@ button{font-family:inherit}
                     <path d="M176 205 L 182 220 L 176 217 L 170 220 Z" fill="#F59F00"></path>
                   </g>
                 </svg>
-                <div style="position: absolute; top: 6px; left: 6px; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; line-height: 1">
+                <div style="position: absolute; top: 6px; left: 6px; width: 70px; box-sizing: border-box; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; line-height: 1">
                   <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: {{c.mute}}">Reste</span>
                   <span style="font-size: 22px; font-weight: 700">63,4 km</span>
                 </div>
-                <div style="position: absolute; top: 6px; right: 6px; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; align-items: flex-end; line-height: 1">
+                <div style="position: absolute; top: 6px; right: 6px; width: 62px; box-sizing: border-box; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; align-items: flex-end; line-height: 1">
                   <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: {{c.mute}}">Vitesse</span>
                   <span style="font-size: 22px; font-weight: 700">{{speed}}</span>
                 </div>
-                <div style="position: absolute; bottom: 6px; right: 6px; padding: 2px 6px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; align-items: flex-end; gap: 2px">
+                <div style="position: absolute; bottom: 6px; right: 6px; width: 62px; box-sizing: border-box; padding: 2px 6px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; align-items: flex-end; gap: 2px">
                   <span style="font-size: 13px; font-weight: 700">{{zoomLabel}}</span>
                   <div style="width: 48px; height: 3px; background: {{c.fg}}"></div>
                 </div>
@@ -469,10 +462,10 @@ button{font-family:inherit}
             </sc-if>
           </div>
 
-          <div style="height: 40px; flex-shrink: 0; display: grid; grid-template-columns: 1fr auto 1fr; border-top: 1px solid {{c.rule}}">
-            <button onClick="{{pressBG}}" style="display: flex; align-items: center; padding: 0 10px; border: none; box-shadow: inset 0 -5px 0 #3BB3E0; font-size: 19px; font-weight: 700; cursor: pointer; background: {{c.chip}}; color: {{bgColor}}">{{bgLabel}}</button>
-            <div style="display: flex; align-items: center; padding: 0 6px; font-size: 11px; letter-spacing: 2px; color: {{c.mute}}">{{dots}}</div>
-            <button onClick="{{pressBD}}" style="display: flex; align-items: center; justify-content: flex-end; padding: 0 10px; border: none; box-shadow: inset 0 -5px 0 #3BB3E0; font-size: 19px; font-weight: 700; cursor: pointer; background: {{bdBg}}; color: {{bdFg}}">{{bdLabel}}</button>
+          <div style="height: 40px; flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr); grid-template-rows: 40px; border-top: 1px solid {{c.rule}}">
+            <button onClick="{{pressBG}}" style="display: flex; align-items: center; height: 40px; padding: 0 5px; border: none; white-space: nowrap; overflow: hidden; box-shadow: inset 0 -5px 0 #3BB3E0; font-size: 18px; font-weight: 700; cursor: pointer; background: {{c.chip}}; color: {{bgColor}}">{{bgLabel}}</button>
+            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; overflow: hidden; color: {{c.mute}}"><span style="font-size: 9px; letter-spacing: 1px">{{dots}}</span><span style="height: 12px; font-size: 12px; font-weight: 700; color: {{c.me}}">{{scrollMark}}</span></div>
+            <button onClick="{{pressBD}}" style="display: flex; align-items: center; justify-content: flex-end; height: 40px; padding: 0 5px; border: none; white-space: nowrap; overflow: hidden; box-shadow: inset 0 -5px 0 #3BB3E0; font-size: 18px; font-weight: 700; cursor: pointer; background: {{bdBg}}; color: {{bdFg}}">{{bdLabel}}</button>
           </div>
         </div>
       </sc-if>
@@ -689,7 +682,7 @@ class Component extends DCLogic {
       case 'home': return {
         hg: { l: '⏻ Maintenir', hold: true, f: set({ scr: 'off' }) },
         bg: { l: '≡ Menu', f: set({ scr: 'menu', menuI: 0 }) },
-        bd: { l: 'Démarrer ▶', k: 'go', f: () => { this.setState({ scr: 'ride', page: 0, ride: true, moving: true, simMsg: '', pages: this.compose(s.opt), lost: false }); this.beep('enregistrement démarré'); } } };
+        bd: { l: 'Démarrer', k: 'go', f: () => { this.setState({ scr: 'ride', page: 0, ride: true, moving: true, simMsg: '', pages: this.compose(s.opt), lost: false }); this.beep('enregistrement démarré'); } } };
       case 'traces': return {
         hg: { l: '◀ Retour', f: set({ scr: 'home' }) },
         bg: { l: 'Suivant ▼', f: set({ traceI: (s.traceI + 1) % 3 }) },
@@ -697,8 +690,8 @@ class Component extends DCLogic {
       case 'ride': {
         const zooms = ['500 m', '1 km', '2 km'];
         let hg;
-        if ((s.pages || [])[s.page] === 'map') hg = { l: '⊕ Zoom ' + zooms[(s.zoomI + 1) % 3], f: set({ zoomI: (s.zoomI + 1) % 3 }) };
-        else if (s.opt.autoScroll) hg = { l: s.scrollOn ? '⟳ Défil. : oui' : '⟳ Défil. : non', f: () => this.toggleScroll() };
+        if ((s.pages || [])[s.page] === 'map') hg = { l: '⊕ ' + zooms[(s.zoomI + 1) % 3], f: set({ zoomI: (s.zoomI + 1) % 3 }) };
+        else if (s.opt.autoScroll) hg = { l: s.scrollOn ? '⟳ Défil. oui' : '⟳ Défil. non', f: () => this.toggleScroll() };
         else hg = { l: '—', f: () => {} };
         return {
         hg,
@@ -708,16 +701,16 @@ class Component extends DCLogic {
       case 'pause': return {
         hg: { l: '≡ Menu', f: set({ scr: 'pauseMenu', pmI: 0, pmBack: 'pause' }) },
         bg: { l: 'Terminer…', f: set({ scr: 'confirm', confirmFrom: 'pause' }) },
-        bd: { l: 'Reprendre ▶', k: 'go', f: set({ scr: 'ride' }) } };
+        bd: { l: 'Reprendre', k: 'go', f: set({ scr: 'ride' }) } };
       case 'resume': return {
         hg: { l: '≡ Menu', f: set({ scr: 'pauseMenu', pmI: 0, pmBack: 'resume' }) },
         bg: { l: 'Terminer…', f: set({ scr: 'confirm', confirmFrom: 'resume' }) },
-        bd: { l: 'Reprendre ▶', k: 'go', f: set({ scr: 'ride', page: 0 }) } };
+        bd: { l: 'Reprendre', k: 'go', f: set({ scr: 'ride', page: 0 }) } };
       case 'confirm': return {
         hg: { l: '◀ Annuler', f: set({ scr: s.confirmFrom }) },
         bg: { l: 'Annuler', f: set({ scr: s.confirmFrom }) },
         bd: { l: 'Terminer ■', k: 'sel', f: () => { this.stopScroll(); this.setState({ scr: 'saved', ride: false, climb: 'none', off: false, pending: s.pending + 1, last: 'kept' }); this.beep('sortie enregistrée'); } } };
-      case 'saved': return { hg: none, bg: { l: '↺ Reprendre', f: () => this.resumeLast() }, bd: { l: 'OK', k: 'sel', f: set({ scr: 'home' }) } };
+      case 'saved': return { hg: none, bg: { l: 'Reprendre', f: () => this.resumeLast() }, bd: { l: 'OK', k: 'sel', f: set({ scr: 'home' }) } };
       case 'pauseMenu': return {
         hg: { l: '◀ Retour', f: set({ scr: s.pmBack }) },
         bg: { l: 'Suivant ▼', f: set({ pmI: (s.pmI + 1) % 2 }) },
@@ -774,7 +767,7 @@ class Component extends DCLogic {
       case 'syncStop': return {
         hg: { l: '◀ Annuler', f: set({ scr: 'sync' }) },
         bg: { l: 'Arrêter ■', f: () => { this.setState({ scr: 'menu' }); this.say('Synchro arrêtée · Sorties gardées, Wi-Fi coupé'); } },
-        bd: { l: 'Continuer ▶', k: 'go', f: set({ scr: 'sync' }) } };
+        bd: { l: 'Continuer', k: 'go', f: set({ scr: 'sync' }) } };
       default: return { hg: none, bg: none, bd: none };
     }
   }
@@ -821,10 +814,13 @@ class Component extends DCLogic {
       isOff: s.scr === 'off', isOn: s.scr !== 'off',
       simMsg: s.simMsg || '',
       canResume: s.last === 'kept',
+      resumeHint: s.last === 'kept' ? '↺ Dernière sortie reprenable : ≡ Menu' : '',
       gpsSearching: s.gps === 'search' && s.scr === 'home',
+      gpsTrack: s.gps === 'search' ? c.chip : 'transparent',
       gpsLabel: s.gps === 'search' ? '◌ Recherche · 5 sat' : (s.gps === 'lost' ? '✕ Perdu' : '● Fix OK · 9 sat'),
       gpsColor: s.gps === 'ok' ? c.ok : '#B35C00',
-      gpsTop: ride && s.gps !== 'ok' ? 'GPS ◌' : '',
+      clockText: ride && s.gps !== 'ok' ? 'GPS ✕' : (ride ? '10:29' : '08:47'),
+      clockColor: ride && s.gps !== 'ok' ? '#B35C00' : c.mute,
       tunnelLabel: s.gps === 'lost' ? 'Sortir du tunnel' : 'Tunnel (GPS perdu)',
       simUpload: () => {
         if (s.last !== 'kept') { this.setState({ simMsg: 'Termine d\u2019abord une sortie.' }); return; }
@@ -856,7 +852,8 @@ class Component extends DCLogic {
       },
       holdEnd: () => clearTimeout(this.holdT),
       pressBG: () => k.bg.f(), pressBD: () => k.bd.f(),
-      dots: ride ? pages.map((x, i) => i === s.page ? '●' : '○').join('') + (s.scrollOn ? ' ⟳' : '') : '',
+      dots: ride ? pages.map((x, i) => i === s.page ? '●' : '○').join('') : '',
+      scrollMark: ride && s.scrollOn ? '⟳' : '',
       speed: (ride && !s.moving) ? '0,0' : (s.climb === 'in' ? '11,8' : '32,4'),
       mapScale: [1.5, 1, 0.65][s.zoomI], zoomLabel: ['500 m', '1 km', '2 km'][s.zoomI],
       onCourseOp: (ride && s.off) ? 0 : 1, offCourseOp: (ride && s.off) ? 1 : 0,
