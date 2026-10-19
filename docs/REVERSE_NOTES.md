@@ -66,6 +66,12 @@ C606 hardware according to c606-oss:
 - **nRF co-processor**: buttons, power, charging, RTC, ANT+/sensor radios. UART link with framed messages and CRC16,
   and a vendor power-on handshake. c606-oss only replaces the ESP32 app, never the nRF firmware.
 - Airoha AG3352Q GNSS on UART0 (NMEA + `$PAIR` commands)
+- **Barometric pressure sensor** (listed in the CC600 specs; the C606 and CC700 have one too). It is **read by the
+  nRF**, not by the ESP32: pressure and temperature arrive as nRF frames on UART2. This is why the vendor
+  firmware's elevation gain (D+) is accurate: it is computed from pressure, not from GNSS altitude.
+  *(To check: the nRF message carrying it, field layout, units, resolution and update rate. c606-oss
+  `main/nrf_link.c` only does the link layer and passes frames to a callback; look at the code consuming them,
+  its `docs/HARDWARE.md`, or record the frames as described in DEV_PROCESS.md step 3.)*
 - 4 GB eMMC mounted as FAT on `/sdcard`
 
 Recovery: holding all three buttons hard-resets the ESP32.

@@ -23,6 +23,14 @@ Each layer below catches what the previous one cannot.
   - every state of the screen state machine shows a label for each of the 3 keys, or marks it inactive;
   - every transition flagged `irreversible` goes through a confirmation state.
   Checked by walking all states, not by hand.
+- **Altitude / D+**: the filter is fed recorded or synthetic pressure + temperature series; checks: no D+ on a flat
+  ride with sensor noise and slow weather drift, known D+ on a synthetic climb, temperature steps do not create
+  fake climbs.
+- **D+ against the vendor firmware**: the vendor FIT files already on the device (`/littlefs/FITS/FIT/`) carry
+  per-record altitude and `total_ascent`. Their altitude series is replayed through our filter and the D+ must be
+  within a small tolerance of the vendor's. Better: record a few rides with raw nRF pressure frames logged and the
+  vendor FIT side by side (two units, or c606-oss with logging + the vendor on the same ride). Only the altitude /
+  pressure / time columns become fixtures, no positions.
 - **Power-cut fuzzing**: the storage fake (RAM-backed flash) "cuts the power" at **every** write in turn, then
   reboots the logic and checks that the ride is recovered. This is the test behind "a ride is never lost".
 

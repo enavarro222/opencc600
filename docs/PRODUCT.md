@@ -45,6 +45,22 @@ Not ported: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, `ui_port.c` (LVGL), Maps
 - BLE + Wi-Fi on the ESP32; ANT+ through the nRF (its firmware is not replaced).
 - 1800 mAh battery: battery life is a requirement (Wi-Fi and backlight are expensive).
 - The nRF RTC is not written by c606-oss → wrong time before the first GPS fix.
+- Barometric pressure + temperature come **from the nRF over UART2** (no direct sensor access from the ESP32).
+  Their resolution and rate set the floor for altitude/D+ quality. See [REVERSE_NOTES.md](REVERSE_NOTES.md).
+
+## Altitude and elevation gain (D+)
+The vendor firmware gets D+ right thanks to the barometer; ours must be **at least as good**, it is part of the
+core a rider checks after every ride.
+- **D+ / D- from pressure only**, never from raw GNSS altitude (GNSS vertical noise of several metres inflates D+ a lot).
+  Smoothing + an **hysteresis threshold** (a few metres) before counting a climb or a descent.
+- **Displayed altitude = pressure-based altitude whose offset is recalibrated slowly** (GNSS altitude averaged
+  over time, or the route's elevation profile / a DEM when a route is loaded). Weather drift (a front can shift
+  the barometric altitude by tens of metres) affects the absolute value, much less the D+ of one ride.
+- **Temperature compensation**: sudden changes (sun/shade, out of a warm car, start of a ride) distort the
+  pressure reading; handle the first minutes and fast temperature swings.
+- Also derived from the same filtered altitude: **gradient (%)**, VAM, D+ per lap.
+- Recorded in the FIT file: per-record `altitude` (enhanced_altitude) and session/lap `total_ascent` / `total_descent`.
+- Pure logic in `core` (`no_std`), fed by a `PressureSource` trait → fully testable on a PC.
 
 ## Product questions
 1. **Use case**: outdoor rides, **road and MTB**, for the author or anyone with a CC600.
@@ -76,6 +92,7 @@ The "no maps" limit only applies to a global map. A map restricted to the loaded
 - [ ] Reliable FIT recording on littlefs, in a dedicated subdirectory; survives a crash or an empty battery
       (periodic flush, file recovered at the next boot).
 - [ ] Write the GPS time back to the nRF RTC (correct timestamps before the first fix).
+- [ ] Barometric altitude and D+ (see above), shown on the data screens and written to the FIT file.
 - [ ] 2–3 data screens driven by the 3 keys.
 - [ ] Load a GPX route and display the route line (no background map yet).
 - [ ] Upload FIT files over Wi-Fi to a configurable URL.
@@ -96,10 +113,10 @@ Right after the MVP: corridor background map.
 
    | Crate | `no_std` | Content |
    |---|---|---|
-   | `core` | yes | ride logic, screens state machine, sensors model, UTC/RTC, sync protocol; no hardware dependency |
+   | `core` | yes | ride logic, screens state machine, sensors model, altitude/D+ filter, UTC/RTC, sync protocol; no hardware dependency |
    | `ui` | yes | screens drawn with `embedded-graphics` |
    | `fit` | yes | FIT writer |
-   | `nrf-link` | yes | nRF frames, CRC16, handshake, keys, battery, RTC, ANT+ |
+   | `nrf-link` | yes | nRF frames, CRC16, handshake, keys, battery, pressure/temperature, RTC, ANT+ |
    | `gnss` | yes | NMEA parsing, `$PAIR` commands |
    | `cc600-board` | yes | esp-hal wiring: i80 panel, UARTs, backlight, flash, radio |
    | `firmware` | yes | the binary flashed to `ota_0` |
