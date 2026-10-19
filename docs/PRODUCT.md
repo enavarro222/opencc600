@@ -102,6 +102,22 @@ Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [pro
   (home Wi-Fi or app) and deleted only after the upload is confirmed.
 - Pause menu: sensors, finish ride. Switching off while paused keeps the ride; it resumes after power-on.
 
+### Data pages: chosen for the rider, not built by the rider
+No page editor to start with. The app asks **one question** ("ride to explore" or "train"); the device detects the
+rest when a ride starts (sensors seen, route loaded) and picks standard views:
+- **Essential**: speed (big), time, distance, D+, HR if present (else average speed).
+- **Effort**: 3 s power (big) or HR if no power meter, zone bar, then by priority avg power, HR, cadence, speed, time.
+- **Map** (route loaded), **Climbs** (route with climbs), **Altitude** (no route: altitude, gradient, D+/D-, last 5 km).
+
+| Usage | With route | Without route |
+|---|---|---|
+| Explore | Map · Essential · Climbs | Essential · Altitude (+ Effort if HR/power) |
+| Train | Effort · Essential · Climbs | Effort · Essential · Altitude |
+
+A sensor missing at start takes no slot (the next field moves up). A sensor lost mid-ride keeps its slot with
+"--" plus a banner: the layout never moves during a ride. Customising (swapping a view from the catalogue) stays
+possible in the app, never required.
+
 ### Features and app settings
 | Feature | Default | Notes |
 |---|---|---|

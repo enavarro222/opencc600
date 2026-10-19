@@ -18,7 +18,7 @@ button{font-family:inherit}
 @keyframes beepB{0%{opacity:0;transform:scale(.8)}12%{opacity:1;transform:scale(1.08)}25%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}
 </style>
 </helmet>
-<div style="width: 820px; height: 640px; box-sizing: border-box; padding: 40px; display: flex; gap: 40px; align-items: flex-start; font-family: 'Barlow Condensed', sans-serif; background: #E9E7E2; color: #111111">
+<div style="width: 820px; height: 720px; box-sizing: border-box; padding: 40px; display: flex; gap: 40px; align-items: flex-start; font-family: 'Barlow Condensed', sans-serif; background: #E9E7E2; color: #111111">
 
   <div style="position: relative; width: 300px; height: 480px; flex-shrink: 0; border-radius: 36px; background: #141416; box-shadow: 0 12px 28px rgba(0,0,0,0.25)">
     <sc-if value="{{hasBeep}}" hint-placeholder-val="{{ false }}">
@@ -50,20 +50,20 @@ button{font-family:inherit}
           <div style="flex-grow: 1; position: relative; overflow: hidden">
 
             <sc-if value="{{is.home}}" hint-placeholder-val="{{ true }}">
-              <div style="height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 12px">
+              <div style="height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 7px; padding: 10px 12px">
                 <div style="display: flex; flex-direction: column; gap: 2px">
-                  <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Trace chargée</span>
+                  <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Trace</span>
                   <div style="display: flex; align-items: center; gap: 8px">
-                    <div style="width: 18px; height: 4px; border-radius: 2px; flex-shrink: 0; background: {{c.route}}"></div>
-                    <span style="font-size: 26px; font-weight: 700; line-height: 1.05">{{traceName}}</span>
+                    <div style="width: 18px; height: 4px; border-radius: 2px; flex-shrink: 0; background: {{traceChip}}"></div>
+                    <span style="font-size: 24px; font-weight: 700; line-height: 1.05">{{traceName}}</span>
                   </div>
                   <span style="font-size: 17px; font-weight: 500; color: {{c.mute}}">{{traceInfo}}</span>
                 </div>
                 <div style="height: 1px; background: {{c.rule}}"></div>
                 <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">GPS</span><span style="color: {{c.ok}}">● Fix OK · 9 sat</span></div>
-                <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Capteurs</span><span style="color: {{c.ok}}">{{pairedSummary}}</span></div>
+                <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Capteurs</span><span style="color: {{c.ok}}">{{presentSummary}}</span></div>
+                <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Pages</span><span style="text-align: right">{{pagesPreview}}</span></div>
                 <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">À envoyer</span><span style="color: {{pendingColor}}">{{pendingLabel}}</span></div>
-                <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Place</span><span>~38 h d'enregistrement</span></div>
               </div>
             </sc-if>
 
@@ -80,7 +80,7 @@ button{font-family:inherit}
               </div>
             </sc-if>
 
-            <sc-if value="{{is.p1}}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{is.ess}}" hint-placeholder-val="{{ false }}">
               <div style="height: 100%; display: flex; flex-direction: column">
                 <div style="height: 108px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 1px solid {{c.rule}}">
                   <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Vitesse km/h</span>
@@ -99,15 +99,59 @@ button{font-family:inherit}
                     <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">D+ m</span>
                     <span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">812</span>
                   </div>
-                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: {{c.zone}}; color: {{c.zoneText}}">
-                    <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase">FC bpm · Z3</span>
-                    <span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">142</span>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: {{ess4.bg}}; color: {{ess4.fg}}">
+                    <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase">{{ess4.label}}</span>
+                    <span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">{{ess4.value}}</span>
                   </div>
                 </div>
               </div>
             </sc-if>
 
-            <sc-if value="{{is.p2}}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{is.effort}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; display: flex; flex-direction: column">
+                <div style="height: 116px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-bottom: 1px solid {{c.rule}}">
+                  <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">{{eff.bigLabel}}</span>
+                  <span style="font-size: 80px; font-weight: 700; line-height: 0.9; font-variant-numeric: tabular-nums">{{eff.big}}</span>
+                  <div style="width: 200px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px">
+                    <sc-for list="{{eff.zones}}" as="z" hint-placeholder-count="5">
+                      <div style="height: 10px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; background: {{z.bg}}; color: #111111; outline: {{z.ring}}">{{z.n}}</div>
+                    </sc-for>
+                  </div>
+                </div>
+                <div style="flex-grow: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr))">
+                  <sc-for list="{{eff.cells}}" as="e" hint-placeholder-count="4">
+                    <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: {{e.br}}; border-bottom: {{e.bb}}; background: {{e.bg}}; color: {{e.fg}}">
+                      <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase">{{e.label}}</span>
+                      <span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">{{e.value}}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.alt}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; display: flex; flex-direction: column">
+                <div style="height: 100px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 1px solid {{c.rule}}">
+                  <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Altitude m</span>
+                  <span style="font-size: 78px; font-weight: 700; line-height: 0.9; font-variant-numeric: tabular-nums">612</span>
+                </div>
+                <div style="flex-shrink: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid {{c.rule}}">
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 62px; border-right: 1px solid {{c.rule}}"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Pente</span><span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: #F08C00">4 %</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 62px; border-right: 1px solid {{c.rule}}"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">D+ m</span><span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">812</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 62px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">D− m</span><span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">640</span></div>
+                </div>
+                <div style="flex-grow: 1; display: flex; flex-direction: column; padding: 4px 8px 0">
+                  <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">5 derniers km</span>
+                  <svg width="224" height="70" viewBox="0 0 224 70" aria-hidden="true" style="display: block">
+                    <path d="M0 60 L 20 56 L 40 58 L 60 46 L 80 40 L 100 44 L 120 36 L 140 30 L 160 34 L 180 24 L 200 20 L 224 16 L 224 70 L 0 70 Z" fill="{{c.climbDone}}"></path>
+                    <path d="M0 60 L 20 56 L 40 58 L 60 46 L 80 40 L 100 44 L 120 36 L 140 30 L 160 34 L 180 24 L 200 20 L 224 16" fill="none" stroke="{{c.fg}}" stroke-width="2"></path>
+                    <circle cx="222" cy="16" r="5" fill="{{c.me}}"></circle>
+                  </svg>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.map}}" hint-placeholder-val="{{ false }}">
               <div style="position: relative; height: 100%; background: {{c.mapbg}}">
                 <svg width="240" height="256" viewBox="0 0 240 256" role="img" aria-label="Carte du corridor autour de la trace" style="display: block">
                   <g style="transform: scale({{mapScale}}); transform-origin: 120px 192px">
@@ -144,7 +188,7 @@ button{font-family:inherit}
               </div>
             </sc-if>
 
-            <sc-if value="{{is.p3list}}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{is.climbs}}" hint-placeholder-val="{{ false }}">
               <div style="display: flex; flex-direction: column">
                 <div style="padding: 8px 12px 4px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Montées · 3 restantes</div>
                 <div style="height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid {{c.rule}}; color: {{c.mute}}">
@@ -169,7 +213,7 @@ button{font-family:inherit}
               </div>
             </sc-if>
 
-            <sc-if value="{{is.p3climb}}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{is.climb}}" hint-placeholder-val="{{ false }}">
               <div style="height: 100%; display: flex; flex-direction: column">
                 <div style="padding: 4px 10px 0; display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 16px; font-weight: 700">Col de la Galaube</span><span style="font-size: 14px; font-weight: 600; color: {{c.mute}}">montée 2/4</span></div>
                 <div style="padding: 2px 10px 6px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; border-bottom: 1px solid {{c.rule}}">
@@ -426,9 +470,17 @@ button{font-family:inherit}
         <button onClick="{{reset}}" style="height: 34px; border: none; border-radius: 6px; background: #D6D3CC; font-size: 17px; font-weight: 600; cursor: pointer; color: #111111">Recommencer</button>
       </div>
       <div style="display: flex; flex-direction: column; gap: 2px">
-        <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Réglages (dans l'app)</span>
+        <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Usage (question de l'app)</span>
+        <sc-for list="{{usageRows}}" as="o" hint-placeholder-count="2">
+          <button onClick="{{o.toggle}}" style="height: 28px; border: none; border-radius: 6px; background: transparent; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 4px; color: #111111">{{o.box}} {{o.label}}</button>
+        </sc-for>
+        <span style="margin-top: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Détecté au départ</span>
+        <sc-for list="{{ctxRows}}" as="o" hint-placeholder-count="4">
+          <button onClick="{{o.toggle}}" style="height: 28px; border: none; border-radius: 6px; background: transparent; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 4px; color: #111111">{{o.box}} {{o.label}}</button>
+        </sc-for>
+        <span style="margin-top: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Réglages (dans l'app)</span>
         <sc-for list="{{settingRows}}" as="o" hint-placeholder-count="6">
-          <button onClick="{{o.toggle}}" style="height: 32px; border: none; border-radius: 6px; background: transparent; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 4px; color: #111111">{{o.box}} {{o.label}}</button>
+          <button onClick="{{o.toggle}}" style="height: 26px; border: none; border-radius: 6px; background: transparent; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 4px; color: #111111">{{o.box}} {{o.label}}</button>
         </sc-for>
         <span style="margin-top: 6px; font-size: 14px; font-weight: 500; line-height: 1.25; color: #555555">Les fonctions « bientôt » sont prévues mais désactivées par défaut.</span>
       </div>
@@ -436,7 +488,7 @@ button{font-family:inherit}
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"nuit":{"editor":"boolean","default":false},"$preview":{"width":820,"height":640}}'>
+<script type="text/x-dc" data-dc-script data-props='{"nuit":{"editor":"boolean","default":false},"$preview":{"width":820,"height":720}}'>
 class Component extends DCLogic {
   constructor(props) {
     super(props);
@@ -446,7 +498,7 @@ class Component extends DCLogic {
   initial() {
     return {
       scr: 'home', page: 0, ride: false, climb: 'none', toast: '', pending: 2, pmI: 0, pmBack: 'pause', lost: false, moving: false, off: false, zoomI: 0, scrollOn: false,
-      opt: { autoPause: true, startPrompt: true, offBeep: true, autoScroll: true, nightAuto: true, turns: false, strava: false },
+      opt: { usage: 'balade', pwr: true, hr: true, cad: true, trace: true, autoPause: true, startPrompt: true, offBeep: true, autoScroll: true, nightAuto: true, turns: false, strava: false },
       menuI: 0, sensI: 0, scanI: 0, traceI: 0, trace: 0, confirmFrom: 'pause',
       sensors: [
         { key: 'hr', title: 'Fréquence cardiaque', name: 'HRM-Pro · ANT+', val: '● 142', batt: 'OK', paired: true },
@@ -462,8 +514,15 @@ class Component extends DCLogic {
     this.setState({ scrollOn: on });
     if (on) this.scrollT = setInterval(() => {
       const st = this.state;
-      if (st.scr === 'ride' && st.scrollOn) this.setState({ page: (st.page + 1) % 3 });
+      if (st.scr === 'ride' && st.scrollOn) this.setState({ page: (st.page + 1) % st.pages.length });
     }, 4000);
+  }
+  compose(o) {
+    const effort = o.pwr || o.hr;
+    let p;
+    if (o.usage === 'balade') p = o.trace ? ['map', 'ess', 'climbs'] : ['ess', 'alt', effort ? 'effort' : null];
+    else p = effort ? ['effort', 'ess', o.trace ? 'climbs' : 'alt'] : ['ess', o.trace ? 'map' : 'alt', o.trace ? 'climbs' : null];
+    return p.filter(Boolean);
   }
   beep(why) {
     clearTimeout(this.beepT);
@@ -501,7 +560,7 @@ class Component extends DCLogic {
       case 'home': return {
         hg: { l: '⏻ Maintenir', hold: true, f: set({ scr: 'off' }) },
         bg: { l: '≡ Menu', f: set({ scr: 'menu', menuI: 0 }) },
-        bd: { l: 'Démarrer ▶', k: 'go', f: () => { this.setState({ scr: 'ride', page: 0, ride: true, moving: true, simMsg: '' }); this.beep('enregistrement démarré'); } } };
+        bd: { l: 'Démarrer ▶', k: 'go', f: () => { this.setState({ scr: 'ride', page: 0, ride: true, moving: true, simMsg: '', pages: this.compose(s.opt), lost: false }); this.beep('enregistrement démarré'); } } };
       case 'traces': return {
         hg: { l: '◀ Retour', f: set({ scr: 'home' }) },
         bg: { l: 'Suivant ▼', f: set({ traceI: (s.traceI + 1) % 3 }) },
@@ -509,12 +568,12 @@ class Component extends DCLogic {
       case 'ride': {
         const zooms = ['500 m', '1 km', '2 km'];
         let hg;
-        if (s.page === 1) hg = { l: '⊕ Zoom ' + zooms[(s.zoomI + 1) % 3], f: set({ zoomI: (s.zoomI + 1) % 3 }) };
+        if ((s.pages || [])[s.page] === 'map') hg = { l: '⊕ Zoom ' + zooms[(s.zoomI + 1) % 3], f: set({ zoomI: (s.zoomI + 1) % 3 }) };
         else if (s.opt.autoScroll) hg = { l: s.scrollOn ? '⟳ Défil. : oui' : '⟳ Défil. : non', f: () => this.toggleScroll() };
         else hg = { l: '—', f: () => {} };
         return {
         hg,
-        bg: { l: 'Page ▶', f: set({ page: (s.page + 1) % 3 }) },
+        bg: { l: 'Page ▶', f: set({ page: (s.page + 1) % s.pages.length }) },
         bd: { l: 'Pause ❚❚', k: 'pause', f: () => { this.stopScroll(); this.setState({ scr: 'pause' }); } } };
       }
       case 'pause': return {
@@ -601,10 +660,12 @@ class Component extends DCLogic {
     const sel = (on) => on ? { bg: c.sel, fg: '#FFFFFF' } : { bg: 'transparent', fg: c.fg };
     const tr = this.traces();
     const ride = s.scr === 'ride';
+    const pages = s.pages && s.pages.length ? s.pages : this.compose(s.opt);
+    const view = pages[s.page] || pages[0];
     const is = {
       home: s.scr === 'home', traces: s.scr === 'traces',
-      p1: ride && s.page === 0, p2: ride && s.page === 1,
-      p3list: ride && s.page === 2 && s.climb !== 'in', p3climb: ride && s.page === 2 && s.climb === 'in',
+      ess: ride && view === 'ess', map: ride && view === 'map', effort: ride && view === 'effort', alt: ride && view === 'alt',
+      climbs: ride && view === 'climbs' && s.climb !== 'in', climb: ride && view === 'climbs' && s.climb === 'in',
       pause: s.scr === 'pause', resume: s.scr === 'resume', confirm: s.scr === 'confirm', saved: s.scr === 'saved',
       menu: s.scr === 'menu', sensors: s.scr === 'sensors', scan: s.scr === 'scan', detail: s.scr === 'detail',
       forget: s.scr === 'forget', sync: s.scr === 'sync', syncStop: s.scr === 'syncStop', pauseMenu: s.scr === 'pauseMenu'
@@ -641,13 +702,17 @@ class Component extends DCLogic {
       },
       holdEnd: () => clearTimeout(this.holdT),
       pressBG: () => k.bg.f(), pressBD: () => k.bd.f(),
-      dots: ride ? ['●○○', '○●○', '○○●'][s.page] + (s.scrollOn ? ' ⟳' : '') : '',
+      dots: ride ? pages.map((x, i) => i === s.page ? '●' : '○').join('') + (s.scrollOn ? ' ⟳' : '') : '',
       speed: (ride && !s.moving) ? '0,0' : (s.climb === 'in' ? '11,8' : '32,4'),
       mapScale: [1.5, 1, 0.65][s.zoomI], zoomLabel: ['500 m', '1 km', '2 km'][s.zoomI],
       onCourseOp: (ride && s.off) ? 0 : 1, offCourseOp: (ride && s.off) ? 1 : 0,
       moveLabel: s.moving ? 'S’arrêter (feu rouge)' : 'Se mettre à rouler',
       offLabel: s.off ? 'Revenir sur la trace' : 'Sortir de la trace',
       climbLabel: { none: 'Montée : approche', approach: 'Montée : pied', in: 'Montée : sommet' }[s.climb],
+      usageRows: [['balade', 'Balader / explorer'], ['train', 'S’entraîner']].map(([key, label]) => ({ label, box: s.opt.usage === key ? '◉' : '○',
+        toggle: () => { if (s.ride) { this.setState({ simMsg: 'Les pages se recomposent au prochain départ.' }); } this.setState({ opt: Object.assign({}, s.opt, { usage: key }) }); } })),
+      ctxRows: [['pwr', 'Capteur de puissance'], ['hr', 'Ceinture cardio'], ['cad', 'Capteur de cadence'], ['trace', 'Trace chargée (avec montées)']].map(([key, label]) => ({ label, box: s.opt[key] ? '☑' : '☐',
+        toggle: () => { if (s.ride) { this.setState({ simMsg: 'Les pages se recomposent au prochain départ.' }); } this.setState({ opt: Object.assign({}, s.opt, { [key]: !s.opt[key] }) }); } })),
       settingRows: [
         ['autoPause', 'Auto-pause'], ['startPrompt', 'Rappel de démarrage'], ['offBeep', 'Bip hors trace'],
         ['autoScroll', 'Défilement auto des pages'], ['nightAuto', 'Nuit auto (coucher du soleil)'],
@@ -661,17 +726,42 @@ class Component extends DCLogic {
       simOff: () => {
         if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
         if (s.off) { this.setState({ off: false }); this.say('De retour sur la trace · guidage repris'); }
-        else { this.setState({ off: true, page: 1 }); if (s.opt.offBeep) this.beep('hors trace'); }
+        else if (!s.opt.trace) { this.setState({ simMsg: 'Pas de trace chargée : pas d’alerte hors trace.' }); }
+        else { const mi = pages.indexOf('map'); this.setState(mi >= 0 ? { off: true, page: mi } : { off: true }); if (s.opt.offBeep) this.beep('hors trace'); }
       },
       simClimbStep: () => {
         if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
+        if (!s.opt.trace) { this.setState({ simMsg: 'Sans trace, pas de montées connues à l’avance.' }); return; }
         if (s.climb === 'none') { this.setState({ climb: 'approach' }); this.beep('montée à 400 m'); }
-        else if (s.climb === 'approach') this.setState({ climb: 'in', page: 2 });
+        else if (s.climb === 'approach') { const ci = pages.indexOf('climbs'); this.setState(ci >= 0 ? { climb: 'in', page: ci } : { climb: 'in' }); }
         else { this.setState({ climb: 'none' }); this.say('Sommet atteint · 34:12 · 6,9 % de moyenne'); }
       },
       climbDist: s.climb === 'approach' ? '0,4 km' : '1,2 km',
-      showBanner: ride && s.climb === 'approach' && s.page !== 2,
-      traceName: tr[s.trace].name, traceInfo: tr[s.trace].info,
+      showBanner: false,
+      traceName: s.opt.trace ? tr[s.trace].name : 'Aucune trace', traceInfo: s.opt.trace ? tr[s.trace].info : 'Envoie-en une depuis l’app (facultatif)',
+      traceChip: s.opt.trace ? c.route : c.rule,
+      presentSummary: (() => { const l = [s.opt.pwr && 'Puiss.', s.opt.hr && 'FC', s.opt.cad && 'Cad.'].filter(Boolean); return l.length ? '● ' + l.join(' · ') : 'aucun (GPS seul)'; })(),
+      pagesPreview: this.compose(s.opt).map((v) => ({ map: 'Carte', ess: 'Essentiel', climbs: 'Montées', effort: 'Effort', alt: 'Altitude' })[v]).join(' · '),
+      ess4: (s.opt.hr && !(ride && s.lost)) ? { label: 'FC bpm · Z3', value: '142', bg: c.zone, fg: c.zoneText }
+        : (s.opt.hr ? { label: 'FC bpm', value: '--', bg: 'transparent', fg: c.fg } : { label: 'Moyenne km/h', value: '28,5', bg: 'transparent', fg: c.fg }),
+      eff: (() => {
+        const hrVal = (ride && s.lost) ? '--' : '142';
+        const zc = ['#D0D4DA', '#8FC1FF', '#7ED38F', '#FFE066', '#FF9F59'];
+        const zoneOf = (n) => zc.map((bg, i) => ({ n: 'Z' + (i + 1), bg, ring: i === n ? '2px solid ' + c.fg : 'none' }));
+        const cand = [];
+        if (s.opt.pwr) cand.push({ label: 'Moy. W', value: '198' });
+        if (s.opt.pwr && s.opt.hr) cand.push({ label: 'FC bpm', value: hrVal, zone: true });
+        if (s.opt.cad) cand.push({ label: 'Cadence', value: '88' });
+        cand.push({ label: 'Vitesse', value: s.moving || !ride ? '32,4' : '0,0' });
+        cand.push({ label: 'Durée', value: '1:42:08' });
+        if (!s.opt.pwr && s.opt.hr) cand.push({ label: 'FC moy.', value: '136' });
+        const cells = cand.slice(0, 4).map((x, i) => ({ label: x.label, value: x.value,
+          bg: x.zone && hrVal !== '--' ? c.zone : 'transparent', fg: x.zone && hrVal !== '--' ? c.zoneText : c.fg,
+          br: i % 2 === 0 ? '1px solid ' + c.rule : 'none', bb: i < 2 ? '1px solid ' + c.rule : 'none' }));
+        return s.opt.pwr
+          ? { bigLabel: 'Puissance 3 s · W', big: '215', zones: zoneOf(2), cells }
+          : { bigLabel: 'Fréquence cardiaque · bpm', big: hrVal, zones: zoneOf(2), cells };
+      })(),
       traceRows: tr.map((t, i) => ({ ...t, ...sel(i === s.traceI) })),
       menuRows: this.menuItems().map((label, i) => ({ label, ...sel(i === s.menuI) })),
       sensorRows,
@@ -687,7 +777,7 @@ class Component extends DCLogic {
         else if (ride && s.lost) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'FC perdue', detail: 'Reconnexion automatique…' };
         else if (autoPaused) notif = { stripe: '#8A8F98', iconFg: '#FFFFFF', icon: '❚❚', timed: false, title: 'Auto-pause', detail: 'Le chrono repart dès que tu roules' };
         else if (s.scr === 'home' && s.moving && s.opt.startPrompt) notif = { stripe: '#237A35', iconFg: '#FFFFFF', icon: '▶', timed: false, title: 'Tu roules', detail: 'Démarre la sortie : bouton bas droite' };
-        else if (ride && s.climb === 'approach' && s.page !== 2) notif = { stripe: '#D9302C', iconFg: '#FFFFFF', icon: '▲', timed: false, title: 'Montée dans 400 m', detail: 'Col de la Galaube · 9,6 km · 6,9 %' };
+        else if (ride && s.climb === 'approach' && view !== 'climbs') notif = { stripe: '#D9302C', iconFg: '#FFFFFF', icon: '▲', timed: false, title: 'Montée dans 400 m', detail: 'Col de la Galaube · 9,6 km · 6,9 %' };
         else if (s.toast) {
           const m = s.toast.match(/^(.*?)(?: · | : )(.*)$/);
           notif = { stripe: '#4C8DFF', iconFg: '#FFFFFF', icon: 'i', timed: true, title: m ? m[1] : s.toast, detail: m ? m[2] : '' };
