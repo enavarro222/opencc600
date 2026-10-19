@@ -94,7 +94,7 @@ Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [pro
 - No hidden action. One long press only, always labelled: "⏻ Maintenir" on the home screen to switch off (and on).
 - Irreversible actions go through a confirmation screen that says what will happen; confirming uses a different
   key than the one that opened it.
-- Riding: 3 pages (data, corridor map, climbs), bottom-left cycles pages. Top-left is contextual: map zoom on the
+- Riding: up to 4 pages, picked automatically (see "Data pages"), bottom-left cycles pages. Top-left is contextual: map zoom on the
   map page, auto-scroll on/off elsewhere.
 - One banner model, floating above the page and never over the key bar: info (blue, 3 s), attention (amber, while
   true: off route, sensor lost), climb ahead, auto-pause. One at a time, by priority.
@@ -120,9 +120,9 @@ rest when a ride starts (sensors seen, route loaded) and picks standard views:
 | Usage | With route | Without route |
 |---|---|---|
 | Explore | Map · Essential · Climbs | Essential · Altitude (+ Effort if HR/power) |
-| Train | Effort · Essential · Climbs | Effort · Essential · Altitude |
+| Train | Effort · Essential · Map · Climbs | Effort · Essential · Altitude |
 
-A sensor missing at start takes no slot (the next field moves up). A sensor lost mid-ride keeps its slot with
+A loaded route always brings the Map (4 pages at most). A sensor missing at start takes no slot (the next field moves up). A sensor lost mid-ride keeps its slot with
 "--" plus a banner: the layout never moves during a ride. Customising (swapping a view from the catalogue) stays
 possible in the app, never required.
 

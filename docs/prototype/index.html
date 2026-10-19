@@ -645,7 +645,7 @@ class Component extends DCLogic {
     const effort = o.pwr || o.hr;
     let p;
     if (o.usage === 'balade') p = o.trace ? ['map', 'ess', 'climbs'] : ['ess', 'alt', effort ? 'effort' : null];
-    else p = effort ? ['effort', 'ess', o.trace ? 'climbs' : 'alt'] : ['ess', o.trace ? 'map' : 'alt', o.trace ? 'climbs' : null];
+    else p = o.trace ? [effort ? 'effort' : null, 'ess', 'map', 'climbs'] : [effort ? 'effort' : null, 'ess', 'alt'];
     return p.filter(Boolean);
   }
   beep(why) {
