@@ -2,11 +2,15 @@
 
 Open firmware for the **GEOID CC600** bike computer (ESP32-S3; a Magene C606 board without eMMC and without touch).
 
-Status: reverse engineering and product definition done; step 0 (bring-up spike) done: our Rust image boots from `ota_0`. Written in **Rust (`no_std`, esp-hal +
-Embassy)**; the hardware layer is a rewrite based on [c606-oss](https://github.com/HighwayStar/c606-oss) (GPL-3.0).
+Status: our Rust image boots from `ota_0` (the vendor firmware stays in `ota_1`) and records rides: FIT files that
+survive a power cut, barometric altitude and D+, GPS time written back to the RTC, data screens driven by the 3
+keys. Next for the MVP: settings, GPX route, battery life, BLE / ANT+ sensors (checklist in
+[docs/PRODUCT.md](docs/PRODUCT.md#mvp)). Written in **Rust (`no_std`, esp-hal + Embassy)**; the hardware layer is
+a rewrite based on [c606-oss](https://github.com/HighwayStar/c606-oss) (GPL-3.0).
 
 ## Docs
 - [docs/PRODUCT.md](docs/PRODUCT.md): decisions, constraints, product questions, technical plan, flash / rollback workflow.
+- [docs/ALTITUDE.md](docs/ALTITUDE.md): barometric altitude and D+, the Kalman filter on the GNSS, the vendor's D+.
 - [docs/POWER.md](docs/POWER.md): battery life target, consumers, how we measure without opening the case, levers.
 - [docs/DEV_PROCESS.md](docs/DEV_PROCESS.md): development and test process (PC, simulator, QEMU, hardware bench, CI).
 - [docs/REVERSE_NOTES.md](docs/REVERSE_NOTES.md): reverse engineering notes (hardware, eFuses, partitions,
@@ -67,7 +71,7 @@ Source: [docs/prototype/prototype.dc.html](docs/prototype/prototype.dc.html); th
   no acknowledged ride data is lost.
 - `tools/vendor_fit.py`: extracts the vendor's recorded rides from a storage partition image as standard FIT files.
 - `tools/serial_log.py`: prints the USB serial log for N seconds, each line with the host time (no reset);
-  `--send T:TEXT` types a test command at T seconds (`key 1 click`, `sound off`, `gnss cold`, `gnss time on`,
+  `--send T:TEXT` types a test command at T seconds (`key 2 click`, `sound off`, `gnss cold`, `gnss time on`,
   `rtc shift -300`).
 - `tools/ttff.py`: measures the GNSS time to first fix after forced restarts (full cold, cold with the RTC time,
   hot...), to run by a window; results in `dump/ttff.csv`.
@@ -75,6 +79,11 @@ Source: [docs/prototype/prototype.dc.html](docs/prototype/prototype.dc.html); th
 - `tools/check_fit.py`: decodes FIT files with the official Garmin FIT SDK.
 - `tools/sound_probe.py`: records the PC microphone while the firmware scans the nRF sound commands, then lists
   the notes of each sound (the scan mode was removed from the firmware after commit 07fc484).
+- `tools/vendor_dplus.py`: replays the vendor's ascent / descent algorithm (decompiled from `ota_1`) on vendor FIT
+  files and compares it with their session totals.
+- `tools/esp_image_elf.py`: turns an ESP32-S3 app image (an ota partition) into an ELF for Ghidra or objdump;
+  `tools/ghidra/`: headless scripts that name the mask ROM functions and decompile the functions using given
+  strings.
 - `tools/build_prototype.py`: rebuilds the standalone UI prototype page.
 - `tools/check_prototype_layout.py`: checks in headless Chromium that nothing on the prototype screen changes size between states.
 - `tools/build_fonts.py`: rasterizes Barlow Condensed (`crates/ui/fonts/`) at the prototype's sizes, with the UI
