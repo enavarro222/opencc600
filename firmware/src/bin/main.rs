@@ -399,18 +399,24 @@ async fn gnss_task(mut uart: GnssUart) {
     let mut reader = gnss::LineReader::new();
     let mut fix = gnss::Fix::default();
     let mut last_report = Instant::now();
-    let mut stalled = false;
+    // `is_done()` of the UHCI transfer goes up at every idle EOF: silence is the only sign of a stopped DMA (ring
+    // full) or a silent receiver.
+    let mut last_data = Instant::now();
+    let mut silent = false;
     loop {
         let mut epoch = false;
-        uart.drain(|data| {
+        let n = uart.drain(|data| {
             reader.feed(data, |line| {
                 debug!("gnss {line}");
                 epoch |= fix.update(line) == gnss::Epoch::Complete;
             })
         });
-        if uart.stalled() && !stalled {
-            stalled = true;
-            warn!("gnss: DMA stopped, data lost");
+        if n > 0 {
+            last_data = Instant::now();
+            silent = false;
+        } else if !silent && last_data.elapsed() >= Duration::from_secs(3) {
+            silent = true;
+            warn!("gnss: no data for 3 s (receiver off, or DMA stopped)");
         }
         if epoch {
             STATUS.lock(|s| {
@@ -430,7 +436,7 @@ async fn gnss_task(mut uart: GnssUart) {
                 fix.quality,
                 fix.sats_used,
                 fix.sats_in_view,
-                if stalled { " DMA STOPPED" } else { "" }
+                if silent { " SILENT" } else { "" }
             );
         }
         Timer::after(Duration::from_millis(50)).await;

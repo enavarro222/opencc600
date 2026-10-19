@@ -18,6 +18,8 @@ The hardware-independent `no_std` crates live in the host workspace at the root,
 tested on a PC with `cargo test`:
 - [crates/nrf-link/](crates/nrf-link/): UART protocol with the nRF co-processor (frames, CRC, keys, battery, RTC,
   barometer, light, buzzer, commands).
+- [crates/gnss/](crates/gnss/): NMEA reader (checksums, error counters) and fix parser for the Airoha AG3352Q,
+  `$PAIR` commands; tested on an anonymised capture.
 - [crates/ride-store/](crates/ride-store/): ride files on littlefs that survive a power cut; its test cuts the power
   at every flash operation of a recording scenario (RAM fake NOR flash).
 

@@ -63,9 +63,4 @@ impl GnssUart {
             total += n;
         }
     }
-
-    /// The DMA stopped: the ring filled up (not drained in time) or an error. Data is being lost.
-    pub fn stalled(&self) -> bool {
-        self.rx.is_done()
-    }
 }

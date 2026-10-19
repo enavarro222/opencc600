@@ -236,6 +236,23 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   will lose bytes on every sector erase: its reader needs UART DMA (UHCI) or an IRAM interrupt handler that keeps
   draining the FIFO.
 
+## GNSS on the CC600 (`crates/gnss`, `firmware/src/gnss_uart.rs`, 2026-10-19)
+
+- Airoha AG3352Q on UART0 at 921600 baud, NMEA on by default (as on the C606), powered at boot without any
+  command. Fix indoors in seconds: 16–18 satellites used out of ~37 in view (GPS, GLONASS, Galileo, BeiDou),
+  HDOP ~0.8.
+- **Output: one burst per second, ~2.6 KB, ~23 sentences**, in this order: `GGA`, `GLL`, `GSA` ×4 (one per
+  constellation, NMEA 4.1 system id), `GSV` (GP/GL/GA/GB), `RMC`, `VTG`, `ZDA`, Airoha `GNACCURACY`, `GNEPE`,
+  `PLSV`, `PAIRDGP`, and `$PAIRSAT` satellite reports (~300 characters, longer than NMEA allows; dropped).
+  **GGA comes before RMC**: an epoch is complete when RMC arrives after the GGA of the same second.
+- **Reception through UHCI DMA** into a 16 KB ring in internal RAM; `uart_idle_eof_en` (set by the UHCI *TX*
+  config, shared register) closes a descriptor when the line goes idle, so each burst is handed over at once.
+  The transfer's `is_done()` then rises at every idle EOF: silence is the only sign of a stopped DMA.
+  **Checked during continuous littlefs writes** (storage HIL build, 379 appends with sector erases): 921 sentences,
+  0 bytes lost, while the plain UART FIFO readers lose data during flash operations.
+- Fixtures: `crates/gnss/tests/fixtures/` holds an anonymised 10 s capture (fake position, randomised satellite
+  geometry). Raw captures contain the real position and stay in `dump/`.
+
 ## Vendor storage partition (littlefs)
 
 - littlefs **v2.1** on-disk, block size 4096, 1950 blocks; 1324 used (68 %) on 2026-10-19.
