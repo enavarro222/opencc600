@@ -13,6 +13,7 @@
 #![deny(clippy::large_stack_frames)]
 
 use core::cell::Cell;
+use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -40,6 +41,7 @@ use esp_hal::peripherals::{GPIO41, GPIO42, UART2};
 use esp_hal::time::{self as hal_time, Rate};
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{self, Uart, UartRx, UartTx};
+use esp_hal::usb::usb_serial_jtag::{UsbSerialJtag, UsbSerialJtagRx};
 use esp_rtos::embassy::InterruptExecutor;
 use esp_storage::FlashStorage;
 use littlefs2::fs::{Allocation, Filesystem};
@@ -171,6 +173,9 @@ async fn main(spawner: Spawner) -> ! {
         peripherals.DMA_CH1,
     );
     spawner.spawn(gnss_task(gnss).unwrap());
+    // Test hook: key presses typed on the USB serial port (esp-println keeps writing the log on the TX side).
+    let (usb_rx, _usb_tx) = UsbSerialJtag::new(peripherals.USB_DEVICE).split();
+    spawner.spawn(usb_keys(usb_rx).unwrap());
 
     let mut fb = FrameBuffer::new();
     draw_test_pattern(&mut fb);
@@ -274,6 +279,7 @@ async fn main(spawner: Spawner) -> ! {
         let screen = (state, power_prompt.is_some(), ride_info);
         if shown != Some(screen) {
             draw_status(&mut fb, &state, ride_info);
+            draw_key_hints(&mut fb, ride_info, power_prompt.is_some());
             if power_prompt.is_some() {
                 draw_message(&mut fb, "Power off?\nkey 0: yes\nother: no");
             }
@@ -351,10 +357,13 @@ async fn nrf_rx(mut rx: UartRx<'static, Async>) -> ! {
             let msg = Message::parse(&frame);
             match msg {
                 Message::Unknown => info!("nrf ? {frame:?}"),
-                Message::Rtc(t) if t.second % 5 == 0 => info!("nrf {msg:?}"),
-                Message::Battery { .. } | Message::Status(_) | Message::Rtc(_) => {
-                    debug!("nrf {msg:?}")
-                }
+                // periodic: every 5 s (RTC, and the replies to the power-on command)
+                Message::Battery { .. }
+                | Message::Status(_)
+                | Message::Rtc(_)
+                | Message::Ack
+                | Message::PowerOnReason(_)
+                | Message::Version { .. } => debug!("nrf {msg:?}"),
                 Message::Accel(_)
                 | Message::Gyro(_)
                 | Message::Baro { .. }
@@ -590,6 +599,7 @@ struct Ride {
     odometer: recorder::Odometer,
     /// GNSS time of the last epoch recorded.
     last_epoch: Option<gnss::Time>,
+    clock: recorder::EpochClock,
     last_timestamp: u32,
 }
 
@@ -608,11 +618,12 @@ impl Ride {
         match recorder::Recorder::start(fs, unix, fit::timestamp(unix), SERIAL) {
             Ok(recorder) => {
                 info!("ride {unix}: started");
-                let _ = NRF_COMMANDS.try_send(command::misc(SOUND_BEEP));
+                sound(SOUND_BEEP);
                 Some(Box::new(Self {
                     recorder,
                     odometer: recorder::Odometer::default(),
                     last_epoch: None,
+                    clock: recorder::EpochClock::default(),
                     last_timestamp: fit::timestamp(unix),
                 }))
             }
@@ -636,7 +647,7 @@ impl Ride {
         match res {
             Ok(()) => {
                 info!("ride: {}", if running { "paused" } else { "resumed" });
-                let _ = NRF_COMMANDS.try_send(command::misc(SOUND_BEEP));
+                sound(SOUND_BEEP);
             }
             Err(e) => warn!("ride: pause/resume failed, littlefs error {}", e.code()),
         }
@@ -649,11 +660,13 @@ impl Ride {
             return;
         }
         self.last_epoch = fix.time;
-        let Some(unix) = now_unix(s) else { return };
-        let timestamp = fit::timestamp(unix);
-        if timestamp <= self.last_timestamp && self.recorder.summary().records > 0 {
-            return; // clock went back (RTC set from the GNSS meanwhile): keep the records in order
-        }
+        let Some(epoch) = fix.time else { return };
+        let epoch_s = epoch.hour as u32 * 3600 + epoch.minute as u32 * 60 + epoch.second as u32;
+        let gnss = gnss_unix(s).map(fit::timestamp);
+        let rtc = rtc_unix(s).map(fit::timestamp);
+        let Some(timestamp) = self.clock.next(epoch_s, gnss, rtc) else {
+            return;
+        };
         self.last_timestamp = timestamp;
         let speed = fix.valid.then_some(fix.speed_mm_s).flatten();
         let distance_cm = self.odometer.update(timestamp, speed);
@@ -680,7 +693,7 @@ impl Ride {
         match self.recorder.stop(fs, t, UTC_OFFSET_S) {
             Ok(totals) => {
                 info!("ride {id}: saved, {totals:?}");
-                let _ = NRF_COMMANDS.try_send(command::misc(command::SOUND_JINGLE));
+                sound(command::SOUND_JINGLE);
             }
             Err(e) => warn!(
                 "ride {id}: stop failed, littlefs error {} (closed at next boot)",
@@ -703,28 +716,153 @@ impl Ride {
 const SERIAL: u32 = 600;
 /// Short beep on the buzzer (`E2 01 00`).
 const SOUND_BEEP: u8 = 0x00;
+/// Buzzer on; `sound off` on the USB test hook mutes it (tests next to people).
+static SOUND_ON: AtomicBool = AtomicBool::new(true);
+
+fn sound(id: u8) {
+    if SOUND_ON.load(Ordering::Relaxed) {
+        let _ = NRF_COMMANDS.try_send(command::misc(id));
+    }
+}
 
 /// Current time, Unix seconds: the GNSS time with a valid fix, else the nRF RTC.
 fn now_unix(s: &Status) -> Option<u32> {
-    let t = match s.fix {
-        Some(gnss::Fix {
-            valid: true,
-            time: Some(time),
-            date: Some(date),
-            ..
-        }) => RtcTime {
-            year: date.year,
-            month: date.month,
-            day: date.day,
-            hour: time.hour,
-            minute: time.minute,
-            second: time.second,
-        },
-        _ => s.rtc?,
+    gnss_unix(s).or_else(|| rtc_unix(s))
+}
+
+/// GNSS time, only with a valid fix (without, it can be off by tens of seconds).
+fn gnss_unix(s: &Status) -> Option<u32> {
+    let fix = s.fix?;
+    let (true, Some(time), Some(date)) = (fix.valid, fix.time, fix.date) else {
+        return None;
     };
+    unix_of(&RtcTime {
+        year: date.year,
+        month: date.month,
+        day: date.day,
+        hour: time.hour,
+        minute: time.minute,
+        second: time.second,
+    })
+}
+
+fn rtc_unix(s: &Status) -> Option<u32> {
+    unix_of(&s.rtc?)
+}
+
+fn unix_of(t: &RtcTime) -> Option<u32> {
     u32::try_from(t.unix())
         .ok()
         .filter(|&u| u > fit::FIT_EPOCH_OFFSET)
+}
+
+/// What each key does now, written next to it: key 0 top left, key 1 bottom left, key 2 bottom right (CC600).
+fn draw_key_hints(fb: &mut FrameBuffer, ride: Option<RideInfo>, power_prompt: bool) {
+    let style = MonoTextStyle::new(&FONT_6X10, Rgb565::CSS_AQUA);
+    let (k0, k1) = if power_prompt {
+        ("< yes", "< no")
+    } else {
+        (
+            "< long: off",
+            match ride {
+                None => "< start",
+                Some(r) if r.running => "< pause  long: stop",
+                Some(_) => "< resume  long: stop",
+            },
+        )
+    };
+    Text::new(k0, Point::new(2, 12), style).draw(fb).unwrap();
+    Text::new(k1, Point::new(2, 316), style).draw(fb).unwrap();
+    let k2 = if power_prompt { "no >" } else { "- >" };
+    Text::with_alignment(k2, Point::new(238, 316), style, Alignment::Right)
+        .draw(fb)
+        .unwrap();
+}
+
+/// Test hook, lines on the USB serial port: `key <0-2> <click|long>` act as key presses from the nRF (`long` =
+/// long press then release, as the nRF sends them); `sound <on|off>` turns the buzzer on or off until the next
+/// boot. An optional leading sequence number gets an `usb ack <seq>` log line: this link loses ~5 % of the
+/// received lines when the log is busy (and log lines too), so the host resends until acknowledged
+/// (`tests/hil/dut.py`); a repeated number is acknowledged again but not run twice.
+#[embassy_executor::task]
+#[allow(
+    clippy::large_stack_frames,
+    reason = "task future: line buffer, statically allocated by embassy"
+)]
+async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
+    let mut line = [0u8; 32];
+    let mut len = 0;
+    let mut last_seq = None;
+    loop {
+        let mut buf = [0u8; 64];
+        let n = rx.drain_rx_fifo(&mut buf);
+        for &b in &buf[..n] {
+            if b == b'\n' || b == b'\r' {
+                let text = core::str::from_utf8(&line[..len]).unwrap_or("");
+                let (seq, text) = split_seq(text);
+                if let Some(seq) = seq {
+                    // acknowledged again when repeated (the host resends until it sees the ack), run once
+                    info!("usb ack {seq}");
+                    if last_seq.is_some_and(|last| seq <= last) {
+                        len = 0;
+                        continue;
+                    }
+                    last_seq = Some(seq);
+                }
+                match usb_command(text) {
+                    Some(UsbCommand::Key(key, actions)) => {
+                        info!("usb: key {key} {actions:?}");
+                        for &action in actions {
+                            NRF_KEYS.send((key, action)).await;
+                        }
+                    }
+                    Some(UsbCommand::Sound(on)) => {
+                        info!("usb: sound {}", if on { "on" } else { "off" });
+                        SOUND_ON.store(on, Ordering::Relaxed);
+                    }
+                    None if !text.is_empty() => warn!("usb: unknown command {text:?}"),
+                    None => {}
+                }
+                len = 0;
+            } else if len < line.len() {
+                line[len] = b;
+                len += 1;
+            }
+        }
+        Timer::after(Duration::from_millis(50)).await;
+    }
+}
+
+/// `<seq> <command>` → (seq, command); a line without a number is a command typed by hand.
+fn split_seq(line: &str) -> (Option<u32>, &str) {
+    let line = line.trim();
+    match line.split_once(' ') {
+        Some((n, rest)) if n.bytes().all(|b| b.is_ascii_digit()) => (n.parse().ok(), rest),
+        _ => (None, line),
+    }
+}
+
+enum UsbCommand {
+    Key(u8, &'static [KeyAction]),
+    Sound(bool),
+}
+
+fn usb_command(line: &str) -> Option<UsbCommand> {
+    let mut words = line.split_whitespace();
+    match (words.next()?, words.next()?, words.next()) {
+        ("sound", "on", None) => Some(UsbCommand::Sound(true)),
+        ("sound", "off", None) => Some(UsbCommand::Sound(false)),
+        ("key", key, Some(action)) => {
+            let key = key.parse().ok().filter(|&k: &u8| k <= 2)?;
+            let actions: &[KeyAction] = match action {
+                "click" => &[KeyAction::Click],
+                "long" => &[KeyAction::LongPress, KeyAction::LongRelease],
+                _ => return None,
+            };
+            Some(UsbCommand::Key(key, actions))
+        }
+        _ => None,
+    }
 }
 
 /// Centred box over the current screen.
@@ -754,7 +892,7 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status, ride: Option<RideInfo>) {
     let label = MonoTextStyle::new(&FONT_6X10, Rgb565::CSS_LIGHT_GRAY);
     let value = MonoTextStyle::new(&FONT_10X20, Rgb565::YELLOW);
     fb.clear(Rgb565::BLACK).unwrap();
-    Text::with_alignment("opencc600", Point::new(120, 24), title, Alignment::Center)
+    Text::with_alignment("opencc600", Point::new(140, 24), title, Alignment::Center)
         .draw(fb)
         .unwrap();
 
@@ -859,7 +997,7 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status, ride: Option<RideInfo>) {
         }),
     ];
     for (i, (name, v)) in rows.iter().enumerate() {
-        let y = 48 + i as i32 * 30;
+        let y = 44 + i as i32 * 29;
         Text::new(name, Point::new(8, y), label).draw(fb).unwrap();
         Text::new(v, Point::new(8, y + 20), value).draw(fb).unwrap();
     }

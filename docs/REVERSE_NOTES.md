@@ -173,7 +173,7 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
 - **Power off checked**: `SendPowerOffCmd` (`E2 02 00 00 00 00 00 00`) cuts the ESP32 at once, **even with USB
   plugged in** (the USB-Serial/JTAG port disappears). A long press on the power key then boots our ota_0 image
   again from cold, power-on reason 4 (manual).
-- Keys: indexes 0..2, `1` click on release, `4` long press repeated while held, `5` release after a long press
+- Keys: **0 top left, 1 bottom left, 2 bottom right** (screen facing you). Indexes 0..2, `1` click on release, `4` long press repeated while held, `5` release after a long press
   (all three keys checked). A long press on key 0 also makes the nRF send its power-on reason and version again.
 - Rates (host timestamps, 30 s): RTC and barometer **5 Hz**; battery, status (`F0`, 0 with USB plugged in at
   100 %) and the stream subtypes `04` / `0A` **3.3 Hz** (300 ms).
@@ -184,7 +184,7 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   ESP32 (240 MHz, never sleeping), the backlight and the charger. Fine for the sensor's own compensation, not an
   air temperature. *(To compare with the vendor firmware in the same conditions.)*
 - **Ambient light sensor = stream `F1 04`** (checked by covering / lighting the device): u16 @6 = raw level
-  (~1000 indoors at night), u32 @2 = measurement tag: the nRF cycles 600 (the ambient light: ~2500 by day indoors), then 2000 and 3000 (level < 10 indoors, meaning unknown; seen 2026-10-19, earlier captures only had 600). Vendor factory test strings `Environment Light:`,
+  (~1000 indoors at night), u32 @2 = measurement tag: the nRF cycles 600 (the ambient light: ~2500 by day indoors), then 2000 and 3000 (level < 10 indoors, meaning unknown; seen 2026-10-19, earlier captures only had 600). Checked by hand: tag 600 ~2517 indoors by day, 411 covered, 2596 under a phone torch (saturates near 2600?); tags 2000 / 3000 stay at 0–6 in all three cases (not visible light: infrared, or something else). Vendor factory test strings `Environment Light:`,
   `LightLux:`, setting `Auto(Light)` (auto backlight).
 - **No accelerometer / gyro frames** (`F1 01` / `F1 02`) on the CC600. Two subtypes not seen on the C606, meaning
   unknown: `F1 0A` = u16 ~3000..3100, tracks the barometer temperature 0.01 °C a little above it (second
@@ -275,6 +275,15 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   3 s of silence. *The silent-receiver path is not tested on the device yet.*
 - Fixtures: `crates/gnss/tests/fixtures/` holds an anonymised 10 s capture (fake position, randomised satellite
   geometry). Raw captures contain the real position and stay in `dump/`.
+
+## USB-Serial/JTAG link (2026-10-19)
+
+- **Lines are lost in both directions when the log is busy**: ~5–7 % of the host → device command lines (82 sent,
+  76 counted by the firmware) and some log lines, around the nRF task's bursts of log lines (every 5 s: RTC and
+  the replies to the power-on command, written from the interrupt executor). Reading the RX FIFO inside a
+  critical section did not help. Fewer periodic log lines (moved to debug) made it rare; the test hook numbers and
+  acknowledges commands (see DEV_PROCESS.md). *Root cause not found.*
+- The last log line can stay in the TX FIFO until the next one is written (it shows up late on the host).
 
 ## Vendor storage partition (littlefs)
 

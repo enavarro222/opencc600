@@ -23,6 +23,12 @@ tested on a PC with `cargo test`:
   `$PAIR` commands; tested on an anonymised capture.
 - [crates/ride-store/](crates/ride-store/): ride files on littlefs that survive a power cut; its test cuts the power
   at every flash operation of a recording scenario (RAM fake NOR flash).
+- [crates/fit/](crates/fit/): FIT activity writer; every file of its tests is decoded again with `fitparser`.
+- [crates/recorder/](crates/recorder/): ride recording as FIT on ride-store, pauses, totals, closing of interrupted
+  rides; its test cuts the power at every flash operation of a ride and of the recovery.
+
+Hardware-in-the-loop tests on a CC600 plugged in over USB (keys injected over USB, storage read back):
+`uv run --project tests/hil pytest tests/hil`, see [tests/hil/](tests/hil/) and docs/DEV_PROCESS.md.
 
 `littlefs2` generates its C bindings with bindgen, which needs the clang C headers on the PC
 (`sudo apt install libclang-common-18-dev` on Ubuntu 24.04, or point `BINDGEN_EXTRA_CLANG_ARGS` at
@@ -55,9 +61,12 @@ Source: [docs/prototype/prototype.dc.html](docs/prototype/prototype.dc.html); th
 - `tools/hil_storage.py`: resets the CC600 at random moments while the `hil-storage` firmware records, checks that
   no acknowledged ride data is lost.
 - `tools/vendor_fit.py`: extracts the vendor's recorded rides from a storage partition image as standard FIT files.
-- `tools/serial_log.py`: prints the USB serial log for N seconds, each line with the host time (no reset).
+- `tools/serial_log.py`: prints the USB serial log for N seconds, each line with the host time (no reset);
+  `--send T:TEXT` types a test command at T seconds (`key 1 click`, `sound off`).
+- `tools/pull_rides.py`: copies the rides from the CC600 to `dump/rides/` and checks them with the Garmin FIT SDK.
+- `tools/check_fit.py`: decodes FIT files with the official Garmin FIT SDK.
 - `tools/sound_probe.py`: records the PC microphone while the firmware scans the nRF sound commands, then lists
-  the notes of each sound.
+  the notes of each sound (the scan mode was removed from the firmware after commit 07fc484).
 - `tools/build_prototype.py`: rebuilds the standalone UI prototype page.
 - `tools/check_prototype_layout.py`: checks in headless Chromium that nothing on the prototype screen changes size between states.
 

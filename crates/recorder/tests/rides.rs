@@ -4,7 +4,7 @@
 use fit::{Record, timestamp};
 use fitparser::profile::MesgNum;
 use fitparser::{FitDataRecord, Value};
-use recorder::{FLUSH_EVERY_S, Odometer, Recorder, Recovered, recover};
+use recorder::{EpochClock, FLUSH_EVERY_S, Odometer, Recorder, Recovered, recover};
 use ride_store::littlefs2::fs::{Allocation, Filesystem};
 use ride_store::littlefs2::io::Result;
 use ride_store::ram::RamFlash;
@@ -280,4 +280,38 @@ fn odometer() {
     assert_eq!(o.update(103, None), 800); // no fix
     assert_eq!(o.update(104, Some(10_000)), 800 + 2 * 1000); // 2 s since the last speed
     assert_eq!(o.update(160, Some(10_000)), 2800 + 5 * 1000); // long gap: counted 5 s
+}
+
+#[test]
+fn epoch_clock_without_fix() {
+    // RTC ticking 0.4 s after the epochs: at each epoch it still shows the previous second half of the time.
+    let mut c = EpochClock::default();
+    let rtc = [1000, 1000, 1001, 1003, 1003, 1004];
+    let got: Vec<_> = (0..6)
+        .map(|i| c.next(36_000 + i, None, Some(rtc[i as usize])))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            Some(1000),
+            Some(1001),
+            Some(1002),
+            Some(1003),
+            Some(1004),
+            Some(1005)
+        ]
+    );
+}
+
+#[test]
+fn epoch_clock_follows_rtc_and_gnss() {
+    let mut c = EpochClock::default();
+    assert_eq!(c.next(10, None, None), None); // no time at all
+    assert_eq!(c.next(11, None, Some(500)), Some(500));
+    assert_eq!(c.next(12, None, Some(510)), Some(510)); // RTC ahead (set meanwhile): follow it
+    assert_eq!(c.next(13, Some(511), Some(510)), Some(511)); // valid fix: GNSS time
+    assert_eq!(c.next(14, Some(511), Some(511)), None); // repeated second: dropped, never backwards
+    assert_eq!(c.next(15, Some(513), None), Some(513));
+    assert_eq!(c.next(0, None, None), None); // midnight wrap of a receiver restart: step 86_385 s ignored
+    assert_eq!(c.next(1, None, None), Some(514));
 }

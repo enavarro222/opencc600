@@ -74,10 +74,21 @@ One CC600 dedicated to tests, on USB-C to a self-hosted CI runner. Everything go
   The vendor firmware stays in `ota_1` as a fallback.
 - **Logs** over USB serial (`defmt` / `esp-println`), **on-target tests** with `embedded-test` + probe-rs
   (built-in JTAG).
-- **Test commands** over USB serial, only in test builds:
-  - inject key events (the keys are on the nRF, so there is no GPIO to poke);
+- **Test commands** over USB serial:
+  - inject key events (the keys are on the nRF, so there is no GPIO to poke). *Exists*: `[<seq>] key <0-2>
+    <click|long>` and `sound <on|off>` (mute the buzzer, tests run next to people), in the normal build. The link
+    loses ~5 % of the received lines (and of the log lines) when the log is busy: the host numbers each command
+    and resends it until the firmware logs `usb ack <seq>`; a repeated number runs once;
   - dump the framebuffer as PNG → compared with the simulator golden image;
   - load a route, start/stop a ride, read back a FIT file.
+- **Framework** *(exists, 2026-10-19)*: pytest in `tests/hil/` (`uv run --project tests/hil pytest tests/hil`).
+  The `dut` fixture resets the device and mutes it; `dut.press(1)`, `dut.send(...)` (acknowledged, resent),
+  `dut.expect(regex)` on the log, `dut.read_storage()` (esptool read of the storage partition, mounted on the PC
+  with littlefs-python; the device resets afterwards). Assertions go on what the device stored (FIT files checked
+  with the Garmin FIT SDK) rather than on log lines, which can be lost. Tests: a ride with a pause, a ride
+  interrupted by a reset and closed at the next boot. Existing tools looked at: `pytest-embedded` (Espressif,
+  ESP-IDF oriented), `embedded-test` + probe-rs (on-target unit tests, for drivers later), labgrid (full labs,
+  power switching: when we have a switchable USB hub).
 - **Crash recovery**: reset at random points during recording, check the ride at the next boot.
   *Exists for the ride store*: `tools/hil_storage.py` with the `hil-storage` firmware build (back-to-back appends,
   reset 1–8 s after each boot, every byte checked against a known pattern). First run, 2026-10-19: 30 resets,

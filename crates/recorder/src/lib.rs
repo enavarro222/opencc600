@@ -132,6 +132,41 @@ impl Odometer {
     }
 }
 
+/// Timestamps of the records, one per GNSS epoch, strictly increasing.
+///
+/// With a fix, the GNSS time. Without, the receiver still ticks once a second but its time can be off by tens of
+/// seconds (REVERSE_NOTES.md), and the nRF RTC has a 1 s resolution with an unknown phase against the epochs: an
+/// epoch can arrive before the RTC second changes. So the clock advances by the epoch's own step (its time of day
+/// minus the previous one's) and only follows the RTC when the RTC is ahead.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EpochClock {
+    last_epoch: Option<u32>,
+    last: Option<u32>,
+}
+
+impl EpochClock {
+    /// `epoch_s`: the epoch's time of day in seconds (GNSS, valid or not); `gnss`: the FIT timestamp from a valid
+    /// fix; `rtc`: the FIT timestamp from the nRF RTC. Returns the record timestamp, None to drop the epoch (no
+    /// time at all, or it would not be after the previous record).
+    pub fn next(&mut self, epoch_s: u32, gnss: Option<u32>, rtc: Option<u32>) -> Option<u32> {
+        let step = self
+            .last_epoch
+            .map(|last| (epoch_s + 86_400 - last) % 86_400)
+            .filter(|&step| step > 0 && step <= 60);
+        self.last_epoch = Some(epoch_s);
+        let stepped = self.last.zip(step).map(|(last, step)| last + step);
+        let t = gnss.or_else(|| match (stepped, rtc) {
+            (Some(s), Some(r)) => Some(s.max(r)),
+            (s, r) => s.or(r),
+        })?;
+        if self.last.is_some_and(|last| t <= last) {
+            return None;
+        }
+        self.last = Some(t);
+        Some(t)
+    }
+}
+
 /// A ride being recorded.
 pub struct Recorder {
     id: u32,
