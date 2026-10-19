@@ -38,10 +38,13 @@ Not ported: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, `ui_port.c` (LVGL), Maps
 ## Hardware constraints
 - 240x320 colour panel, **3 keys, no touch** → the whole UX is button driven.
 - ESP32-S3, 2 MB quad PSRAM, app ≤ **0x420000 (4.1 MB)** per OTA slot.
-- Storage: 7.8 MB littlefs `storage` partition (0x860000). **It holds the vendor's recorded rides**:
-  write into a dedicated subdirectory, or back it up first. In Rust, staying compatible means
-  `littlefs2` (Rust wrapper around the C littlefs, built for Xtensa). *(open: keep littlefs, or back the
-  vendor rides up and use a Rust-native power-loss-safe store)*
+- Storage: 7.8 MB littlefs `storage` partition (0x860000), 68 % used by the vendor (24 rides = 4.1 MB, its logs,
+  settings, A-GNSS data). **Decided 2026-10-19: we take the whole partition** (option b), after a verified backup
+  (`dump/storage.orig.bin`, identical to the device) and the 24 rides extracted as standard FIT
+  (`tools/vendor_fit.py`). Going back to the vendor = `tools/flash_ota0.py --restore-vendor --storage
+  dump/storage.orig.bin` (rides recorded with our firmware meanwhile stay as FIT files outside, not in the vendor
+  history). *(open: littlefs again through `littlefs2`, or a Rust-native power-loss-safe store; developed and
+  power-cut tested on a RAM fake first)*
 - BLE + Wi-Fi on the ESP32; ANT+ through the nRF (its firmware is not replaced).
 - 1800 mAh battery: battery life is a requirement (Wi-Fi and backlight are expensive).
 - The nRF RTC is not written by c606-oss → wrong time before the first GPS fix.

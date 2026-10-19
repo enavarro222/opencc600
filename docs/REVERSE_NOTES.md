@@ -231,6 +231,17 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   (`FifoOverflowed`) during a redraw + flush (~25 ms); the nRF task now runs on an interrupt executor. The GNSS at
   921600 baud fills the FIFO in 1.4 ms: it will need UART DMA (UHCI) or the same high-priority reader.
 
+## Vendor storage partition (littlefs)
+
+- littlefs **v2.1** on-disk, block size 4096, 1950 blocks; 1324 used (68 %) on 2026-10-19.
+- Tree: `/FITS/FIT/<unix start>.fit` (rides), `/FITS/LAP/<same>.lap` (laps, a few u32), `/FITS/Recorder.db`
+  (ride index, binary, format unknown), `/LOG/<date>.log` (vendor logs, up to ~450 KB a day), `/CONFIG/`
+  (`ProductInfo.config`, `sensor.bin`, `wifi.bin`, `WifiList.config`, `user_info.bin`, `riding_mode*.bin`,
+  `<t>_agnss.bin` 157 KB of A-GNSS data, `avatar_file.bmp`…), `/ABNORMAL/CoredumpInfo.bin`, `/APP/`, `/NOTIFY/`.
+- **Ride files are compressed FIT**: `".ZIP"` + the 14-byte FIT header + `{u16 LE length, zlib stream}*` + the
+  2-byte FIT CRC. Inflated, header + records + CRC is a valid FIT file (all 24 rides decode, CRC OK; ~30 % smaller
+  stored). `tools/vendor_fit.py` does the conversion.
+
 ## Safety rules
 
 - **Never** write eFuses (irreversible).
