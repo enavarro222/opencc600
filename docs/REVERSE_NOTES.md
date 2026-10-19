@@ -184,7 +184,7 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   ESP32 (240 MHz, never sleeping), the backlight and the charger. Fine for the sensor's own compensation, not an
   air temperature. *(To compare with the vendor firmware in the same conditions.)*
 - **Ambient light sensor = stream `F1 04`** (checked by covering / lighting the device): u16 @6 = raw level
-  (~1000 indoors at night), u32 @2 = constant 600 (unknown). Vendor factory test strings `Environment Light:`,
+  (~1000 indoors at night), u32 @2 = measurement tag: the nRF cycles 600 (the ambient light: ~2500 by day indoors), then 2000 and 3000 (level < 10 indoors, meaning unknown; seen 2026-10-19, earlier captures only had 600). Vendor factory test strings `Environment Light:`,
   `LightLux:`, setting `Auto(Light)` (auto backlight).
 - **No accelerometer / gyro frames** (`F1 01` / `F1 02`) on the CC600. Two subtypes not seen on the C606, meaning
   unknown: `F1 0A` = u16 ~3000..3100, tracks the barometer temperature 0.01 °C a little above it (second

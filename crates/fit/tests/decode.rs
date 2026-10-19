@@ -210,3 +210,53 @@ fn small_buffer_is_an_error() {
     assert_eq!(Record::default().encode(&mut buf), Err(Full));
     assert_eq!(encode_definitions(&mut buf), Err(Full));
 }
+
+#[test]
+fn messages_read_back() {
+    let r = Record {
+        timestamp: 77,
+        lat_e7: Some(451_234_567),
+        lon_e7: Some(-61_234_567),
+        altitude_dm: Some(-123),
+        speed_mm_s: Some(5_000),
+        distance_cm: Some(42),
+        temperature_c: Some(-5),
+        heart_rate: None,
+        cadence: Some(90),
+        power_w: Some(250),
+    };
+    let mut buf = [0u8; 64];
+    let n = r.encode(&mut buf).unwrap();
+    assert_eq!(record_len(buf[0], None), Some(n));
+    let back = Record::decode(&buf[..n]).unwrap();
+    // altitude in 0.2 m steps, positions within 1e-7°
+    assert_eq!(back.altitude_dm, Some(-124));
+    assert!((back.lat_e7.unwrap() - r.lat_e7.unwrap()).abs() <= 1);
+    assert!((back.lon_e7.unwrap() - r.lon_e7.unwrap()).abs() <= 1);
+    assert_eq!(
+        Record {
+            lat_e7: r.lat_e7,
+            lon_e7: r.lon_e7,
+            altitude_dm: r.altitude_dm,
+            ..back
+        },
+        r
+    );
+    assert_eq!(Event::decode(&buf[..n]), None);
+
+    let e = Event {
+        timestamp: 9,
+        kind: EventType::Stop,
+    };
+    let n = e.encode(&mut buf).unwrap();
+    assert_eq!(Event::decode(&buf[..n]), Some(e));
+    assert!(!Activity::is(&buf[..n]));
+
+    let mut defs = [0u8; 512];
+    let n = encode_definitions(&mut defs).unwrap();
+    let mut pos = 0;
+    while pos < n {
+        pos += record_len(defs[pos], defs.get(pos + 5).copied()).unwrap();
+    }
+    assert_eq!(pos, n);
+}

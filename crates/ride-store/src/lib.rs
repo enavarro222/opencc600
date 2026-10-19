@@ -60,6 +60,17 @@ pub fn append<S: Storage>(fs: &Filesystem<'_, S>, id: u32, data: &[u8]) -> Resul
     )
 }
 
+/// Opens ride `id` (not finished) for reading and writing anywhere, e.g. to rewrite a header once the size is
+/// known. Everything `f` writes is committed together when it returns `Ok` (littlefs commits on close): a power
+/// cut before leaves the file as it was.
+pub fn update<S: Storage, R>(
+    fs: &Filesystem<'_, S>,
+    id: u32,
+    f: impl FnOnce(&littlefs2::fs::File<'_, '_, S>) -> Result<R>,
+) -> Result<R> {
+    fs.open_file_with_options_and_then(|o| o.read(true).write(true), &ride_path(id, PART), f)
+}
+
 /// Closes ride `id`: `/rides/<id>.part` becomes `/rides/<id>.fit`.
 pub fn finish<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
     fs.rename(&ride_path(id, PART), &ride_path(id, FIT))

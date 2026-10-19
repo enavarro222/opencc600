@@ -514,8 +514,9 @@ struct Status {
     last_key: Option<(u8, KeyAction)>,
     keys: u32,
     baro: Option<(i16, u32)>,
-    /// Ambient light (raw) and the raw sensor stream subtype `0A` (meaning unknown).
-    light: Option<u16>,
+    /// Ambient light (raw) per measurement tag (`param` 600, 2000, 3000), and the raw sensor stream subtype `0A`
+    /// (meaning unknown).
+    light: [Option<u16>; 3],
     stream0a: Option<[u8; 6]>,
     /// Last `E2 01 XX` probe sent (buzzer hunt).
     probe: Option<u8>,
@@ -537,7 +538,7 @@ impl Status {
             last_key: None,
             keys: 0,
             baro: None,
-            light: None,
+            light: [None; 3],
             stream0a: None,
             probe: None,
             storage: None,
@@ -568,7 +569,11 @@ impl Status {
                 centi_celsius,
                 centi_pascal,
             } => self.baro = Some((centi_celsius, centi_pascal)),
-            Message::Light { level, .. } => self.light = Some(level),
+            Message::Light { level, param } => {
+                if let Some(i) = [600, 2000, 3000].iter().position(|&p| p == param) {
+                    self.light[i] = Some(level);
+                }
+            }
             Message::Stream { sub: 0x0A, data } => self.stream0a = Some(data),
             Message::Ack
             | Message::Accel(_)
@@ -700,10 +705,10 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status) {
                 },
             ),
         ),
-        (
-            "ambient light (raw)",
-            s.light.map_or_else(none, |l| format!("{l}")),
-        ),
+        ("light raw (600/2000/3000)", {
+            let l = |v: Option<u16>| v.map_or_else(|| String::from("-"), |l| format!("{l}"));
+            format!("{} / {} / {}", l(s.light[0]), l(s.light[1]), l(s.light[2]))
+        }),
     ];
     for (i, (name, v)) in rows.iter().enumerate() {
         let y = 48 + i as i32 * 30;

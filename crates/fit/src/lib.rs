@@ -168,6 +168,40 @@ impl Out<'_> {
     }
 }
 
+/// Little-endian reader over the fields of one data message.
+struct In<'a> {
+    buf: &'a [u8],
+    pos: usize,
+}
+
+impl In<'_> {
+    fn take<const N: usize>(&mut self) -> [u8; N] {
+        let b = self.buf[self.pos..self.pos + N].try_into().unwrap();
+        self.pos += N;
+        b
+    }
+    fn u8(&mut self) -> u8 {
+        self.take::<1>()[0]
+    }
+    fn i8(&mut self) -> i8 {
+        self.u8() as i8
+    }
+    fn u16(&mut self) -> u16 {
+        u16::from_le_bytes(self.take())
+    }
+    fn u32(&mut self) -> u32 {
+        u32::from_le_bytes(self.take())
+    }
+    fn i32(&mut self) -> i32 {
+        i32::from_le_bytes(self.take())
+    }
+}
+
+/// `msg` as a data message of `def` (header byte included), or None.
+fn data_of<'a>(def: &Definition, msg: &'a [u8]) -> Option<In<'a>> {
+    (msg.len() == def.data_len() && msg[0] == def.local).then_some(In { buf: msg, pos: 1 })
+}
+
 /// A data message with a fixed [`Definition`].
 pub trait Message {
     const DEFINITION: Definition;
@@ -194,6 +228,22 @@ pub const DEFINITIONS: [Definition; 6] = [
     Session::DEFINITION,
     Activity::DEFINITION,
 ];
+
+/// Length of the record starting with header byte `header`, for a file whose definitions are [`DEFINITIONS`]:
+/// a definition (`next` = its field count byte) or a data message. None for anything else.
+pub fn record_len(header: u8, field_count: Option<u8>) -> Option<usize> {
+    if header & 0x80 != 0 {
+        return None; // compressed timestamp headers are not written
+    }
+    let def = DEFINITIONS.get((header & 0x0F) as usize)?;
+    if header & 0x40 != 0 {
+        Some(6 + 3 * field_count? as usize)
+    } else if header & 0x30 == 0 {
+        Some(def.data_len())
+    } else {
+        None
+    }
+}
 
 /// Writes [`DEFINITIONS`] into `out`, returns the length.
 pub fn encode_definitions(out: &mut [u8]) -> Result<usize, Full> {
@@ -252,6 +302,22 @@ pub enum EventType {
     StopAll,
 }
 
+impl Event {
+    /// Reads back a data message written by [`Message::encode`].
+    pub fn decode(msg: &[u8]) -> Option<Self> {
+        let mut i = data_of(&Self::DEFINITION, msg)?;
+        let timestamp = i.u32();
+        let _event = i.u8();
+        let kind = match i.u8() {
+            0 => EventType::Start,
+            1 => EventType::Stop,
+            4 => EventType::StopAll,
+            _ => return None,
+        };
+        Some(Self { timestamp, kind })
+    }
+}
+
 impl Message for Event {
     const DEFINITION: Definition = Definition {
         local: 1,
@@ -304,9 +370,46 @@ pub fn semicircles(deg_e7: i32) -> i32 {
     }) as i32
 }
 
-/// Decimetres → FIT `enhanced_altitude` (scale 5, offset 500 m).
+/// Semicircles → degrees × 10⁷, rounded.
+pub fn from_semicircles(sc: i32) -> i32 {
+    let v = sc as i64 * 1_800_000_000;
+    let d = 1i64 << 31;
+    (if v >= 0 {
+        (v + d / 2) / d
+    } else {
+        (v - d / 2) / d
+    }) as i32
+}
+
+/// Decimetres → FIT `enhanced_altitude` (scale 5, offset 500 m): 0.2 m steps, rounded down.
 fn altitude(dm: i32) -> u32 {
-    ((dm as i64 + 5000) / 2).clamp(0, u32::MAX as i64 - 1) as u32
+    (dm as i64 + 5000)
+        .div_euclid(2)
+        .clamp(0, u32::MAX as i64 - 1) as u32
+}
+
+fn valid<T: PartialEq>(v: T, invalid: T) -> Option<T> {
+    (v != invalid).then_some(v)
+}
+
+impl Record {
+    /// Reads back a data message written by [`Message::encode`]: what a decoder of the file sees (altitude in
+    /// 0.2 m steps, positions through semicircles).
+    pub fn decode(msg: &[u8]) -> Option<Self> {
+        let mut i = data_of(&Self::DEFINITION, msg)?;
+        Some(Self {
+            timestamp: i.u32(),
+            lat_e7: valid(i.i32(), invalid::SINT32).map(from_semicircles),
+            lon_e7: valid(i.i32(), invalid::SINT32).map(from_semicircles),
+            altitude_dm: valid(i.u32(), invalid::UINT32).map(|a| a as i32 * 2 - 5000),
+            speed_mm_s: valid(i.u32(), invalid::UINT32),
+            distance_cm: valid(i.u32(), invalid::UINT32),
+            temperature_c: valid(i.i8(), invalid::SINT8),
+            heart_rate: valid(i.u8(), invalid::UINT8),
+            cadence: valid(i.u8(), invalid::UINT8),
+            power_w: valid(i.u16(), invalid::UINT16),
+        })
+    }
 }
 
 impl Message for Record {
@@ -462,6 +565,13 @@ pub struct Activity {
     /// Local time as a FIT timestamp (UTC + offset).
     pub local_timestamp: u32,
     pub timer_ms: u32,
+}
+
+impl Activity {
+    /// True for an activity data message: the file is complete.
+    pub fn is(msg: &[u8]) -> bool {
+        data_of(&Self::DEFINITION, msg).is_some()
+    }
 }
 
 impl Message for Activity {

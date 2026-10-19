@@ -266,8 +266,9 @@ pub enum Message {
         centi_celsius: i16,
         centi_pascal: u32,
     },
-    /// Ambient light sensor (CC600, 3.3 Hz; checked by covering / lighting the device). `level` is the raw
-    /// reading (~1000 indoors at night), `param` is constant 600 (unknown, maybe an integration time).
+    /// Ambient light sensor (CC600, 3.3 Hz; checked by covering / lighting the device). The nRF cycles through
+    /// measurements tagged by `param`: 600 (`level` ~1000 indoors at night, ~2500 by day: the ambient light),
+    /// then 2000 and 3000 (`level` < 10 indoors; meaning unknown, maybe another channel or gain).
     /// Vendor factory test strings: `Environment Light:`, `LightLux:`; used for the `Auto(Light)` backlight.
     Light {
         level: u16,
