@@ -22,6 +22,8 @@ body{margin:0}
 button{font-family:inherit}
 @keyframes notifA{from{width:100%}to{width:0%}}
 @keyframes notifB{from{width:100%}to{width:0%}}
+@keyframes beepA{0%{opacity:0;transform:scale(.8)}12%{opacity:1;transform:scale(1.08)}25%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}
+@keyframes beepB{0%{opacity:0;transform:scale(.8)}12%{opacity:1;transform:scale(1.08)}25%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}
 
 </style>
 </head>
@@ -37,6 +39,9 @@ button{font-family:inherit}
 <div style="width: 820px; height: 640px; box-sizing: border-box; padding: 40px; display: flex; gap: 40px; align-items: flex-start; font-family: 'Barlow Condensed', sans-serif; background: #E9E7E2; color: #111111">
 
   <div style="position: relative; width: 300px; height: 480px; flex-shrink: 0; border-radius: 36px; background: #141416; box-shadow: 0 12px 28px rgba(0,0,0,0.25)">
+    <sc-if value="{{hasBeep}}" hint-placeholder-val="{{ false }}">
+      <div style="position: absolute; right: 0; top: -36px; height: 28px; padding: 0 10px; border-radius: 14px; display: flex; align-items: center; gap: 6px; background: #F59F00; color: #111111; font-size: 16px; font-weight: 700; animation: {{beepAnim}} 1.6s ease-out forwards">♪ BIP · {{beepWhy}}</div>
+    </sc-if>
     <button onClick="{{pressHG}}" onPointerDown="{{holdStart}}" onPointerUp="{{holdEnd}}" onPointerLeave="{{holdEnd}}" aria-label="Bouton haut gauche" style="position: absolute; left: -9px; top: 64px; width: 12px; height: 64px; padding: 0; border: none; border-radius: 4px; background: #3BB3E0; cursor: pointer"></button>
     <button onClick="{{pressBG}}" aria-label="Bouton bas gauche" style="position: absolute; left: 36px; bottom: -9px; width: 76px; height: 12px; padding: 0; border: none; border-radius: 4px; background: #3BB3E0; cursor: pointer"></button>
     <button onClick="{{pressBD}}" aria-label="Bouton bas droite" style="position: absolute; right: 36px; bottom: -9px; width: 76px; height: 12px; padding: 0; border: none; border-radius: 4px; background: #3BB3E0; cursor: pointer"></button>
@@ -572,8 +577,13 @@ class Component extends DCLogic {
       if (st.scr === 'ride' && st.scrollOn) this.setState({ page: (st.page + 1) % 3 });
     }, 4000);
   }
+  beep(why) {
+    clearTimeout(this.beepT);
+    this.setState({ beepWhy: why, beepN: (this.state.beepN || 0) + 1 });
+    this.beepT = setTimeout(() => this.setState({ beepWhy: '' }), 1600);
+  }
   stopScroll() { clearInterval(this.scrollT); if (this.state.scrollOn) this.setState({ scrollOn: false }); }
-  componentWillUnmount() { clearInterval(this.scrollT); clearTimeout(this.timer); clearTimeout(this.holdT); clearTimeout(this.lostT); }
+  componentWillUnmount() { clearTimeout(this.beepT); clearInterval(this.scrollT); clearTimeout(this.timer); clearTimeout(this.holdT); clearTimeout(this.lostT); }
   say(msg, ms) {
     if (this.timer) clearTimeout(this.timer);
     const d = ms || 3000;
@@ -603,7 +613,7 @@ class Component extends DCLogic {
       case 'home': return {
         hg: { l: '⏻ Maintenir', hold: true, f: set({ scr: 'off' }) },
         bg: { l: '≡ Menu', f: set({ scr: 'menu', menuI: 0 }) },
-        bd: { l: 'Démarrer ▶', k: 'go', f: set({ scr: 'ride', page: 0, ride: true, moving: true, simMsg: '' }) } };
+        bd: { l: 'Démarrer ▶', k: 'go', f: () => { this.setState({ scr: 'ride', page: 0, ride: true, moving: true, simMsg: '' }); this.beep('enregistrement démarré'); } } };
       case 'traces': return {
         hg: { l: '◀ Retour', f: set({ scr: 'home' }) },
         bg: { l: 'Suivant ▼', f: set({ traceI: (s.traceI + 1) % 3 }) },
@@ -630,7 +640,7 @@ class Component extends DCLogic {
       case 'confirm': return {
         hg: { l: '◀ Annuler', f: set({ scr: s.confirmFrom }) },
         bg: { l: 'Annuler', f: set({ scr: s.confirmFrom }) },
-        bd: { l: 'Terminer ■', k: 'danger', f: set({ scr: 'saved', ride: false, climb: 'none', pending: s.pending + 1 }) } };
+        bd: { l: 'Terminer ■', k: 'danger', f: () => { this.setState({ scr: 'saved', ride: false, climb: 'none', off: false, pending: s.pending + 1 }); this.beep('sortie enregistrée'); } } };
       case 'saved': return { hg: none, bg: none, bd: { l: 'OK', k: 'sel', f: set({ scr: 'home' }) } };
       case 'pauseMenu': return {
         hg: { l: '◀ Retour', f: set({ scr: s.pmBack }) },
@@ -723,6 +733,7 @@ class Component extends DCLogic {
       c, is,
       isOff: s.scr === 'off', isOn: s.scr !== 'off',
       simMsg: s.simMsg || '',
+      hasBeep: !!s.beepWhy, beepWhy: s.beepWhy || '', beepAnim: (s.beepN || 0) % 2 ? 'beepA' : 'beepB',
       offHint: s.scr === 'off' ? 'Compteur éteint : maintiens le bouton haut gauche pour le rallumer.' : '',
       pmRows: ['Capteurs', 'Terminer la sortie…'].map((label, i) => ({ label, ...sel(i === s.pmI) })),
       showLost: ride && s.lost,
@@ -762,11 +773,11 @@ class Component extends DCLogic {
       simOff: () => {
         if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
         if (s.off) { this.setState({ off: false }); this.say('De retour sur la trace · guidage repris'); }
-        else this.setState({ off: true, page: 1 });
+        else { this.setState({ off: true, page: 1 }); if (s.opt.offBeep) this.beep('hors trace'); }
       },
       simClimbStep: () => {
         if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
-        if (s.climb === 'none') this.setState({ climb: 'approach' });
+        if (s.climb === 'none') { this.setState({ climb: 'approach' }); this.beep('montée à 400 m'); }
         else if (s.climb === 'approach') this.setState({ climb: 'in', page: 2 });
         else { this.setState({ climb: 'none' }); this.say('Sommet atteint · 34:12 · 6,9 % de moyenne'); }
       },
@@ -784,7 +795,7 @@ class Component extends DCLogic {
       ...(() => {
         let notif = null;
         const autoPaused = ride && !s.moving && s.opt.autoPause;
-        if (ride && s.off) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'Hors trace · 120 m', detail: 'Rejoins le pointillé sur la carte' + (s.opt.offBeep ? ' · bip' : '') };
+        if (ride && s.off) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'Hors trace · 120 m', detail: 'Rejoins le pointillé sur la carte' };
         else if (ride && s.lost) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'FC perdue', detail: 'Reconnexion automatique…' };
         else if (autoPaused) notif = { stripe: '#8A8F98', iconFg: '#FFFFFF', icon: '❚❚', timed: false, title: 'Auto-pause', detail: 'Le chrono repart dès que tu roules' };
         else if (s.scr === 'home' && s.moving && s.opt.startPrompt) notif = { stripe: '#237A35', iconFg: '#FFFFFF', icon: '▶', timed: false, title: 'Tu roules', detail: 'Démarre la sortie : bouton bas droite' };
@@ -802,6 +813,7 @@ class Component extends DCLogic {
         if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
         clearTimeout(this.lostT);
         this.setState({ lost: true });
+        this.beep('capteur perdu');
         this.lostT = setTimeout(() => { this.setState({ lost: false }); this.say('FC reconnectée · HRM-Pro'); }, 3500);
       },
       simTrace: () => {
