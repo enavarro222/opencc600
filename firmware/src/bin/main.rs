@@ -445,6 +445,7 @@ async fn gnss_task(mut uart: GnssUart) {
 }
 
 /// 0 = Sunday (days since 1970-01-01, a Thursday).
+#[allow(dead_code, reason = "for the GNSS time to nRF RTC sync, next step")]
 fn weekday(y: u16, m: u8, d: u8) -> u8 {
     let (y, m) = if m <= 2 {
         (y as i32 - 1, m as i32 + 9)
