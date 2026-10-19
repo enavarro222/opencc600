@@ -100,10 +100,12 @@ Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [pro
   true: off route, sensor lost), climb ahead, auto-pause. One at a time, by priority.
 - One route on the device, sent from the app at any time (even mid-ride). Rides are uploaded as soon as possible
   (home Wi-Fi or app) and deleted only after the upload is confirmed.
+- GPS: the home screen shows acquisition (state + progress bar); a ride can start before the fix (distance and
+  map start at the fix). While riding, "GPS ◌" appears in the top bar only while searching or lost, with a banner.
 - Pause screen: bottom-right resume, bottom-left "Finish…" (then confirmation), top "≡ Menu" (sensors, switch off).
   Switching off while paused keeps the ride; it resumes after power-on.
 - The 3 key labels have the same size and a blue mark (the colour of the physical keys) on the key's side:
-  left edge for the top-left key, bottom edge for the bottom keys.
+  top edge for the top-left key (it sits on the top edge), bottom edge for the bottom keys.
 
 ### Data pages: chosen for the rider, not built by the rider
 No page editor to start with. The app asks **one question** ("ride to explore" or "train"); the device detects the

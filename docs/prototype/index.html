@@ -22,6 +22,7 @@ body{margin:0}
 button{font-family:inherit}
 @keyframes notifA{from{width:100%}to{width:0%}}
 @keyframes notifB{from{width:100%}to{width:0%}}
+@keyframes gpsBar{from{width:6%}to{width:100%}}
 @keyframes beepA{0%{opacity:0;transform:scale(.8)}12%{opacity:1;transform:scale(1.08)}25%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}
 @keyframes beepB{0%{opacity:0;transform:scale(.8)}12%{opacity:1;transform:scale(1.08)}25%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}
 
@@ -42,7 +43,7 @@ button{font-family:inherit}
     <sc-if value="{{hasBeep}}" hint-placeholder-val="{{ false }}">
       <div style="position: absolute; right: 0; top: -36px; height: 28px; padding: 0 10px; border-radius: 14px; display: flex; align-items: center; gap: 6px; background: #F59F00; color: #111111; font-size: 16px; font-weight: 700; animation: {{beepAnim}} 1.6s ease-out forwards">♪ BIP · {{beepWhy}}</div>
     </sc-if>
-    <button onClick="{{pressHG}}" onPointerDown="{{holdStart}}" onPointerUp="{{holdEnd}}" onPointerLeave="{{holdEnd}}" aria-label="Bouton haut gauche" style="position: absolute; left: -9px; top: 64px; width: 12px; height: 64px; padding: 0; border: none; border-radius: 4px; background: #3BB3E0; cursor: pointer"></button>
+    <button onClick="{{pressHG}}" onPointerDown="{{holdStart}}" onPointerUp="{{holdEnd}}" onPointerLeave="{{holdEnd}}" aria-label="Bouton haut gauche" style="position: absolute; left: 36px; top: -9px; width: 76px; height: 12px; padding: 0; border: none; border-radius: 4px; background: #3BB3E0; cursor: pointer"></button>
     <button onClick="{{pressBG}}" aria-label="Bouton bas gauche" style="position: absolute; left: 36px; bottom: -9px; width: 76px; height: 12px; padding: 0; border: none; border-radius: 4px; background: #3BB3E0; cursor: pointer"></button>
     <button onClick="{{pressBD}}" aria-label="Bouton bas droite" style="position: absolute; right: 36px; bottom: -9px; width: 76px; height: 12px; padding: 0; border: none; border-radius: 4px; background: #3BB3E0; cursor: pointer"></button>
     <div style="position: absolute; left: 30px; bottom: 26px; display: flex; gap: 10px; font-size: 18px; font-weight: 600; color: #3BB3E0" aria-hidden="true"><span>↻</span><span>≡</span></div>
@@ -58,8 +59,9 @@ button{font-family:inherit}
         <div style="width: 240px; height: 320px; display: flex; flex-direction: column; position: relative">
 
           <div style="height: 30px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid {{c.rule}}">
-            <button onClick="{{pressHG}}" onPointerDown="{{holdStart}}" onPointerUp="{{holdEnd}}" onPointerLeave="{{holdEnd}}" style="height: 100%; box-sizing: border-box; padding: 0 10px; border: none; border-left: 5px solid #3BB3E0; white-space: nowrap; font-size: 19px; font-weight: 700; cursor: pointer; background: {{c.chip}}; color: {{hgColor}}">{{hgLabel}}</button>
+            <button onClick="{{pressHG}}" onPointerDown="{{holdStart}}" onPointerUp="{{holdEnd}}" onPointerLeave="{{holdEnd}}" style="height: 100%; box-sizing: border-box; padding: 0 10px; border: none; box-shadow: inset 0 5px 0 #3BB3E0; white-space: nowrap; font-size: 19px; font-weight: 700; cursor: pointer; background: {{c.chip}}; color: {{hgColor}}">{{hgLabel}}</button>
             <div style="padding: 0 8px; display: flex; align-items: center; gap: 8px; white-space: nowrap; flex-shrink: 0; font-size: 14px; font-weight: 600; color: {{c.mute}}">
+              <span style="color: #B35C00">{{gpsTop}}</span>
               <span>{{clock}}</span>
               <span style="display: flex; align-items: center; gap: 3px"><svg width="18" height="10" viewBox="0 0 18 10" aria-hidden="true"><rect x="0.75" y="0.75" width="14.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"></rect><rect x="16" y="3" width="1.5" height="4" fill="currentColor"></rect><rect x="2.5" y="2.5" width="7.3" height="5" fill="currentColor"></rect></svg>81 %</span>
             </div>
@@ -78,7 +80,12 @@ button{font-family:inherit}
                   <span style="font-size: 17px; font-weight: 500; color: {{c.mute}}">{{traceInfo}}</span>
                 </div>
                 <div style="height: 1px; background: {{c.rule}}"></div>
-                <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">GPS</span><span style="color: {{c.ok}}">● Fix OK · 9 sat</span></div>
+                <div style="display: flex; flex-direction: column; gap: 3px">
+                  <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">GPS</span><span style="color: {{gpsColor}}">{{gpsLabel}}</span></div>
+                  <sc-if value="{{gpsSearching}}" hint-placeholder-val="{{ false }}">
+                    <div style="height: 4px; border-radius: 2px; background: {{c.chip}}"><div style="height: 4px; border-radius: 2px; background: #F59F00; animation: gpsBar 6s linear forwards"></div></div>
+                  </sc-if>
+                </div>
                 <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Capteurs</span><span style="color: {{c.ok}}">{{presentSummary}}</span></div>
                 <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Pages</span><span style="text-align: right">{{pagesPreview}}</span></div>
                 <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">À envoyer</span><span style="color: {{pendingColor}}">{{pendingLabel}}</span></div>
@@ -480,6 +487,7 @@ button{font-family:inherit}
         <button onClick="{{simMove}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">{{moveLabel}}</button>
         <button onClick="{{simOff}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">{{offLabel}}</button>
         <button onClick="{{simClimbStep}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">{{climbLabel}}</button>
+        <button onClick="{{simTunnel}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">{{tunnelLabel}}</button>
         <button onClick="{{simLost}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Ceinture FC décroche</button>
         <div style="height: 1px; margin: 4px 0; background: #C8C5BE"></div>
         <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Depuis l'app</span>
@@ -609,7 +617,7 @@ class Component extends DCLogic {
   }
   initial() {
     return {
-      scr: 'home', page: 0, ride: false, climb: 'none', toast: '', pending: 2, pmI: 0, pmBack: 'pause', lost: false, moving: false, off: false, zoomI: 0, scrollOn: false,
+      scr: 'home', page: 0, ride: false, climb: 'none', gps: 'search', toast: '', pending: 2, pmI: 0, pmBack: 'pause', lost: false, moving: false, off: false, zoomI: 0, scrollOn: false,
       opt: { usage: 'balade', pwr: true, hr: true, cad: true, trace: true, autoPause: true, startPrompt: true, offBeep: true, autoScroll: true, nightAuto: true, turns: false, strava: false },
       menuI: 0, sensI: 0, scanI: 0, traceI: 0, trace: 0, confirmFrom: 'pause',
       sensors: [
@@ -708,7 +716,7 @@ class Component extends DCLogic {
           if (s.pmI === 0) this.setState({ scr: 'sensors', sensI: 0 });
           else { this.stopScroll(); this.setState({ scr: 'off' }); }
         } } };
-      case 'off': return { hg: { l: '', hold: true, f: set({ scr: s.ride ? 'resume' : 'home' }) }, bg: { l: '', f: () => {} }, bd: { l: '', f: () => {} } };
+      case 'off': return { hg: { l: '', hold: true, f: set({ scr: s.ride ? 'resume' : 'home', gps: 'search' }) }, bg: { l: '', f: () => {} }, bd: { l: '', f: () => {} } };
       case 'menu': return {
         hg: { l: '◀ Retour', f: set({ scr: 'home' }) },
         bg: { l: 'Suivant ▼', f: set({ menuI: (s.menuI + 1) % 2 }) },
@@ -771,6 +779,14 @@ class Component extends DCLogic {
     const bdKind = kinds[k.bd.k] || [c.chip, k.bd.l === '—' ? c.mute : c.fg];
     const sel = (on) => on ? { bg: c.sel, fg: '#FFFFFF' } : { bg: 'transparent', fg: c.fg };
     const tr = this.traces();
+    if (s.gps === 'search' && s.scr !== 'off' && !this.gpsT) {
+      this.gpsT = setTimeout(() => {
+        this.gpsT = null;
+        if (this.state.gps !== 'search' || this.state.scr === 'off') return;
+        this.setState({ gps: 'ok' });
+        this.say('GPS prêt · 9 satellites');
+      }, 6000);
+    }
     const ride = s.scr === 'ride';
     const pages = s.pages && s.pages.length ? s.pages : this.compose(s.opt);
     const view = pages[s.page] || pages[0];
@@ -794,6 +810,16 @@ class Component extends DCLogic {
       c, is,
       isOff: s.scr === 'off', isOn: s.scr !== 'off',
       simMsg: s.simMsg || '',
+      gpsSearching: s.gps === 'search' && s.scr === 'home',
+      gpsLabel: s.gps === 'search' ? '◌ Recherche · 5 sat' : (s.gps === 'lost' ? '✕ Perdu' : '● Fix OK · 9 sat'),
+      gpsColor: s.gps === 'ok' ? c.ok : '#B35C00',
+      gpsTop: ride && s.gps !== 'ok' ? 'GPS ◌' : '',
+      tunnelLabel: s.gps === 'lost' ? 'Sortir du tunnel' : 'Tunnel (GPS perdu)',
+      simTunnel: () => {
+        if (!s.ride) { this.setState({ simMsg: 'Démarre d\u2019abord une sortie sur le compteur.' }); return; }
+        if (s.gps === 'lost') { this.setState({ gps: 'ok' }); this.say('GPS retrouvé · 9 satellites'); }
+        else this.setState({ gps: 'lost' });
+      },
       hasBeep: !!s.beepWhy, beepWhy: s.beepWhy || '', beepAnim: (s.beepN || 0) % 2 ? 'beepA' : 'beepB',
       offHint: s.scr === 'off' ? 'Compteur éteint : maintiens le bouton haut gauche pour le rallumer.' : '',
       pmRows: ['Capteurs', 'Éteindre (sortie gardée)'].map((label, i) => ({ label, ...sel(i === s.pmI) })),
@@ -886,6 +912,8 @@ class Component extends DCLogic {
         let notif = null;
         const autoPaused = ride && !s.moving && s.opt.autoPause;
         if (ride && s.off) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'Hors trace · 120 m', detail: 'Rejoins le pointillé sur la carte' };
+        else if (ride && s.gps === 'search') notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'GPS en recherche', detail: 'Distance et carte au premier fix' };
+        else if (ride && s.gps === 'lost') notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'GPS perdu', detail: s.sensors.some((x) => x.key === 'spd' && x.paired) ? 'Distance par le capteur de vitesse' : 'Distance en attente du GPS' };
         else if (ride && s.lost) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'FC perdue', detail: 'Reconnexion automatique…' };
         else if (autoPaused) notif = { stripe: '#8A8F98', iconFg: '#FFFFFF', icon: '❚❚', timed: false, title: 'Auto-pause', detail: 'Le chrono repart dès que tu roules' };
         else if (s.scr === 'home' && s.moving && s.opt.startPrompt) notif = { stripe: '#237A35', iconFg: '#FFFFFF', icon: '▶', timed: false, title: 'Tu roules', detail: 'Démarre la sortie : bouton bas droite' };
@@ -911,7 +939,7 @@ class Component extends DCLogic {
         this.setState({ trace: nx });
         if (s.scr !== 'off') this.say('Trace remplacée · ' + tr[nx].name + ' (depuis l’app)', 3000);
       },
-      reset: () => { clearTimeout(this.timer); clearTimeout(this.lostT); clearInterval(this.scrollT); this.setState(this.initial()); }
+      reset: () => { clearTimeout(this.gpsT); this.gpsT = null; clearTimeout(this.timer); clearTimeout(this.lostT); clearInterval(this.scrollT); this.setState(this.initial()); }
     };
   }
 }
