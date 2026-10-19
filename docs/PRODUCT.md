@@ -28,9 +28,9 @@ Hardware and reverse engineering background: [REVERSE_NOTES.md](REVERSE_NOTES.md
 | ST7789 panel, 16-bit i80 bus, backlight | `main/lcd.c`, `main/backlight.c`, `main/board_c606.h`, `main/board.h` | OK | `cc600-board` (esp-hal LCD_CAM i8080 + LEDC) + `embedded-graphics` |
 | nRF link (UART2, CRC16 frames, handshake, keys, battery, temperature/pressure, RTC) | `main/nrf_link.c` | OK | `nrf-link`: pure protocol (`no_std`, host tested) + UART glue |
 | ANT+ sensors via the nRF | `main/ant.c`, `main/sensor_list.c` | not tested yet | `nrf-link` (ANT+ messages) |
-| Airoha AG3352Q GNSS (UART0 921600, NMEA, `$PAIR`) | `main/gps.c` | OK, fix in ~6 s | `gnss`: NMEA (`nmea` crate) + `$PAIR` commands |
-| FIT writer | `main/fit.c` | to move to littlefs | `fit`: own writer, output checked with a FIT decoder in tests |
-| UTC / RTC handling | `main/utc.c` | RTC not written back to the nRF yet | `core` |
+| Airoha AG3352Q GNSS (UART0 921600, NMEA, `$PAIR`) | `main/gps.c` | OK, fix in ~6 s, output trimmed (`$PAIR062`) | `gnss`: own NMEA reader + `$PAIR` commands |
+| FIT writer | `main/fit.c` | OK, rides recorded on littlefs | `fit` (writer, checked with `fitparser` and the Garmin SDK) + `recorder` |
+| UTC / RTC handling | `main/utc.c` | RTC set from the GNSS on a valid fix (to check with a real fix) | `nrf-link` (`RtcTime`), `recorder` (`EpochClock`) |
 | Reference doc | `docs/HARDWARE.md` | — | — |
 
 Not ported: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, `ui_port.c` (LVGL), Mapsforge maps (`mapfile.c`, `mapview.c`).
@@ -49,7 +49,8 @@ Not ported: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, `ui_port.c` (LVGL), Maps
   at every flash operation on a RAM fake).
 - BLE + Wi-Fi on the ESP32; ANT+ through the nRF (its firmware is not replaced).
 - 1800 mAh battery: battery life is a requirement (Wi-Fi and backlight are expensive). See [POWER.md](POWER.md).
-- The nRF RTC is not written by c606-oss → wrong time before the first GPS fix.
+- The nRF RTC is not written by c606-oss → wrong time before the first GPS fix. We write it from the GNSS time on a
+  valid fix (the GNSS time without a fix was ~22 s off).
 - Barometric pressure + temperature come **from the nRF over UART2** (no direct sensor access from the ESP32).
   Their resolution and rate set the floor for altitude/D+ quality. See [REVERSE_NOTES.md](REVERSE_NOTES.md).
 - **The nRF sensor stream (pressure, IMU) only starts after a long press of the power key.** After an ESP-only
@@ -156,17 +157,64 @@ The "no maps" limit only applies to a global map. A map restricted to the loaded
   a server, then pushed over Wi-Fi. The CC600 only draws polylines on its 240x320 framebuffer (`embedded-graphics`).
 
 ### MVP
-- [ ] Reliable FIT recording on littlefs, in a dedicated subdirectory; survives a crash or an empty battery
-      (periodic flush, file recovered at the next boot).
-- [ ] Write the GPS time back to the nRF RTC (correct timestamps before the first fix).
-- [ ] Barometric altitude and D+ (see above), shown on the data screens and written to the FIT file.
-- [ ] 2–3 data screens driven by the 3 keys.
-- [ ] Beeps (once the buzzer is understood): key feedback (can be turned off), alerts — off route, sensor lost,
-      low battery, recording started/stopped. Every beep comes with a message on screen.
-- [ ] Load a GPX route and display the route line (no background map yet).
-- [ ] Upload FIT files over Wi-Fi to a configurable URL.
+Status on 2026-10-19 (updated by the bring-up work; altitude is worked on in parallel, see
+[ALTITUDE.md](ALTITUDE.md)).
 
-Right after the MVP: corridor background map.
+- [x] **Reliable FIT recording** on littlefs, `/rides/<start>.fit`; survives a crash or an empty battery: appends
+      every 10 s, interrupted rides closed at the next boot (`crates/fit`, `crates/recorder`; power cut at every
+      flash operation of a ride and of its recovery on a PC, resets during a ride on the device, files checked
+      with the Garmin FIT SDK). Key 1: start / pause / resume, long press: stop.
+- [ ] **GPS time written back to the nRF RTC**: done in the code (valid fix only, at most once a minute, 2 s
+      tolerance); *to check on the device with a real fix*.
+- [ ] **Barometric altitude and D+** (see above and ALTITUDE.md), shown on the data screens and written to the FIT
+      file. Today the recorder still takes the GNSS altitude.
+- [ ] **2–3 data screens driven by the 3 keys** (key 0 top left, 1 bottom left, 2 bottom right), the current action
+      written next to each key *(the hints exist on the bring-up screen)*.
+- [ ] **Beeps** (once the buzzer is understood): key feedback (can be turned off), alerts — off route, sensor lost,
+      low battery, recording started/stopped. Every beep comes with a message on screen.
+- [ ] **Load a GPX route and display the route line** (no background map yet).
+- [ ] **Settings kept in flash**: sound on/off (the USB test hook already mutes), time zone (UTC hard-coded in the
+      FIT `local_timestamp` today), backlight level; FIT `serial_number` from the MAC address (600 today).
+- [ ] **Battery life** ([POWER.md](POWER.md)): battery-run log (`/power/<run>.csv`, one line a minute), clean power
+      off at low battery, a reference run against the vendor firmware, then the first levers (automatic backlight
+      from the ambient light sensor, CPU sleep, GNSS settings).
+- [ ] **Sensors over BLE and ANT+**: heart rate, cadence, power (the FIT record already has the fields).
+- [ ] **Open questions understood** (list below): each one explained, or its impact known and accepted.
+
+After the MVP: upload FIT files over Wi-Fi to a configurable URL, then the corridor background map.
+
+### Open questions (to understand for the MVP)
+Each one: what we know, why it matters, how to find out. Details in [REVERSE_NOTES.md](REVERSE_NOTES.md).
+
+1. **Airoha outputs not turned off by `$PAIR062`**: `$PAIRSAT` (4/s, ~300 chars, ~1.2 KB/s, most of the remaining
+   GNSS traffic), `GNACCURACY`, `GNEPE`, `PLSV`, `PAIRDGP`. Matters for power (UART + DMA + CPU for nothing) and
+   for the GNSS receiver's own work. How: the full Airoha PAIR command guide (RYS352x / AG3335 manuals), the
+   `$PAIR` strings the vendor firmware sends (`866`, `867`, `490`, `491`, `470`, `382`, `590`, `020`, `023`: try
+   each, compare the output), maybe a Magene-specific receiver configuration.
+2. **USB serial link loses lines** (~5–7 % of the host → device commands, and log lines) when the log is busy,
+   around the nRF task's log bursts. Worked around for the tests (numbered commands, acks, resends, fewer log
+   lines), root cause unknown. Matters for the HIL tests and for any future USB sync. How: minimal firmware that
+   only echoes and logs, esp-println's USB-Serial/JTAG writer (timeouts, drops when the host is slow) vs the
+   esp-hal driver, then an upstream issue.
+3. **Ambient light tags 2000 / 3000**: the nRF cycles three measurements; tag 600 is the visible light (411 covered,
+   ~2500 indoors by day, ~2600 under a torch: saturates?), 2000 and 3000 stay at 0–6 whatever the light. Matters
+   for the automatic backlight (range, saturation in sunlight). How: an infrared remote pointed at the sensor,
+   direct sunlight, darkness; the sensor part number (board photo, vendor strings `LightLux`).
+4. **nRF stream `F1 0A`** (3.3 Hz, tracks the barometer temperature): meaning unknown. How: heat / cool the device,
+   compare with the baro temperature and the battery temperature, vendor factory test strings.
+5. **A key click seen twice?** In the first ride recorded by hand, a pause and a resume arrived in the same second,
+   3 s after the start. Double press by the rider, or the nRF sending `Click` twice? Matters for a 3-key UX (a
+   bounce would pause the ride). How: log the raw key frames during a series of single clicks.
+6. **GNSS power path**: `gps_power(1)` restarts a running receiver (it loses its setup), so it is only sent after
+   3 s of silence; the silent-receiver case seen once after a power cycle is not tested yet. How: power cycle the
+   device with the battery, and send `gps_power(0)` then check the recovery.
+7. **GNSS time without a fix ~22 s off**: GPS − UTC leap seconds (18 s) not applied yet, plus drift? Not used, but
+   it tells when the receiver's time becomes trustworthy, which could allow an earlier RTC sync. How: watch the
+   offset from a cold start until the first fix.
+8. **Is the 5 s power-on command to the nRF needed?** The vendor and c606-oss repeat it; no watchdog seen so far.
+   Matters for power and log noise. How: stop sending it for an hour and watch the nRF.
+9. **Panel readable in sunlight with the backlight off?** (transflective or not) Sets the backlight strategy in
+   POWER.md. How: outside, backlight at 0.
 
 ### Deliberately out of scope
 - global maps (Mapsforge style) and on-device routing / turn-by-turn recalculation
@@ -188,7 +236,8 @@ Right after the MVP: corridor background map.
    |---|---|---|
    | `core` | yes | ride logic, screens state machine, sensors model, altitude/D+ filter, UTC/RTC, sync protocol; no hardware dependency |
    | `ui` | yes | screens drawn with `embedded-graphics` |
-   | `fit` | yes | FIT writer |
+   | `fit` | yes | FIT writer *(exists)* |
+   | `recorder` | yes | ride recording on `ride-store`, totals, recovery after a power cut *(exists)* |
    | `nrf-link` | yes | nRF frames, CRC16, handshake, keys, battery, pressure/temperature, RTC, ANT+ |
    | `gnss` | yes | NMEA parsing, `$PAIR` commands |
    | `cc600-board` | yes | esp-hal wiring: i80 panel, UARTs, backlight, flash, radio |
@@ -199,10 +248,12 @@ Right after the MVP: corridor background map.
    `SensorSource`, `SyncTransport`, …), so everything above `cc600-board` runs on a PC.
 3. Bring-up order on the device: panel *(done 2026-10-19: `firmware/src/panel.rs`, framebuffer in PSRAM
    flushed in 40-line DMA bands)* → nRF link *(keys, battery, RTC read, barometer, light sensor, buzzer, power off, RTC write done
-   2026-10-19: `crates/nrf-link`; write the GNSS time at the first fix: to do)* → storage *(done 2026-10-19: our littlefs on the whole partition, `crates/ride-store`,
-   power-cut tested on a PC at every flash operation and on the device with random resets)* → GNSS *(fix done 2026-10-19:
-   `crates/gnss`, UART DMA robust to flash writes; `gps_power(1)` at boot, `$PAIR` setup, constellation choice to do)* (keys, battery, RTC) → storage → GNSS → FIT recording
-   → BLE / ANT+ sensors → Wi-Fi sync.
+   2026-10-19: `crates/nrf-link`; RTC set from the GNSS on a valid fix: done, to check with a real fix)* → storage
+   *(done 2026-10-19: our littlefs on the whole partition, `crates/ride-store`, power-cut tested on a PC at every
+   flash operation and on the device with random resets)* → GNSS *(done 2026-10-19: `crates/gnss`, UART DMA robust
+   to flash writes, output trimmed with `$PAIR062`, powered by the nRF only when silent; constellation choice: after
+   the power measurements)* → FIT recording *(done 2026-10-19: `crates/fit`, `crates/recorder`, HIL tests in
+   `tests/hil`)* → data screens and settings → BLE / ANT+ sensors → Wi-Fi sync.
 4. Then sync / configuration / differentiating features, following the MVP.
 
 ### Planned dependencies

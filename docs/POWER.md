@@ -103,7 +103,10 @@ Each lever below gets an A/B measurement before it becomes a default. Results go
 - Vendor battery life on this unit, same scenario (reference to beat).
 - nRF and GNSS current in each state; whether the nRF can lower its sensor stream rate.
 - Is method 2 (USB current at full charge) reliable on this charger?
-- Is the panel readable in sunlight with the backlight off?
+- Is the panel readable in sunlight with the backlight off? (also in PRODUCT.md, open questions)
+- Ambient light sensor range: tag 600 seems to saturate near 2600 under a phone torch; what does it read in
+  direct sunlight? (PRODUCT.md, open questions)
+- Is the nRF power-on command every 5 s needed? (PRODUCT.md, open questions)
 - Which ESP32-S3 sleep mode is compatible with keeping both UART links and the BLE link alive.
 
 ## Measurements
