@@ -190,19 +190,20 @@ fn char_str(c: char, buf: &mut [u8; 4]) -> &str {
 
 // --- ride pages --------------------------------------------------------------------------------------------------
 
-/// A label over a value, the pair centred in the box (`gap` pixels between their capitals).
+/// A label over a value, the pair centred in the box (`gap` pixels between their capitals); the value keeps its
+/// place when it changes, in a slot at least as wide as `min` ([`fonts::value`]).
 fn cell<D: DrawTarget<Color = Rgb565>>(
     d: &mut D,
     area: Rectangle,
     (label, text): (&Style, &str),
-    (value, v): (&Style, &str),
+    (value, v, min): (&Style, &str, &str),
     gap: i32,
 ) -> Result<(), D::Error> {
     let (lc, vc) = (label.font.cap as i32, value.font.cap as i32);
     let top = area.top_left.y + (area.size.height as i32 - (lc + gap + vc) + 1) / 2;
     let x = area.top_left.x + area.size.width as i32 / 2;
     fonts::text(d, label, text, x, top + lc / 2, Align::Center)?;
-    fonts::text(d, value, v, x, top + lc + gap + vc / 2, Align::Center)?;
+    fonts::value(d, value, v, min, x, top + lc + gap + vc / 2, Align::Center)?;
     Ok(())
 }
 
@@ -213,22 +214,22 @@ const GRID_RULE: i32 = 206;
 fn ride_page<D: DrawTarget<Color = Rgb565>>(
     d: &mut D,
     t: &Theme,
-    big: (&str, &str),
-    cells: [(&str, &str); 4],
+    big: (&str, &str, &str),
+    cells: [(&str, &str, &str); 4],
 ) -> Result<(), D::Error> {
     let area = Rectangle::with_corners(Point::new(0, TOP + 1), Point::new(W - 1, BIG_RULE - 1));
     cell(
         d,
         area,
         (&t.label(&fonts::LABEL), big.0),
-        (&t.style(&fonts::HUGE), big.1),
+        (&t.style(&fonts::HUGE), big.1, big.2),
         11,
     )?;
     hline(d, BIG_RULE, t)?;
     hline(d, GRID_RULE, t)?;
     vline(d, W / 2, BIG_RULE + 1, BOTTOM - 1, t)?;
     let rows = [(BIG_RULE + 1, GRID_RULE - 1), (GRID_RULE + 1, BOTTOM - 1)];
-    for (i, (label, value)) in cells.into_iter().enumerate() {
+    for (i, (label, value, min)) in cells.into_iter().enumerate() {
         let (y0, y1) = rows[i / 2];
         let x0 = if i % 2 == 0 { 0 } else { W / 2 + 1 };
         let area = Rectangle::with_corners(Point::new(x0, y0), Point::new(x0 + W / 2 - 2, y1));
@@ -236,12 +237,15 @@ fn ride_page<D: DrawTarget<Color = Rgb565>>(
             d,
             area,
             (&t.label(&fonts::LABEL_SMALL), label),
-            (&t.style(&fonts::VALUE), value),
+            (&t.style(&fonts::VALUE), value, min),
             9,
         )?;
     }
     Ok(())
 }
+
+/// Smallest slot of a speed: the comma stays in place from 9,8 to 32,4 km/h.
+const SPEED: &str = "00,0";
 
 /// Page 1: speed, then time, distance, D+ and heart rate.
 fn ride_main<D: DrawTarget<Color = Rgb565>>(
@@ -252,12 +256,12 @@ fn ride_main<D: DrawTarget<Color = Rgb565>>(
     ride_page(
         d,
         t,
-        ("VITESSE KM/H", kmh(v.speed_mm_s).as_str()),
+        ("VITESSE KM/H", kmh(v.speed_mm_s).as_str(), SPEED),
         [
-            ("DURÉE", duration(v.ride.timer_s).as_str()),
-            ("DISTANCE KM", km(v.ride.distance_cm).as_str()),
-            ("D+ M", int(Some(v.ride.ascent_m)).as_str()),
-            ("FC BPM", int(v.heart_rate).as_str()),
+            ("DURÉE", duration(v.ride.timer_s).as_str(), ""),
+            ("DISTANCE KM", km(v.ride.distance_cm).as_str(), "00,0"),
+            ("D+ M", int(Some(v.ride.ascent_m)).as_str(), "000"),
+            ("FC BPM", int(v.heart_rate).as_str(), "000"),
         ],
     )
 }
@@ -271,12 +275,12 @@ fn ride_altitude<D: DrawTarget<Color = Rgb565>>(
     ride_page(
         d,
         t,
-        ("ALTITUDE M", int(v.altitude_dm.map(|a| a / 10)).as_str()),
+        ("ALTITUDE M", int(v.altitude_dm.map(|a| a / 10)).as_str(), "000"),
         [
-            ("MOYENNE KM/H", kmh(v.ride.avg_speed_mm_s()).as_str()),
-            ("MAX KM/H", kmh(Some(v.ride.max_speed_mm_s)).as_str()),
-            ("HEURE", clock(v.clock).as_str()),
-            ("D- M", int(Some(v.ride.descent_m)).as_str()),
+            ("MOYENNE KM/H", kmh(v.ride.avg_speed_mm_s()).as_str(), SPEED),
+            ("MAX KM/H", kmh(Some(v.ride.max_speed_mm_s)).as_str(), SPEED),
+            ("HEURE", clock(v.clock).as_str(), ""),
+            ("D- M", int(Some(v.ride.descent_m)).as_str(), "000"),
         ],
     )
 }
@@ -291,7 +295,8 @@ fn row<D: DrawTarget<Color = Rgb565>>(
     cy: i32,
 ) -> Result<(), D::Error> {
     fonts::text(d, label, text, MARGIN, cy, Align::Left)?;
-    fonts::text(d, value, v, W - MARGIN, cy, Align::Right)?;
+    // by the advance: a changing value keeps its right edge
+    fonts::value(d, value, v, "", W - MARGIN, cy, Align::Right)?;
     Ok(())
 }
 
@@ -598,23 +603,14 @@ fn top_bar<D: DrawTarget<Color = Rgb565>>(
         )?;
     }
     let bar = t.mute(&fonts::BAR);
-    let mut x = W - MARGIN;
     if let Some(p) = v.battery_pct {
-        let r = fonts::text(
-            d,
-            &bar,
-            Fmt::new(format_args!("{p} %")).as_str(),
-            x,
-            cy,
-            Align::Right,
-        )?;
-        x = r.top_left.x - 5;
-        battery(d, x, cy, p, t)?;
-        x -= BATTERY_W + 6;
+        let pct = Fmt::new(format_args!("{p} %"));
+        fonts::value(d, &bar, pct.as_str(), "", W - MARGIN, cy, Align::Right)?;
+        // the icon stays where "100 %" would start
+        battery(d, W - MARGIN - fonts::BAR.width("100 %", 0) - 5, cy, p, t)?;
     }
-    if v.clock.is_some() {
-        fonts::text(d, &bar, clock(v.clock).as_str(), x, cy, Align::Right)?;
-    }
+    // the clock in the middle of the bar
+    fonts::value(d, &bar, clock(v.clock).as_str(), "00:00", W / 2, cy, Align::Center)?;
     hline(d, TOP, t)
 }
 
@@ -639,7 +635,8 @@ fn battery<D: DrawTarget<Color = Rgb565>>(
         Rectangle::new(Point::new(left + w + 1, top + 3), Size::new(2, 4)),
         t.mute,
     )?;
-    let level = (w - 4) * pct.min(100) as i32 / 100;
+    // at least a pixel while there is charge left
+    let level = ((w - 4) * pct.min(100) as i32 / 100).max((pct > 0) as i32);
     if level > 0 {
         let c = if pct <= 15 { t.danger } else { t.mute };
         fill(

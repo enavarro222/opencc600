@@ -106,6 +106,11 @@ fn every_screen() {
     save("10-home-empty", &ui, &empty, &ui::DAY);
     ui.key(Key::BottomRight, Press::Click, 0);
     save("11-ride-empty", &ui, &empty, &ui::DAY);
+    // a slow speed keeps the comma of 32,4 (right-aligned in the slot of "00,0")
+    let mut ui = Ui::new();
+    ui.key(Key::BottomRight, Press::Click, 0);
+    let slow = View { speed_mm_s: Some(2_722), battery_pct: Some(9), ..view() };
+    save("13-ride-slow", &ui, &slow, &ui::DAY);
     let searching = View {
         gnss: Gnss::Searching { in_view: 12 },
         ..empty

@@ -143,6 +143,13 @@ impl Font {
         ink.unwrap_or((0, 0))
     }
 
+    /// Advance of `text`: where the pen ends, in pixels.
+    pub fn advance(&self, text: &str, tracking: i16) -> i32 {
+        let mut end = 0;
+        self.layout(text, tracking, |g, pen| end = pen + g.adv as i32);
+        round64(end)
+    }
+
     /// Width of the ink of `text`.
     pub fn width(&self, text: &str, tracking: i16) -> i32 {
         let (l, r) = self.ink(text, tracking);
@@ -208,6 +215,27 @@ pub fn text<D: DrawTarget<Color = Rgb565>>(
     };
     let origin = left - l;
     let baseline = cy + (f.cap as i32 + 1) / 2;
+    draw_at(d, s, text, origin, baseline)?;
+    debug_assert!(
+        left >= 0 && left + (r - l) <= d.bounding_box().size.width as i32,
+        "{text:?} out of the screen ({left}..{})",
+        left + (r - l)
+    );
+    Ok(Rectangle::new(
+        Point::new(left, baseline - f.cap as i32),
+        Size::new((r - l) as u32, f.cap as u32),
+    ))
+}
+
+/// Draws `text` with its pen starting at `origin` on `baseline`.
+fn draw_at<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    s: &Style,
+    text: &str,
+    origin: i32,
+    baseline: i32,
+) -> Result<(), D::Error> {
+    let f = s.font;
     let mut res = Ok(());
     f.layout(text, s.tracking, |g, pen| {
         if res.is_err() || g.w == 0 {
@@ -226,16 +254,60 @@ pub fn text<D: DrawTarget<Color = Rgb565>>(
             });
         res = d.draw_iter(pixels);
     });
-    res?;
+    res
+}
+
+/// Draws a value that changes while it is shown, so that it does not move when it changes: placed by its advance
+/// (the figures are tabular), right-aligned in a slot that `align` places on `x` like [`text`] would place the
+/// slot's template. The template is `text` with each figure made a `0`, at least `min` (`"00,0"` keeps the comma of
+/// a speed in place from 9,8 to 32,4). A text without figures (an unknown value) is placed as a text.
+pub fn value<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    s: &Style,
+    text: &str,
+    min: &str,
+    x: i32,
+    cy: i32,
+    align: Align,
+) -> Result<Rectangle, D::Error> {
+    if !text.chars().any(|c| c.is_ascii_digit()) {
+        return self::text(d, s, text, x, cy, align);
+    }
+    let f = s.font;
+    let origin = value_origin(f, s.tracking, text, min, x, align);
+    let baseline = cy + (f.cap as i32 + 1) / 2;
+    draw_at(d, s, text, origin, baseline)?;
+    let (tl, tr) = f.ink(text, s.tracking);
     debug_assert!(
-        left >= 0 && left + (r - l) <= d.bounding_box().size.width as i32,
-        "{text:?} out of the screen ({left}..{})",
-        left + (r - l)
+        origin + tl >= 0 && origin + tr <= d.bounding_box().size.width as i32,
+        "{text:?} out of the screen"
     );
-    Ok(Rectangle::new(
-        Point::new(left, baseline - f.cap as i32),
-        Size::new((r - l) as u32, f.cap as u32),
-    ))
+    Ok(Rectangle::new(Point::new(origin + tl, baseline - f.cap as i32), Size::new((tr - tl) as u32, f.cap as u32)))
+}
+
+/// Where the pen starts for [`value`].
+fn value_origin(f: &Font, tracking: i16, text: &str, min: &str, x: i32, align: Align) -> i32 {
+    let zeros = Line::new(format_args!("{}", Zeros(text)));
+    let template = if zeros.as_str().chars().count() >= min.chars().count() { zeros.as_str() } else { min };
+    let (l, r) = f.ink(template, tracking);
+    let template_origin = match align {
+        Align::Left => x - l,
+        Align::Center => x - (r - l) / 2 - l,
+        Align::Right => x - r,
+    };
+    template_origin + f.advance(template, tracking) - f.advance(text, tracking)
+}
+
+/// `text` with each figure written `0`.
+struct Zeros<'a>(&'a str);
+
+impl fmt::Display for Zeros<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for c in self.0.chars() {
+            f.write_char(if c.is_ascii_digit() { '0' } else { c })?;
+        }
+        Ok(())
+    }
 }
 
 /// Several lines of text, `line` pixels apart, the first one centred on `cy`.
@@ -318,6 +390,33 @@ mod tests {
         // Barlow kerns "AV"
         assert!(TITLE.kern('A', 'V') < 0);
         assert_eq!(TITLE.kern('0', '0'), 0);
+    }
+
+    /// Pen position of the `n`-th character of a value placed by [`value`].
+    fn pen_at(f: &Font, text: &str, min: &str, align: Align, n: usize) -> i32 {
+        let end: String = text.chars().take(n).collect();
+        value_origin(f, 0, text, min, 120, align) + f.advance(&end, 0)
+    }
+
+    extern crate std;
+    use std::string::String;
+
+    #[test]
+    fn changing_values_keep_their_place() {
+        // the comma of a speed, whatever the figures and from one to two figures
+        let comma = |t: &str| pen_at(&HUGE, t, "00,0", Align::Center, t.find(',').unwrap());
+        for t in ["9,8", "32,4", "18,1", "11,1", "0,0", "47,7"] {
+            assert_eq!(comma(t), comma("32,4"), "{t}");
+        }
+        // the colons of a duration
+        let colon = |t: &str| pen_at(&VALUE, t, "", Align::Center, t.rfind(':').unwrap());
+        for t in ["1:42:08", "1:11:11", "0:00:00", "9:59:59"] {
+            assert_eq!(colon(t), colon("1:42:08"), "{t}");
+        }
+        // a right-aligned value keeps its right edge
+        let end = |t: &str| pen_at(&TITLE, t, "", Align::Right, t.chars().count());
+        assert_eq!(end("1:42:08"), end("1:11:11"));
+        assert_eq!(end("48,6 km"), end("11,1 km"));
     }
 
     #[test]
