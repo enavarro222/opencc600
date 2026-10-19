@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>opencc600 — prototype cliquable</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root { color-scheme: light; }
+body { margin: 0; background: #E9E7E2; color: #111; font-family: 'Barlow Condensed', sans-serif; }
+header { max-width: 640px; margin: 0 auto; padding: 20px 16px 8px; }
+h1 { margin: 0 0 4px; font-size: 30px; }
+header p { margin: 4px 0; font-size: 18px; line-height: 1.3; color: #333; }
+header a { color: #1D4ED8; }
+label.night { display: inline-flex; gap: 6px; align-items: center; font-size: 18px; font-weight: 600; margin-top: 6px; cursor: pointer; }
+.fitwrap { overflow: hidden; }
+#stage { width: 640px; height: 640px; margin: 0 auto; transform-origin: top left; }
+@media (min-width: 656px) { #stage { transform-origin: top center; } }
+
+body{margin:0}
+button{font-family:inherit}
+@keyframes notifA{from{width:100%}to{width:0%}}
+@keyframes notifB{from{width:100%}to{width:0%}}
+
+</style>
+</head>
+<body>
+<header>
+  <h1>opencc600 — prototype cliquable</h1>
+  <p>Maquette de l'interface du firmware libre pour le compteur GEOID CC600. Clique sur les 3 boutons bleus (ou sur les libellés à l'écran). Le panneau de droite simule les événements de la sortie.</p>
+  <p>Écran réel : 240×320, 3 boutons. Code et docs : <a href="https://github.com/enavarro222/opencc600">github.com/enavarro222/opencc600</a></p>
+  <label class="night"><input type="checkbox" id="night"> Mode nuit</label>
+</header>
+<div class="fitwrap"><div id="stage"><div id="app"></div></div></div>
+<template id="tpl">
+<div style="width: 640px; height: 640px; box-sizing: border-box; padding: 40px; display: flex; gap: 48px; align-items: flex-start; font-family: 'Barlow Condensed', sans-serif; background: #E9E7E2; color: #111111">
+
+  <div style="position: relative; width: 300px; height: 480px; flex-shrink: 0; border-radius: 36px; background: #141416; box-shadow: 0 12px 28px rgba(0,0,0,0.25)">
+    <button onClick="{{pressHG}}" onPointerDown="{{holdStart}}" onPointerUp="{{holdEnd}}" onPointerLeave="{{holdEnd}}" aria-label="Bouton haut gauche" style="position: absolute; left: -9px; top: 64px; width: 12px; height: 64px; padding: 0; border: none; border-radius: 4px; background: #3BB3E0; cursor: pointer"></button>
+    <button onClick="{{pressBG}}" aria-label="Bouton bas gauche" style="position: absolute; left: 36px; bottom: -9px; width: 76px; height: 12px; padding: 0; border: none; border-radius: 4px; background: #3BB3E0; cursor: pointer"></button>
+    <button onClick="{{pressBD}}" aria-label="Bouton bas droite" style="position: absolute; right: 36px; bottom: -9px; width: 76px; height: 12px; padding: 0; border: none; border-radius: 4px; background: #3BB3E0; cursor: pointer"></button>
+    <div style="position: absolute; left: 30px; bottom: 26px; display: flex; gap: 10px; font-size: 18px; font-weight: 600; color: #3BB3E0" aria-hidden="true"><span>↻</span><span>≡</span></div>
+    <div style="position: absolute; right: 30px; bottom: 26px; display: flex; gap: 10px; font-size: 18px; font-weight: 600; color: #3BB3E0" aria-hidden="true"><span>▷|</span><span>□</span></div>
+
+    <div style="position: absolute; left: 30px; top: 44px; width: 240px; height: 320px; overflow: hidden; display: flex; flex-direction: column; background: {{c.bg}}; color: {{c.fg}}">
+
+      <sc-if value="{{isOff}}" hint-placeholder-val="{{ false }}">
+        <div style="width: 240px; height: 320px; background: #000000"></div>
+      </sc-if>
+
+      <sc-if value="{{isOn}}" hint-placeholder-val="{{ true }}">
+        <div style="width: 240px; height: 320px; display: flex; flex-direction: column; position: relative">
+
+          <div style="height: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid {{c.rule}}">
+            <button onClick="{{pressHG}}" onPointerDown="{{holdStart}}" onPointerUp="{{holdEnd}}" onPointerLeave="{{holdEnd}}" style="height: 100%; padding: 0 10px; border: none; white-space: nowrap; font-size: 16px; font-weight: 700; cursor: pointer; background: {{c.chip}}; color: {{hgColor}}">{{hgLabel}}</button>
+            <div style="padding: 0 8px; display: flex; align-items: center; gap: 8px; white-space: nowrap; flex-shrink: 0; font-size: 14px; font-weight: 600; color: {{c.mute}}">
+              <span>{{clock}}</span>
+              <span style="display: flex; align-items: center; gap: 3px"><svg width="18" height="10" viewBox="0 0 18 10" aria-hidden="true"><rect x="0.75" y="0.75" width="14.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"></rect><rect x="16" y="3" width="1.5" height="4" fill="currentColor"></rect><rect x="2.5" y="2.5" width="7.3" height="5" fill="currentColor"></rect></svg>81 %</span>
+            </div>
+          </div>
+
+          <div style="flex-grow: 1; position: relative; overflow: hidden">
+
+            <sc-if value="{{is.home}}" hint-placeholder-val="{{ true }}">
+              <div style="height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 10px; padding: 12px">
+                <div style="display: flex; flex-direction: column; gap: 2px">
+                  <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Trace chargée</span>
+                  <div style="display: flex; align-items: center; gap: 8px">
+                    <div style="width: 18px; height: 4px; border-radius: 2px; flex-shrink: 0; background: {{c.route}}"></div>
+                    <span style="font-size: 26px; font-weight: 700; line-height: 1.05">{{traceName}}</span>
+                  </div>
+                  <span style="font-size: 17px; font-weight: 500; color: {{c.mute}}">{{traceInfo}}</span>
+                </div>
+                <div style="height: 1px; background: {{c.rule}}"></div>
+                <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">GPS</span><span style="color: {{c.ok}}">● Fix OK · 9 sat</span></div>
+                <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Capteurs</span><span style="color: {{c.ok}}">{{pairedSummary}}</span></div>
+                <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">À envoyer</span><span style="color: {{pendingColor}}">{{pendingLabel}}</span></div>
+                <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Place</span><span>~38 h d'enregistrement</span></div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.traces}}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-direction: column">
+                <div style="padding: 8px 12px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Traces sur le compteur</div>
+                <sc-for list="{{traceRows}}" as="t" hint-placeholder-count="3">
+                  <div style="height: 48px; display: flex; flex-direction: column; justify-content: center; padding: 0 12px; line-height: 1.05; border-bottom: 1px solid {{c.rule}}; background: {{t.bg}}; color: {{t.fg}}">
+                    <span style="font-size: 20px; font-weight: 700">{{t.name}}</span>
+                    <span style="font-size: 15px; font-weight: 500">{{t.info}}</span>
+                  </div>
+                </sc-for>
+                <div style="padding: 8px 12px; font-size: 14px; font-weight: 500; color: {{c.mute}}">Les traces s'ajoutent depuis l'app.</div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.p1}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; display: flex; flex-direction: column">
+                <div style="height: 108px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 1px solid {{c.rule}}">
+                  <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Vitesse km/h</span>
+                  <span style="font-size: 84px; font-weight: 700; line-height: 0.9; font-variant-numeric: tabular-nums">{{speed}}</span>
+                </div>
+                <div style="flex-grow: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr))">
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: 1px solid {{c.rule}}; border-bottom: 1px solid {{c.rule}}">
+                    <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Durée</span>
+                    <span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">1:42:08</span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 1px solid {{c.rule}}">
+                    <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Distance km</span>
+                    <span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">48,6</span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: 1px solid {{c.rule}}">
+                    <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">D+ m</span>
+                    <span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">812</span>
+                  </div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: {{c.zone}}; color: {{c.zoneText}}">
+                    <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase">FC bpm · Z3</span>
+                    <span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">142</span>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.p2}}" hint-placeholder-val="{{ false }}">
+              <div style="position: relative; height: 100%; background: {{c.mapbg}}">
+                <svg width="240" height="256" viewBox="0 0 240 256" role="img" aria-label="Carte du corridor autour de la trace" style="display: block">
+                  <path d="M0 210 C 60 200, 110 175, 240 150" fill="none" stroke="{{c.road}}" stroke-width="3"></path>
+                  <path d="M20 0 C 40 60, 70 110, 118 160" fill="none" stroke="{{c.road}}" stroke-width="2"></path>
+                  <path d="M240 60 C 200 70, 175 85, 160 110" fill="none" stroke="{{c.road}}" stroke-width="2"></path>
+                  <path d="M130 130 C 150 150, 200 200, 240 230" fill="none" stroke="{{c.road}}" stroke-width="1.5" stroke-dasharray="4 3"></path>
+                  <path d="M0 140 C 40 135, 70 150, 100 130 S 170 60, 240 30" fill="none" stroke="{{c.water}}" stroke-width="2"></path>
+                  <path d="M120 256 L 120 192" fill="none" stroke="{{c.done}}" stroke-width="5" stroke-linecap="round"></path>
+                  <path d="M120 192 C 118 170, 120 145, 132 130 S 162 112, 164 92 S 150 60, 128 50 S 96 30, 92 0" fill="none" stroke="{{c.route}}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></path>
+                  <circle cx="120" cy="192" r="11" fill="{{c.bg}}" stroke="{{c.me}}" stroke-width="2"></circle>
+                  <path d="M120 183 L 126 198 L 120 195 L 114 198 Z" fill="{{c.me}}"></path>
+                </svg>
+                <div style="position: absolute; top: 6px; left: 6px; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; line-height: 1">
+                  <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: {{c.mute}}">Reste</span>
+                  <span style="font-size: 22px; font-weight: 700">63,4 km</span>
+                </div>
+                <div style="position: absolute; top: 6px; right: 6px; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; align-items: flex-end; line-height: 1">
+                  <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: {{c.mute}}">Vitesse</span>
+                  <span style="font-size: 22px; font-weight: 700">{{speed}}</span>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.p3list}}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-direction: column">
+                <div style="padding: 8px 12px 4px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Montées · 3 restantes</div>
+                <div style="height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid {{c.rule}}; color: {{c.mute}}">
+                  <div style="width: 6px; height: 26px; border-radius: 2px; background: #F2C94C; opacity: 0.5"></div>
+                  <div style="display: flex; flex-direction: column; line-height: 1.05"><span style="font-size: 18px; font-weight: 700">✓ Côte de Sorèze</span><span style="font-size: 14px; font-weight: 500">3,1 km · 5,2 % · 14:20</span></div>
+                </div>
+                <div style="height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid {{c.rule}}; background: {{c.next}}">
+                  <div style="width: 6px; height: 34px; border-radius: 2px; background: #D9302C"></div>
+                  <div style="flex-grow: 1; display: flex; flex-direction: column; line-height: 1.05"><span style="font-size: 20px; font-weight: 700">Col de la Galaube</span><span style="font-size: 15px; font-weight: 600">9,6 km · 6,9 % · 660 m</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: flex-end; line-height: 1"><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">dans</span><span style="font-size: 24px; font-weight: 700">{{climbDist}}</span></div>
+                </div>
+                <div style="height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid {{c.rule}}">
+                  <div style="width: 6px; height: 26px; border-radius: 2px; background: #9AA0A6"></div>
+                  <div style="flex-grow: 1; display: flex; flex-direction: column; line-height: 1.05"><span style="font-size: 18px; font-weight: 700">Côte de Lacombe</span><span style="font-size: 14px; font-weight: 500; color: {{c.mute}}">2,4 km · 4,8 %</span></div>
+                  <span style="font-size: 18px; font-weight: 700">22 km</span>
+                </div>
+                <div style="height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px">
+                  <div style="width: 6px; height: 26px; border-radius: 2px; background: #F08C00"></div>
+                  <div style="flex-grow: 1; display: flex; flex-direction: column; line-height: 1.05"><span style="font-size: 18px; font-weight: 700">Pic de Nore</span><span style="font-size: 14px; font-weight: 500; color: {{c.mute}}">11,8 km · 5,6 %</span></div>
+                  <span style="font-size: 18px; font-weight: 700">41 km</span>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.p3climb}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; display: flex; flex-direction: column">
+                <div style="padding: 4px 10px 0; display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 16px; font-weight: 700">Col de la Galaube</span><span style="font-size: 14px; font-weight: 600; color: {{c.mute}}">montée 2/4</span></div>
+                <div style="padding: 2px 10px 6px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; border-bottom: 1px solid {{c.rule}}">
+                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 32px; font-weight: 700">5,2</span><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">km restants</span></div>
+                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 32px; font-weight: 700">384</span><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">m D+ restants</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: flex-end; line-height: 1"><span style="font-size: 32px; font-weight: 700; color: #F08C00">8 %</span><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">pente ici</span></div>
+                </div>
+                <svg width="240" height="112" viewBox="0 0 240 112" role="img" aria-label="Profil de la montée coloré par pente" style="display: block">
+                  <path d="M0 108 L0 102 L20 96 L20 108 Z" fill="{{c.climbDone}}"></path>
+                  <path d="M20 108 L20 96 L40 88 L40 108 Z" fill="{{c.climbDone}}"></path>
+                  <path d="M40 108 L40 88 L60 81 L60 108 Z" fill="{{c.climbDone}}"></path>
+                  <path d="M60 108 L60 81 L80 72 L80 108 Z" fill="{{c.climbDone}}"></path>
+                  <path d="M80 108 L80 72 L100 61 L100 108 Z" fill="{{c.climbDone}}"></path>
+                  <path d="M100 108 L100 61 L120 54 L120 108 Z" fill="#F08C00"></path>
+                  <path d="M120 108 L120 54 L140 44 L140 108 Z" fill="#D9302C"></path>
+                  <path d="M140 108 L140 44 L160 32 L160 108 Z" fill="#7D1A1A"></path>
+                  <path d="M160 108 L160 32 L180 24 L180 108 Z" fill="#F08C00"></path>
+                  <path d="M180 108 L180 24 L200 18 L200 108 Z" fill="#F08C00"></path>
+                  <path d="M200 108 L200 18 L220 14 L220 108 Z" fill="#F2C94C"></path>
+                  <path d="M220 108 L220 14 L240 12 L240 108 Z" fill="#BFC5CC"></path>
+                  <line x1="100" y1="4" x2="100" y2="108" stroke="{{c.me}}" stroke-width="2"></line>
+                  <circle cx="100" cy="61" r="5" fill="{{c.me}}"></circle>
+                </svg>
+                <div style="padding: 0 10px 6px; display: flex; flex-direction: column; gap: 2px">
+                  <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">500 prochains mètres</span>
+                  <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px">
+                    <div style="height: 22px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: #F08C00; color: #111111">8</div>
+                    <div style="height: 22px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: #F08C00; color: #111111">7</div>
+                    <div style="height: 22px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: #D9302C; color: #FFFFFF">10</div>
+                    <div style="height: 22px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: #D9302C; color: #FFFFFF">11</div>
+                    <div style="height: 22px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: #7D1A1A; color: #FFFFFF">13</div>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.pause}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; display: flex; flex-direction: column">
+                <div style="height: 64px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 10px; background: #F59F00; color: #111111">
+                  <span style="font-size: 30px; font-weight: 700">❚❚</span>
+                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 30px; font-weight: 700">En pause</span><span style="font-size: 15px; font-weight: 600">chrono arrêté</span></div>
+                </div>
+                <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 10px 14px">
+                  <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 17px; font-weight: 600; color: {{c.mute}}">Distance</span><span style="font-size: 30px; font-weight: 700">48,6 km</span></div>
+                  <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 17px; font-weight: 600; color: {{c.mute}}">Durée</span><span style="font-size: 30px; font-weight: 700">1:42:08</span></div>
+                  <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 17px; font-weight: 600; color: {{c.mute}}">Moyenne</span><span style="font-size: 30px; font-weight: 700">28,5 km/h</span></div>
+                  <div style="padding-top: 6px; border-top: 1px solid {{c.rule}}; font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}">Pause longue ? Éteins le compteur : la sortie est gardée et tu pourras la reprendre au rallumage.</div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.resume}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; display: flex; flex-direction: column">
+                <div style="height: 64px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 10px; background: #F59F00; color: #111111">
+                  <span style="font-size: 30px; font-weight: 700">❚❚</span>
+                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 28px; font-weight: 700">Sortie en pause</span><span style="font-size: 15px; font-weight: 600">le compteur était éteint</span></div>
+                </div>
+                <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 10px 14px">
+                  <span style="font-size: 22px; font-weight: 700">{{traceName}}</span>
+                  <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 17px; font-weight: 600; color: {{c.mute}}">Fait</span><span style="font-size: 28px; font-weight: 700">48,6 km · 1:42:08</span></div>
+                  <span style="font-size: 15px; font-weight: 500; color: {{c.mute}}">Le temps éteint ne compte pas dans la durée.</span>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.confirm}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; display: flex; flex-direction: column">
+                <div style="height: 6px; background: #C92A2A"></div>
+                <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px">
+                  <span style="font-size: 25px; font-weight: 700; line-height: 1; white-space: nowrap">Terminer la sortie ?</span>
+                  <div style="display: flex; flex-direction: column; gap: 6px; font-size: 18px; font-weight: 500; line-height: 1.2">
+                    <span>✓ Enregistrée : 48,6 km · 1:42:08</span>
+                    <span>✓ Envoyée dès que possible, effacée une fois reçue</span>
+                    <span style="color: {{c.danger}}; font-weight: 700">✕ Elle ne pourra plus être reprise</span>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.saved}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 14px; text-align: center">
+                <span style="font-size: 44px; font-weight: 700; color: {{c.ok}}">✓</span>
+                <span style="font-size: 26px; font-weight: 700">Sortie enregistrée</span>
+                <span style="font-size: 18px; font-weight: 500">48,6 km · 1:42:08 · 812 m D+</span>
+                <span style="font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}">Elle part dès que possible (Wi-Fi maison ou app), puis est effacée du compteur une fois reçue.</span>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.menu}}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-direction: column">
+                <sc-for list="{{menuRows}}" as="m" hint-placeholder-count="2">
+                  <div style="height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 21px; font-weight: 600; border-bottom: 1px solid {{c.rule}}; background: {{m.bg}}; color: {{m.fg}}">
+                    <span>{{m.label}}</span><span>›</span>
+                  </div>
+                </sc-for>
+                <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; font-size: 15px; font-weight: 500; line-height: 1.25; color: {{c.mute}}">
+                  <span style="font-weight: 700">Dans l'app :</span>
+                  <span>envoi de la trace, pages de données, zones FC et FTP, roue et manivelle, réseaux Wi-Fi et serveur de synchro.</span>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.sensors}}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-direction: column">
+                <sc-for list="{{sensorRows}}" as="s" hint-placeholder-count="5">
+                  <div style="height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid {{c.rule}}; background: {{s.bg}}; color: {{s.fg}}">
+                    <div style="display: flex; flex-direction: column; line-height: 1.05">
+                      <span style="font-size: 20px; font-weight: 700">{{s.title}}</span>
+                      <span style="font-size: 14px; font-weight: 500">{{s.name}}</span>
+                    </div>
+                    <span style="font-size: 17px; font-weight: 700">{{s.val}}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.scan}}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-direction: column">
+                <div style="padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid {{c.rule}}">
+                  <span style="font-size: 19px; font-weight: 700; color: {{c.me}}">Recherche ANT+ et Bluetooth…</span>
+                  <span style="font-size: 14px; font-weight: 500; color: {{c.mute}}">Réveille le capteur : pédale, ou mets la ceinture.</span>
+                </div>
+                <sc-for list="{{scanRows}}" as="s" hint-placeholder-count="3">
+                  <div style="height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid {{c.rule}}; background: {{s.bg}}; color: {{s.fg}}">
+                    <div style="display: flex; flex-direction: column; line-height: 1.05">
+                      <span style="font-size: 20px; font-weight: 700">{{s.title}}</span>
+                      <span style="font-size: 14px; font-weight: 500">{{s.sub}}</span>
+                    </div>
+                    <span style="font-size: 15px; font-weight: 700">{{s.sig}}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.detail}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; display: flex; flex-direction: column">
+                <div style="padding: 10px 12px 8px; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid {{c.rule}}">
+                  <span style="font-size: 26px; font-weight: 700; line-height: 1">{{sensor.title}}</span>
+                  <span style="font-size: 16px; font-weight: 500; color: {{c.mute}}">{{sensor.name}}</span>
+                </div>
+                <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px">
+                  <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Mesure</span><span style="color: {{c.ok}}">{{sensor.val}}</span></div>
+                  <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Pile</span><span>{{sensor.batt}}</span></div>
+                  <sc-if value="{{sensorIsPower}}" hint-placeholder-val="{{ false }}">
+                    <div style="padding-top: 6px; border-top: 1px solid {{c.rule}}; font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}">Étalonner : manivelle en bas, ne pas pédaler pendant 5 s.</div>
+                  </sc-if>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.forget}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; display: flex; flex-direction: column">
+                <div style="height: 6px; background: #C92A2A"></div>
+                <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px">
+                  <span style="font-size: 25px; font-weight: 700; line-height: 1; white-space: nowrap">Oublier ce capteur ?</span>
+                  <div style="display: flex; flex-direction: column; gap: 6px; font-size: 18px; font-weight: 500; line-height: 1.2">
+                    <span>{{sensor.title}} · {{sensor.name}}</span>
+                    <span style="color: {{c.danger}}; font-weight: 700">✕ Il faudra le rechercher à nouveau pour l'utiliser</span>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.sync}}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-direction: column">
+                <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid {{c.rule}}">
+                  <span style="font-size: 22px; font-weight: 700; color: {{c.ok}}">● Wi-Fi « Maison » connecté</span>
+                  <span style="font-size: 16px; font-weight: 500; color: {{c.mute}}">Envoi vers : [SERVEUR CONFIGURÉ]</span>
+                </div>
+                <div style="padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid {{c.rule}}">
+                  <div style="display: flex; justify-content: space-between; font-size: 18px; font-weight: 600"><span>Dim. 18 oct · 112 km</span><span style="color: {{c.me}}">64 %</span></div>
+                  <div style="height: 6px; border-radius: 3px; background: {{c.chip}}"><div style="width: 64%; height: 6px; border-radius: 3px; background: {{c.me}}"></div></div>
+                </div>
+                <div style="height: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 18px; font-weight: 600; border-bottom: 1px solid {{c.rule}}"><span>Sam. 17 oct · 38 km</span><span style="color: {{c.mute}}">en attente</span></div>
+                <div style="padding: 8px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}"><span>Une sortie n'est effacée du compteur qu'une fois sa réception confirmée.</span><span>Tu peux quitter cet écran : l'envoi continue, puis le Wi-Fi se coupe tout seul.</span></div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.syncStop}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; display: flex; flex-direction: column">
+                <div style="height: 6px; background: #F59F00"></div>
+                <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px">
+                  <span style="font-size: 25px; font-weight: 700; line-height: 1; white-space: nowrap">Arrêter la synchro ?</span>
+                  <div style="display: flex; flex-direction: column; gap: 6px; font-size: 18px; font-weight: 500; line-height: 1.2">
+                    <span>✕ Envoi en cours interrompu (Dim. 18 oct)</span>
+                    <span>✓ Les sorties non envoyées restent sur le compteur</span>
+                    <span>✓ Elles partiront à la prochaine synchro</span>
+                    <span>✓ Le Wi-Fi est coupé</span>
+                  </div>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.pauseMenu}}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-direction: column">
+                <div style="padding: 8px 12px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Sortie en pause</div>
+                <sc-for list="{{pmRows}}" as="m" hint-placeholder-count="2">
+                  <div style="height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 21px; font-weight: 600; border-bottom: 1px solid {{c.rule}}; background: {{m.bg}}; color: {{m.fg}}">
+                    <span>{{m.label}}</span><span>›</span>
+                  </div>
+                </sc-for>
+                <div style="padding: 10px 12px; font-size: 15px; font-weight: 500; line-height: 1.25; color: {{c.mute}}">Pour changer de trace, envoie-la depuis l'app, même pendant la sortie.</div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{hasNotif}}" hint-placeholder-val="{{ false }}">
+              <div style="position: absolute; left: 6px; right: 6px; bottom: 6px; border-radius: 8px; overflow: hidden; background: {{c.notifBg}}; color: {{c.notifFg}}; box-shadow: 0 6px 16px rgba(0,0,0,0.35)">
+                <div style="min-height: 52px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; padding: 7px 10px">
+                  <div style="width: 28px; height: 28px; flex-shrink: 0; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 700; background: {{notif.stripe}}; color: {{notif.iconFg}}">{{notif.icon}}</div>
+                  <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.1">
+                    <span style="font-size: 19px; font-weight: 700; line-height: 1.05">{{notif.title}}</span>
+                    <span style="font-size: 15px; font-weight: 600; opacity: 0.8; line-height: 1.1">{{notif.detail}}</span>
+                  </div>
+                </div>
+                <sc-if value="{{notif.timed}}" hint-placeholder-val="{{ false }}">
+                  <div style="height: 4px; background: {{notif.stripe}}; animation: {{notifAnim}} 3s linear forwards"></div>
+                </sc-if>
+              </div>
+            </sc-if>
+          </div>
+
+          <div style="height: 40px; flex-shrink: 0; display: grid; grid-template-columns: 1fr auto 1fr; border-top: 1px solid {{c.rule}}">
+            <button onClick="{{pressBG}}" style="display: flex; align-items: center; padding: 0 10px; border: none; font-size: 19px; font-weight: 700; cursor: pointer; background: {{c.chip}}; color: {{bgColor}}">{{bgLabel}}</button>
+            <div style="display: flex; align-items: center; padding: 0 6px; font-size: 11px; letter-spacing: 2px; color: {{c.mute}}">{{dots}}</div>
+            <button onClick="{{pressBD}}" style="display: flex; align-items: center; justify-content: flex-end; padding: 0 10px; border: none; font-size: 19px; font-weight: 700; cursor: pointer; background: {{bdBg}}; color: {{bdFg}}">{{bdLabel}}</button>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+
+  <div style="width: 212px; display: flex; flex-direction: column; gap: 10px">
+    <span style="font-size: 26px; font-weight: 700">Prototype</span>
+    <span style="font-size: 16px; font-weight: 500; line-height: 1.3; color: #444444">Clique sur les 3 boutons bleus du compteur, ou directement sur les libellés à l'écran.</span>
+    <span style="font-size: 15px; font-weight: 600; color: #444444">{{offHint}}</span>
+    <span style="font-size: 15px; font-weight: 700; color: #B35C00">{{simMsg}}</span>
+    <div style="height: 1px; background: #C8C5BE"></div>
+    <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Simuler pendant la sortie</span>
+    <button onClick="{{simApproach}}" style="height: 36px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Approche d'une montée</button>
+    <button onClick="{{simClimb}}" style="height: 36px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Pied de la montée</button>
+    <button onClick="{{simTop}}" style="height: 36px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Sommet atteint</button>
+    <button onClick="{{simLost}}" style="height: 36px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Ceinture FC décroche</button>
+    <div style="height: 1px; background: #C8C5BE"></div>
+    <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Depuis l'app</span>
+    <button onClick="{{simTrace}}" style="height: 36px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Envoyer une autre trace</button>
+    <div style="height: 1px; background: #C8C5BE"></div>
+    <button onClick="{{reset}}" style="height: 36px; border: none; border-radius: 6px; background: #D6D3CC; font-size: 17px; font-weight: 600; cursor: pointer; color: #111111">Recommencer</button>
+  </div>
+</div>
+</template>
+<script>
+
+class DCLogic {
+  constructor(props) { this.props = props || {}; this.state = {}; }
+  setState(p) {
+    const patch = typeof p === 'function' ? p(this.state) : p;
+    this.state = Object.assign({}, this.state, patch);
+    scheduleRender();
+  }
+  forceUpdate() { scheduleRender(); }
+}
+
+const tpl = document.getElementById('tpl').content;
+const mount = document.getElementById('app');
+let comp = null, pending = false;
+
+function lookup(expr, scope) {
+  expr = expr.trim();
+  if (expr === 'true') return true;
+  if (expr === 'false') return false;
+  if (/^-?\d+(\.\d+)?$/.test(expr)) return Number(expr);
+  return expr.split('.').reduce((o, k) => (o == null ? undefined : o[k]), scope);
+}
+const WHOLE = /^\{\{([^}]+)\}\}$/;
+const interp = (str, scope) => str.replace(/\{\{([^}]+)\}\}/g, (_, e) => {
+  const v = lookup(e, scope); return v == null ? '' : String(v);
+});
+
+function render(node, scope) {
+  if (node.nodeType === 3) return [document.createTextNode(interp(node.nodeValue, scope))];
+  if (node.nodeType !== 1) return [];
+  const tag = node.localName;
+  if (tag === 'sc-if') {
+    const m = (node.getAttribute('value') || '').match(WHOLE);
+    return m && lookup(m[1], scope) ? renderChildren(node, scope) : [];
+  }
+  if (tag === 'sc-for') {
+    const m = (node.getAttribute('list') || '').match(WHOLE);
+    const list = (m && lookup(m[1], scope)) || [];
+    const as = node.getAttribute('as') || 'item';
+    const out = [];
+    list.forEach((it, i) => out.push(...renderChildren(node, Object.assign({}, scope, { [as]: it, $index: i }))));
+    return out;
+  }
+  const el = node.namespaceURI && node.namespaceURI !== 'http://www.w3.org/1999/xhtml'
+    ? document.createElementNS(node.namespaceURI, node.tagName)
+    : document.createElement(tag);
+  for (const a of node.attributes) {
+    if (a.name.startsWith('hint-')) continue;
+    const whole = a.value.match(WHOLE);
+    if (a.name.startsWith('on') && whole) {
+      const fn = lookup(whole[1], scope);
+      if (typeof fn === 'function') el.addEventListener(a.name.slice(2), fn);
+      continue;
+    }
+    el.setAttribute(a.name, interp(a.value, scope));
+  }
+  for (const c of renderChildren(node, scope)) el.appendChild(c);
+  return [el];
+}
+function renderChildren(node, scope) {
+  const out = [];
+  const kids = node.content ? node.content.childNodes : node.childNodes;
+  for (const c of kids) out.push(...render(c, scope));
+  return out;
+}
+function draw() {
+  pending = false;
+  const vals = comp.renderVals();
+  const nodes = [];
+  for (const c of tpl.childNodes) nodes.push(...render(c, vals));
+  mount.replaceChildren(...nodes);
+}
+function scheduleRender() { if (!pending) { pending = true; requestAnimationFrame(draw); } }
+
+function start() {
+  comp = new Component({ nuit: false });
+  draw();
+}
+
+function wire() {
+const night = document.getElementById('night');
+night.addEventListener('change', () => { comp.props = { nuit: night.checked }; scheduleRender(); });
+
+function fit() {
+  const w = Math.min(1, (document.documentElement.clientWidth - 16) / 640);
+  const box = document.getElementById('stage');
+  box.style.transform = 'scale(' + w + ')';
+  box.parentElement.style.height = (640 * w) + 'px';
+}
+window.addEventListener('resize', fit);
+fit();
+}
+
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = this.initial();
+    this.timer = null;
+  }
+  initial() {
+    return {
+      scr: 'home', page: 0, ride: false, climb: 'none', toast: '', pending: 2, pmI: 0, pmBack: 'pause', lost: false,
+      menuI: 0, sensI: 0, scanI: 0, traceI: 0, trace: 0, confirmFrom: 'pause',
+      sensors: [
+        { key: 'hr', title: 'Fréquence cardiaque', name: 'HRM-Pro · ANT+', val: '● 142', batt: 'OK', paired: true },
+        { key: 'cad', title: 'Cadence', name: 'Wahoo RPM · BLE', val: '● 88', batt: 'OK', paired: true },
+        { key: 'pwr', title: 'Puissance', name: 'Assioma · ANT+', val: '● 215 W', batt: 'faible · ~5 h', paired: true },
+        { key: 'spd', title: 'Vitesse', name: 'non associé · GPS utilisé', val: '○', batt: '—', paired: false }
+      ]
+    };
+  }
+  componentWillUnmount() { clearTimeout(this.timer); clearTimeout(this.holdT); clearTimeout(this.lostT); }
+  say(msg, ms) {
+    if (this.timer) clearTimeout(this.timer);
+    const d = ms || 3000;
+    this.setState({ toast: msg, toastN: (this.state.toastN || 0) + 1 });
+    this.timer = setTimeout(() => this.setState({ toast: '' }), d);
+  }
+  traces() {
+    return [
+      { name: 'Boucle Montagne Noire', info: '112 km · 1 840 m D+' },
+      { name: 'Tour du lac de Saint-Ferréol', info: '64 km · 720 m D+' },
+      { name: 'Sortie VTT Sidobre', info: '38 km · 950 m D+' }
+    ];
+  }
+  menuItems() { return ['Synchro Wi-Fi', 'Capteurs']; }
+  scanItems() {
+    return [
+      { key: 'spd', title: 'Vitesse · Garmin 2', sub: 'ANT+ · n° 48213', name: 'Garmin 2 · ANT+', val: '● 33,9 km/h', sig: '▂▄▆█' },
+      { key: 'hr', title: 'FC · Polar H10', sub: 'BLE · un autre cycliste ?', name: 'Polar H10 · BLE', val: '● 139', sig: '▂▄' }
+    ];
+  }
+  keys() {
+    const s = this.state;
+    const set = (p) => () => this.setState(p);
+    const none = { l: '—', f: () => {} };
+    const sens = s.sensors;
+    switch (s.scr) {
+      case 'home': return {
+        hg: { l: '⏻ Maintenir', hold: true, f: set({ scr: 'off' }) },
+        bg: { l: '≡ Menu', f: set({ scr: 'menu', menuI: 0 }) },
+        bd: { l: 'Démarrer ▶', k: 'go', f: set({ scr: 'ride', page: 0, ride: true, simMsg: '' }) } };
+      case 'traces': return {
+        hg: { l: '◀ Retour', f: set({ scr: 'home' }) },
+        bg: { l: 'Suivant ▼', f: set({ traceI: (s.traceI + 1) % 3 }) },
+        bd: { l: 'Charger', k: 'sel', f: () => { this.setState({ scr: 'home', trace: s.traceI }); this.say('Trace chargée'); } } };
+      case 'ride': return {
+        hg: { l: '◀ Page', f: set({ page: (s.page + 2) % 3 }) },
+        bg: { l: 'Page ▶', f: set({ page: (s.page + 1) % 3 }) },
+        bd: { l: 'Pause ❚❚', k: 'pause', f: set({ scr: 'pause' }) } };
+      case 'pause': return {
+        hg: { l: '⏻ Maintenir', hold: true, f: set({ scr: 'off' }) },
+        bg: { l: '≡ Menu', f: set({ scr: 'pauseMenu', pmI: 0, pmBack: 'pause' }) },
+        bd: { l: 'Reprendre ▶', k: 'go', f: set({ scr: 'ride' }) } };
+      case 'resume': return {
+        hg: { l: '⏻ Maintenir', hold: true, f: set({ scr: 'off' }) },
+        bg: { l: '≡ Menu', f: set({ scr: 'pauseMenu', pmI: 0, pmBack: 'resume' }) },
+        bd: { l: 'Reprendre ▶', k: 'go', f: set({ scr: 'ride', page: 0 }) } };
+      case 'confirm': return {
+        hg: { l: '◀ Annuler', f: set({ scr: s.confirmFrom }) },
+        bg: { l: 'Annuler', f: set({ scr: s.confirmFrom }) },
+        bd: { l: 'Terminer ■', k: 'danger', f: set({ scr: 'saved', ride: false, climb: 'none', pending: s.pending + 1 }) } };
+      case 'saved': return { hg: none, bg: none, bd: { l: 'OK', k: 'sel', f: set({ scr: 'home' }) } };
+      case 'pauseMenu': return {
+        hg: { l: '◀ Retour', f: set({ scr: s.pmBack }) },
+        bg: { l: 'Suivant ▼', f: set({ pmI: (s.pmI + 1) % 2 }) },
+        bd: { l: 'Ouvrir ›', k: 'sel', f: () => {
+          if (s.pmI === 0) this.setState({ scr: 'sensors', sensI: 0 });
+          else this.setState({ scr: 'confirm', confirmFrom: 'pauseMenu' });
+        } } };
+      case 'off': return { hg: { l: '', hold: true, f: set({ scr: s.ride ? 'resume' : 'home' }) }, bg: { l: '', f: () => {} }, bd: { l: '', f: () => {} } };
+      case 'menu': return {
+        hg: { l: '◀ Retour', f: set({ scr: 'home' }) },
+        bg: { l: 'Suivant ▼', f: set({ menuI: (s.menuI + 1) % 2 }) },
+        bd: { l: 'Ouvrir ›', k: 'sel', f: () => {
+          const i = s.menuI;
+          if (i === 0) this.setState({ scr: 'sync' });
+          else this.setState({ scr: 'sensors', sensI: 0 });
+        } } };
+      case 'sensors': return {
+        hg: { l: '◀ Retour', f: set({ scr: s.ride ? 'pauseMenu' : 'menu' }) },
+        bg: { l: 'Suivant ▼', f: set({ sensI: (s.sensI + 1) % (sens.length + 1) }) },
+        bd: { l: 'Ouvrir ›', k: 'sel', f: () => {
+          if (s.sensI === sens.length || !sens[s.sensI].paired) this.setState({ scr: 'scan', scanI: 0 });
+          else this.setState({ scr: 'detail' });
+        } } };
+      case 'detail': {
+        const isPwr = sens[s.sensI] && sens[s.sensI].key === 'pwr';
+        return {
+          hg: { l: '◀ Retour', f: set({ scr: 'sensors' }) },
+          bg: { l: 'Oublier…', f: set({ scr: 'forget' }) },
+          bd: isPwr ? { l: 'Étalonner', k: 'sel', f: () => this.say('Étalonné · décalage −12') } : none };
+      }
+      case 'forget': return {
+        hg: { l: '◀ Annuler', f: set({ scr: 'detail' }) },
+        bg: { l: 'Annuler', f: set({ scr: 'detail' }) },
+        bd: { l: 'Oublier ✕', k: 'danger', f: () => {
+          const next = sens.map((x, i) => i === s.sensI ? { ...x, name: 'non associé', val: '○', batt: '—', paired: false } : x);
+          this.setState({ sensors: next, scr: 'sensors' });
+          this.say('Capteur oublié · recherche-le pour le réutiliser');
+        } } };
+      case 'scan': return {
+        hg: { l: '◀ Annuler', f: set({ scr: 'sensors' }) },
+        bg: { l: 'Suivant ▼', f: set({ scanI: (s.scanI + 1) % 2 }) },
+        bd: { l: 'Associer +', k: 'go', f: () => {
+          const f = this.scanItems()[s.scanI];
+          const next = sens.map((x) => x.key === f.key ? { ...x, name: f.name, val: f.val, batt: 'OK', paired: true } : x);
+          this.setState({ sensors: next, scr: 'sensors' });
+          this.say('Capteur associé · ' + f.name);
+        } } };
+      case 'sync': return {
+        hg: { l: '◀ Retour', f: set({ scr: 'menu' }) },
+        bg: { l: '◀ Retour', f: set({ scr: 'menu' }) },
+        bd: { l: 'Arrêter…', k: 'pause', f: set({ scr: 'syncStop' }) } };
+
+      case 'syncStop': return {
+        hg: { l: '◀ Annuler', f: set({ scr: 'sync' }) },
+        bg: { l: 'Arrêter ■', f: () => { this.setState({ scr: 'menu' }); this.say('Synchro arrêtée · Sorties gardées, Wi-Fi coupé'); } },
+        bd: { l: 'Continuer ▶', k: 'go', f: set({ scr: 'sync' }) } };
+      default: return { hg: none, bg: none, bd: none };
+    }
+  }
+  renderVals() {
+    const n = this.props.nuit ?? false;
+    const c = n
+      ? { bg: '#0B0B0C', fg: '#F2F2F2', mute: '#A3A3A3', rule: '#2C2C2C', chip: '#26262A', notifBg: '#F2F2F2', notifFg: '#111111', ok: '#69DB7C', danger: '#FF8787', me: '#6EA8FF', route: '#FF7A45', done: '#5A5A5E', mapbg: '#121214', road: '#3E3E42', water: '#1F4A73', zone: '#7A5A00', zoneText: '#FFF3BF', next: '#1E1A12', climbDone: '#3A3A3E', sel: '#1D4ED8' }
+      : { bg: '#FFFFFF', fg: '#111111', mute: '#555555', rule: '#DADADA', chip: '#ECECEA', notifBg: '#1A1A1D', notifFg: '#FFFFFF', ok: '#237A35', danger: '#C92A2A', me: '#1D4ED8', route: '#D9480F', done: '#9A9A9A', mapbg: '#F5F4F0', road: '#BDBBB5', water: '#8DB8E0', zone: '#FFE066', zoneText: '#111111', next: '#FFF4E0', climbDone: '#D6D6D2', sel: '#1D4ED8' };
+    const s = this.state;
+    const k = this.keys();
+    const kinds = { go: ['#237A35', '#FFFFFF'], pause: ['#F59F00', '#111111'], danger: ['#C92A2A', '#FFFFFF'], sel: ['#1D4ED8', '#FFFFFF'] };
+    const bdKind = kinds[k.bd.k] || [c.chip, k.bd.l === '—' ? c.mute : c.fg];
+    const sel = (on) => on ? { bg: c.sel, fg: '#FFFFFF' } : { bg: 'transparent', fg: c.fg };
+    const tr = this.traces();
+    const ride = s.scr === 'ride';
+    const is = {
+      home: s.scr === 'home', traces: s.scr === 'traces',
+      p1: ride && s.page === 0, p2: ride && s.page === 1,
+      p3list: ride && s.page === 2 && s.climb !== 'in', p3climb: ride && s.page === 2 && s.climb === 'in',
+      pause: s.scr === 'pause', resume: s.scr === 'resume', confirm: s.scr === 'confirm', saved: s.scr === 'saved',
+      menu: s.scr === 'menu', sensors: s.scr === 'sensors', scan: s.scr === 'scan', detail: s.scr === 'detail',
+      forget: s.scr === 'forget', sync: s.scr === 'sync', syncStop: s.scr === 'syncStop', pauseMenu: s.scr === 'pauseMenu'
+    };
+    const sens = s.sensors;
+    const sensorRows = sens.map((x, i) => ({ ...x, ...sel(i === s.sensI) }))
+      .concat([{ title: '+ Rechercher un capteur', name: 'ANT+ et Bluetooth', val: '', ...sel(s.sensI === sens.length) }]);
+    const cur = sens[s.sensI] || sens[0];
+    const ridePage = (p) => () => {
+      if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return null; }
+      return p;
+    };
+    return {
+      c, is,
+      isOff: s.scr === 'off', isOn: s.scr !== 'off',
+      simMsg: s.simMsg || '',
+      offHint: s.scr === 'off' ? 'Compteur éteint : maintiens le bouton haut gauche pour le rallumer.' : '',
+      pmRows: ['Capteurs', 'Terminer la sortie…'].map((label, i) => ({ label, ...sel(i === s.pmI) })),
+      showLost: ride && s.lost,
+      clock: ride ? '10:29' : '08:47',
+      hgLabel: k.hg.l, bgLabel: k.bg.l, bdLabel: k.bd.l,
+      hgColor: k.hg.l === '—' ? c.mute : c.fg, bgColor: k.bg.l === '—' ? c.mute : c.fg,
+      bdBg: bdKind[0], bdFg: bdKind[1],
+      pressHG: () => {
+        if (this.swallow) { this.swallow = false; return; }
+        if (k.hg.hold) { if (s.scr !== 'off') this.say('Maintiens le bouton · pour éteindre'); return; }
+        k.hg.f();
+      },
+      holdStart: () => {
+        if (!k.hg.hold) return;
+        clearTimeout(this.holdT);
+        this.holdT = setTimeout(() => { this.swallow = true; this.keys().hg.f(); }, 700);
+      },
+      holdEnd: () => clearTimeout(this.holdT),
+      pressBG: () => k.bg.f(), pressBD: () => k.bd.f(),
+      dots: ride ? ['●○○', '○●○', '○○●'][s.page] : '',
+      speed: s.climb === 'in' ? '11,8' : '32,4',
+      climbDist: s.climb === 'approach' ? '0,4 km' : '1,2 km',
+      showBanner: ride && s.climb === 'approach' && s.page !== 2,
+      traceName: tr[s.trace].name, traceInfo: tr[s.trace].info,
+      traceRows: tr.map((t, i) => ({ ...t, ...sel(i === s.traceI) })),
+      menuRows: this.menuItems().map((label, i) => ({ label, ...sel(i === s.menuI) })),
+      sensorRows,
+      scanRows: this.scanItems().map((x, i) => ({ ...x, ...sel(i === s.scanI) })),
+      sensor: cur, sensorIsPower: cur.key === 'pwr',
+      pairedSummary: '● ' + (sens.filter((x) => x.paired).length) + ' associés',
+      pendingLabel: s.pending > 0 ? s.pending + (s.pending > 1 ? ' sorties' : ' sortie') : '✓ rien',
+      pendingColor: s.pending > 0 ? '#B35C00' : c.ok,
+      ...(() => {
+        let notif = null;
+        if (ride && s.lost) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'FC perdue', detail: 'Reconnexion automatique…' };
+        else if (ride && s.climb === 'approach' && s.page !== 2) notif = { stripe: '#D9302C', iconFg: '#FFFFFF', icon: '▲', timed: false, title: 'Montée dans 400 m', detail: 'Col de la Galaube · 9,6 km · 6,9 %' };
+        else if (s.toast) {
+          const m = s.toast.match(/^(.*?)(?: · | : )(.*)$/);
+          notif = { stripe: '#4C8DFF', iconFg: '#FFFFFF', icon: 'i', timed: true, title: m ? m[1] : s.toast, detail: m ? m[2] : '' };
+        }
+        return { notif: notif || { stripe: '', iconFg: '', icon: '', timed: false, title: '', detail: '' }, hasNotif: !!notif, notifAnim: s.toastN % 2 ? 'notifA' : 'notifB' };
+      })(),
+      simApproach: () => { if (ridePage(1)() === null) return; this.setState({ climb: 'approach' }); },
+      simClimb: () => { if (ridePage(1)() === null) return; this.setState({ climb: 'in', page: 2, scr: s.scr === 'ride' ? 'ride' : s.scr }); },
+      simTop: () => { if (ridePage(1)() === null) return; this.setState({ climb: 'none' }); this.say('Sommet atteint · 34:12 · 6,9 % de moyenne'); },
+      simLost: () => {
+        if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
+        clearTimeout(this.lostT);
+        this.setState({ lost: true });
+        this.lostT = setTimeout(() => { this.setState({ lost: false }); this.say('FC reconnectée · HRM-Pro'); }, 3500);
+      },
+      simTrace: () => {
+        const nx = (s.trace + 1) % 3;
+        this.setState({ trace: nx });
+        if (s.scr !== 'off') this.say('Trace remplacée · ' + tr[nx].name + ' (depuis l’app)', 3000);
+      },
+      reset: () => { clearTimeout(this.timer); clearTimeout(this.lostT); this.setState(this.initial()); }
+    };
+  }
+}
+
+start();
+wire();
+</script>
+</body>
+</html>
