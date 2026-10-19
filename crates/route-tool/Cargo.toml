@@ -1,0 +1,14 @@
+[package]
+name         = "route-tool"
+description  = "PC tool: GPX to route file, route info, ride replay along a route drawn with the firmware's screens"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dependencies]
+route = { path = "../route", features = ["build"] }
+settings          = { path = "../settings" }
+ui                = { path = "../ui" }
+embedded-graphics = "0.8.2"
+png               = "0.18.1"

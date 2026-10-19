@@ -19,6 +19,9 @@ def decode(body: bytes) -> dict:
 
 
 def test_ride_with_a_pause(dut, out_dir):
+    # a ride left over by an earlier run is saved by to_home(): read what is stored after it
+    dut.reset()
+    dut.to_home()
     before = set(rides(dut.read_storage(out_dir / "before.bin")))
     dut.reset()
     dut.send("sound off")
@@ -45,8 +48,10 @@ def test_ride_with_a_pause(dut, out_dir):
 
 
 def test_interrupted_ride_is_resumable_at_boot(dut, out_dir):
-    before = set(rides(dut.read_storage(out_dir / "before.bin")))
+    # a ride left over by an earlier run is saved by to_home(): read what is stored after it
     dut.reset()
+    dut.to_home()
+    before = set(rides(dut.read_storage(out_dir / "before.bin")))
     dut.send("sound off")
     dut.to_home()
     dut.press(2)  # start, never stopped
@@ -71,8 +76,10 @@ def test_interrupted_ride_is_resumable_at_boot(dut, out_dir):
 
 
 def test_finished_ride_is_resumed(dut, out_dir):
-    before = set(rides(dut.read_storage(out_dir / "before.bin")))
+    # a ride left over by an earlier run is saved by to_home(): read what is stored after it
     dut.reset()
+    dut.to_home()
+    before = set(rides(dut.read_storage(out_dir / "before.bin")))
     dut.send("sound off")
     dut.to_home()
     dut.press(2)  # start

@@ -29,7 +29,7 @@ LABEL = UPPER + DIGITS + "/·'’()%"
 
 # private use code points of the icons, in the order of `crate::fonts::icon`
 ICONS = ["play", "pause", "stop", "left", "right", "power", "check", "cross", "dot", "menu", "down", "chevron", "cycle",
-         "undo", "ring"]
+         "undo", "ring", "zoom"]
 ICON_BASE = 0xE000
 ICON_CHARS = "".join(chr(ICON_BASE + i) for i in range(len(ICONS)))
 
@@ -61,7 +61,7 @@ SPECS = [
 ]
 # icon width, in cap heights
 ICON_W = {"play": 0.9, "pause": 0.95, "stop": 0.9, "left": 0.9, "right": 0.9, "power": 1.08, "check": 1.1, "cross": 0.85,
-          "dot": 0.62, "menu": 1.0, "down": 0.95, "chevron": 0.5, "cycle": 1.05, "undo": 1.05, "ring": 0.85}
+          "dot": 0.62, "menu": 1.0, "down": 0.95, "chevron": 0.5, "cycle": 1.05, "undo": 1.05, "ring": 0.85, "zoom": 1.0}
 SS = 8  # supersampling of the icons
 
 
@@ -117,6 +117,14 @@ def icon(name: str, cap: int, bold: bool) -> tuple[int, list[int]]:
         if name == "undo":
             im = im.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
             dr = ImageDraw.Draw(im)
+    elif name == "zoom":
+        u = t * 0.75
+        r = W / 2 - u / 2
+        c = (W / 2, H / 2)
+        dr.ellipse([c[0] - r, c[1] - r, c[0] + r, c[1] + r], outline=255, width=round(u))
+        k = r * 0.55
+        dr.line([(c[0] - k, c[1]), (c[0] + k, c[1])], fill=255, width=round(u))
+        dr.line([(c[0], c[1] - k), (c[0], c[1] + k)], fill=255, width=round(u))
     elif name == "ring":
         r = W / 2 - t * 0.35
         c = (W / 2, H / 2)

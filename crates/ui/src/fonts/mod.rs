@@ -33,6 +33,7 @@ pub mod icon {
     pub const CYCLE: char = '\u{e00c}';
     pub const UNDO: char = '\u{e00d}';
     pub const RING: char = '\u{e00e}';
+    pub const ZOOM: char = '\u{e00f}';
 }
 
 pub struct Font {

@@ -1,0 +1,17 @@
+[package]
+name         = "route"
+description  = "Route file of the CC600: built from a GPX (simplified, projected) anywhere, read on the device, no_std"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[features]
+# GPX reading and route building (allocates): the PC tool, the browser, the app
+build = ["dep:libm"]
+
+[dependencies]
+libm = { version = "0.2.16", optional = true }
+
+[dev-dependencies]
+route = { path = ".", features = ["build"] }

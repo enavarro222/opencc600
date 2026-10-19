@@ -1512,6 +1512,7 @@ dependencies = [
  "nrf-link",
  "recorder",
  "ride-store",
+ "route",
  "settings",
  "static_cell",
  "ui",
@@ -1704,6 +1705,10 @@ dependencies = [
  "libc",
  "rustversion",
 ]
+
+[[package]]
+name = "route"
+version = "0.1.0"
 
 [[package]]
 name = "rustc-hash"
@@ -2068,6 +2073,8 @@ name = "ui"
 version = "0.1.0"
 dependencies = [
  "embedded-graphics",
+ "libm",
+ "route",
 ]
 
 [[package]]

@@ -44,6 +44,7 @@ fit               = { path = "../crates/fit" }
 gnss              = { path = "../crates/gnss" }
 nrf-link          = { path = "../crates/nrf-link" }
 recorder          = { path = "../crates/recorder" }
+route             = { path = "../crates/route" }
 settings          = { path = "../crates/settings" }
 ui                = { path = "../crates/ui" }
 ride-store        = { path = "../crates/ride-store" }

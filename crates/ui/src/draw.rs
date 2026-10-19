@@ -12,11 +12,11 @@ use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle};
 use crate::fonts::{self, Align, Font, Line as Fmt, Style, icon};
 use crate::{BannerKind, Gnss, Hint, Kind, Page, Screen, Ui, View};
 
-const W: i32 = 240;
+pub(crate) const W: i32 = 240;
 const H: i32 = 320;
 /// Rule under the top bar, rule over the key bar.
-const TOP: i32 = 30;
-const BOTTOM: i32 = 279;
+pub(crate) const TOP: i32 = 30;
+pub(crate) const BOTTOM: i32 = 279;
 /// Side margin of the content.
 const MARGIN: i32 = 12;
 /// Side margin of the key labels, in their boxes.
@@ -56,6 +56,9 @@ pub struct Theme {
     /// Area under an altitude profile, and the rider's point on it.
     pub profile: Rgb565,
     pub me: Rgb565,
+    /// The route on the map, ahead and done.
+    pub route: Rgb565,
+    pub done: Rgb565,
     /// Background and text of the key labels by [`Kind`] (Go, Pause, Danger, Select).
     pub kinds: [(Rgb565, Rgb565); 4],
 }
@@ -96,6 +99,8 @@ pub const DAY: Theme = Theme {
     attention: rgb(0xF59F00),
     profile: rgb(0xD6D6D2),
     me: rgb(0x1D4ED8),
+    route: rgb(0xD9480F),
+    done: rgb(0x9A9A9A),
     kinds: KINDS,
 };
 
@@ -116,6 +121,8 @@ pub const NIGHT: Theme = Theme {
     attention: rgb(0xF59F00),
     profile: rgb(0x3A3A3E),
     me: rgb(0x6EA8FF),
+    route: rgb(0xFF7A45),
+    done: rgb(0x5A5A5E),
     kinds: KINDS,
 };
 
@@ -155,21 +162,24 @@ impl Theme {
     }
 }
 
-/// Draws the whole screen; on [`Screen::Status`] the content is left blank for the firmware.
+/// Draws the whole screen; on [`Screen::Status`] the content is left blank for the firmware. `route`: the route
+/// loaded (the map page draws it).
 pub fn draw<D: DrawTarget<Color = Rgb565>>(
     d: &mut D,
     ui: &Ui,
     v: &View,
+    route: Option<&route::Route<'_>>,
     t: &Theme,
 ) -> Result<(), D::Error> {
     d.clear(t.bg)?;
     match ui.screen() {
-        Screen::Home => home(d, v, t)?,
+        Screen::Home => home(d, ui, v, t)?,
         Screen::Menu => menu(d, ui, v, t, None, MENU_NOTE)?,
         Screen::PauseMenu => menu(d, ui, v, t, Some("SORTIE EN PAUSE"), PAUSE_MENU_NOTE)?,
         Screen::Status => {}
         Screen::Ride => match ui.page() {
             Some(Page::Altitude) => ride_altitude(d, v, t)?,
+            Some(Page::Map) => crate::map::draw(d, ui.zoom_m(), v, route, t)?,
             Some(Page::Essential) | None => ride_essential(d, v, t)?,
         },
         Screen::Paused => paused(d, v, t, "En pause", "chrono arrêté", PAUSED_NOTE)?,
@@ -199,12 +209,12 @@ const NONE: &str = "–";
 /// Smallest slot of a speed: the comma stays in place from 9,8 to 32,4 km/h.
 const SPEED: &str = "00,0";
 
-fn km(cm: u32) -> Fmt {
+pub(crate) fn km(cm: u32) -> Fmt {
     let tenths = cm / 10_000;
     Fmt::new(format_args!("{},{}", tenths / 10, tenths % 10))
 }
 
-fn kmh(mm_s: Option<u32>) -> Fmt {
+pub(crate) fn kmh(mm_s: Option<u32>) -> Fmt {
     match mm_s {
         Some(v) => {
             let tenths = (v * 36 + 500) / 1000;
@@ -237,11 +247,26 @@ fn clock(c: Option<(u8, u8)>) -> Fmt {
     }
 }
 
+/// `text` cut with "…" to fit in `width` pixels.
+pub(crate) fn fit(font: &Font, text: &str, width: i32) -> Fmt {
+    if font.width(text, 0) <= width {
+        return Fmt::new(format_args!("{text}"));
+    }
+    let mut end = text.len();
+    loop {
+        end = text[..end].char_indices().last().map_or(0, |(i, _)| i);
+        let cut = Fmt::new(format_args!("{}…", text[..end].trim_end()));
+        if end == 0 || font.width(cut.as_str(), 0) <= width {
+            return cut;
+        }
+    }
+}
+
 fn char_str(c: char, buf: &mut [u8; 4]) -> &str {
     c.encode_utf8(buf)
 }
 
-fn rect(x0: i32, y0: i32, x1: i32, y1: i32) -> Rectangle {
+pub(crate) fn rect(x0: i32, y0: i32, x1: i32, y1: i32) -> Rectangle {
     Rectangle::with_corners(Point::new(x0, y0), Point::new(x1, y1))
 }
 
@@ -442,27 +467,25 @@ fn row<D: DrawTarget<Color = Rgb565>>(
     Ok(())
 }
 
-fn home<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result<(), D::Error> {
+fn home<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) -> Result<(), D::Error> {
     fonts::text(d, &t.label(&fonts::LABEL), "TRACE", MARGIN, 47, Align::Left)?;
     // the route's colour mark, grey without a route
-    rounded(d, rect(MARGIN, 65, 30, 68), 2, t.rule, t.bg)?;
-    fonts::text(
-        d,
-        &t.style(&fonts::HEADING_SMALL),
-        "Aucune trace",
-        38,
-        66,
-        Align::Left,
-    )?;
-    let note = "Envoie-en une depuis l’app (facultatif)";
-    fonts::text(
-        d,
-        &t.mute(&fonts::NOTE_LARGE),
-        note,
-        MARGIN,
-        111,
-        Align::Left,
-    )?;
+    let mark = if v.route.is_some() { t.route } else { t.rule };
+    rounded(d, rect(MARGIN, 65, 30, 68), 2, mark, t.bg)?;
+    let heading = t.style(&fonts::HEADING_SMALL);
+    match &v.route {
+        Some(r) => {
+            let name = fit(&fonts::HEADING_SMALL, r.name.as_str(), W - 38 - MARGIN);
+            fonts::text(d, &heading, name.as_str(), 38, 66, Align::Left)?;
+            let info = Fmt::new(format_args!("{} km · {} m D+", km(r.length_dm * 10).as_str(), r.ascent_m));
+            fonts::text(d, &t.mute(&fonts::NOTE_LARGE), info.as_str(), MARGIN, 111, Align::Left)?;
+        }
+        None => {
+            fonts::text(d, &heading, "Aucune trace", 38, 66, Align::Left)?;
+            let note = "Envoie-en une depuis l’app (facultatif)";
+            fonts::text(d, &t.mute(&fonts::NOTE_LARGE), note, MARGIN, 111, Align::Left)?;
+        }
+    }
 
     let label = t.mute(&fonts::ROW);
     let value = t.style(&fonts::ROW);
@@ -507,7 +530,7 @@ fn home<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result
     row(
         d,
         (&label, "Pages"),
-        (&value, crate::pages().names().as_str()),
+        (&value, ui.next_pages().names().as_str()),
         203,
         MARGIN,
     )?;
@@ -847,6 +870,15 @@ fn top_bar<D: DrawTarget<Color = Rgb565>>(
         Align::Left,
         TOP_KEY,
     )?;
+    // on the map, the scale bar after its length: |____|
+    if let Some(px) = ui.map_scale(v) {
+        debug_assert!(fonts::KEY.width(hint.text, 0) + 4 + px + 2 * KEY_PAD <= TOP_KEY, "scale too wide");
+        let (x1, y) = (TOP_KEY - KEY_PAD - 1, (KEY_MARK + TOP) / 2 + 5);
+        let x0 = x1 - px + 1;
+        fill(d, rect(x0, y - 1, x1, y), fg)?;
+        fill(d, rect(x0, y - 7, x0 + 1, y), fg)?;
+        fill(d, rect(x1 - 1, y - 7, x1, y), fg)?;
+    }
     let cy = TOP / 2;
     let bar = t.mute(&fonts::BAR);
     if ui.gps_warning() {
@@ -998,7 +1030,7 @@ fn bottom_bar<D: DrawTarget<Color = Rgb565>>(
 
 // --- primitives --------------------------------------------------------------------------------------------------
 
-fn fill<D: DrawTarget<Color = Rgb565>>(d: &mut D, r: Rectangle, c: Rgb565) -> Result<(), D::Error> {
+pub(crate) fn fill<D: DrawTarget<Color = Rgb565>>(d: &mut D, r: Rectangle, c: Rgb565) -> Result<(), D::Error> {
     d.fill_solid(&r, c)
 }
 
@@ -1017,7 +1049,7 @@ fn vline<D: DrawTarget<Color = Rgb565>>(
 }
 
 /// Fills the pixels of `area` inside a shape, its edges anti-aliased (4x4 samples a pixel) into `bg`.
-fn shape<D: DrawTarget<Color = Rgb565>>(
+pub(crate) fn shape<D: DrawTarget<Color = Rgb565>>(
     d: &mut D,
     area: Rectangle,
     c: Rgb565,
@@ -1043,7 +1075,7 @@ fn shape<D: DrawTarget<Color = Rgb565>>(
 }
 
 /// A disc of radius `r` centred on (`cx`, `cy`), in pixel coordinates (a pixel's centre at .5).
-fn disc<D: DrawTarget<Color = Rgb565>>(
+pub(crate) fn disc<D: DrawTarget<Color = Rgb565>>(
     d: &mut D,
     cx: f32,
     cy: f32,
@@ -1065,7 +1097,7 @@ fn disc<D: DrawTarget<Color = Rgb565>>(
 }
 
 /// A rectangle with round corners of radius `r`: the inside filled at once, the corners sampled.
-fn rounded<D: DrawTarget<Color = Rgb565>>(
+pub(crate) fn rounded<D: DrawTarget<Color = Rgb565>>(
     d: &mut D,
     area: Rectangle,
     r: i32,

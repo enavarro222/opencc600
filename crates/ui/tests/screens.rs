@@ -65,12 +65,15 @@ fn view() -> View {
         }),
         rides_stored: Some(2),
         resumable: true,
+        route: None,
     }
 }
 
 fn save(name: &str, ui: &Ui, v: &View, theme: &Theme) {
     let mut fb = Fb(vec![Rgb565::BLACK; 240 * 320]);
-    ui::draw(&mut fb, ui, v, theme).unwrap();
+    let file = test_route();
+    let r = route::Route::parse(&file).unwrap();
+    ui::draw(&mut fb, ui, v, v.route.map(|_| &r), theme).unwrap();
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("screens");
     std::fs::create_dir_all(&dir).unwrap();
     let file = std::fs::File::create(dir.join(format!("{name}.png"))).unwrap();
@@ -88,6 +91,46 @@ fn save(name: &str, ui: &Ui, v: &View, theme: &Theme) {
             })
             .collect();
     w.write_image_data(&data).unwrap();
+}
+
+/// A 6 km loop: 1.5 km north, a bend east, back south (synthetic, near the prototype's place).
+fn test_route() -> Vec<u8> {
+    let mut gpx = String::from("<gpx><trk><name>Boucle Montagne Noire et Lacs</name><trkseg>");
+    let (lat0, lon0) = (43.45_f64, 2.05_f64);
+    let km_lat = 1.0 / 111.319;
+    let km_lon = km_lat / lat0.to_radians().cos();
+    for i in 0..=300 {
+        let a = i as f64 / 300.0 * std::f64::consts::TAU;
+        let (n, e) = (0.95 * (1.0 - a.cos()), 0.95 * a.sin() * (1.0 + 0.3 * (2.0 * a).sin()));
+        gpx += &format!(
+            "<trkpt lat=\"{:.6}\" lon=\"{:.6}\"><ele>{:.1}</ele></trkpt>",
+            lat0 + n * km_lat,
+            lon0 + e * km_lon,
+            300.0 + 80.0 * (a / 2.0).sin()
+        );
+    }
+    gpx += "</trkseg></trk></gpx>";
+    route::build(&route::parse_gpx(&gpx).unwrap(), 3.0)
+}
+
+/// The rider a quarter round the loop, heading north east.
+fn with_route(v: View, ride: bool) -> View {
+    let file = test_route();
+    let r = route::Route::parse(&file).unwrap();
+    let pts: Vec<_> = r.points().collect();
+    let me = pts[pts.len() / 5];
+    let progress = r.locate(me.x, me.y, None);
+    View {
+        route: Some(ui::RouteView {
+            name: Line::new(format_args!("{}", r.name())),
+            length_dm: r.info.length_dm,
+            ascent_m: r.info.ascent_m,
+            me: ride.then_some((me.x + 40, me.y)),
+            heading_cdeg: Some(3_000),
+            progress: ride.then_some(progress),
+        }),
+        ..v
+    }
 }
 
 /// The states of tools/prototype_shots.py, under the same names.
@@ -160,6 +203,32 @@ fn every_screen() {
         );
         shot(&info, &home, "home-info");
     }
+    // with a route: home, then the map at each zoom, the whole route before the fix, off the route
+    let mut ui = Ui::new();
+    ui.set_context(true, false);
+    let home = with_route(view(), false);
+    save("route-home", &ui, &home, &ui::DAY);
+    ui.key(Key::BottomRight, Press::Click, 0, &home);
+    let riding = with_route(view(), true);
+    ui.tick(0, Some(true), &riding);
+    for z in ["route-map-1km", "route-map-2km", "route-map-500m"] {
+        save(z, &ui, &riding, &ui::DAY);
+        ui.key(Key::TopLeft, Press::Click, 0, &riding);
+    }
+    save("route-map-night", &ui, &riding, &ui::NIGHT);
+    let mut lost = riding;
+    if let Some(r) = lost.route.as_mut() {
+        r.me = None;
+    }
+    save("route-map-no-fix", &ui, &lost, &ui::DAY);
+    let mut off = riding;
+    if let Some(r) = off.route.as_mut() {
+        r.progress = r.progress.map(|p| route::Progress { off_dm: 1_230, ..p });
+    }
+    ui.tick(1, Some(true), &off);
+    save("route-off", &ui, &off, &ui::DAY);
+    ui.key(Key::BottomLeft, Press::Click, 0, &riding);
+    save("route-essential", &ui, &riding, &ui::DAY);
     // unknown values, a slow speed (its comma where 32,4 has it), a low battery
     let empty = View::default();
     let mut ui = Ui::new();

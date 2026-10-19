@@ -8,6 +8,9 @@ version.workspace      = true
 
 [dependencies]
 embedded-graphics = "0.8.2"
+libm              = "0.2.16"
+route             = { path = "../route" }
 
 [dev-dependencies]
-png = "0.18.1"
+png   = "0.18.1"
+route = { path = "../route", features = ["build"] }

@@ -14,6 +14,8 @@
 mod draw;
 pub mod fonts;
 pub mod history;
+mod map;
+pub mod nav;
 
 pub use draw::{CONTENT, DAY, NIGHT, Theme, draw};
 use fonts::Line;
@@ -71,6 +73,8 @@ pub enum Screen {
 /// A ride page, picked when the ride starts ([`pages`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
+    /// The route around the rider, heading up.
+    Map,
     /// Speed, time, distance, D+, heart rate (else average speed).
     Essential,
     /// Altitude, gradient, D+ / D-, the last 5 km.
@@ -80,19 +84,30 @@ pub enum Page {
 impl Page {
     fn name(self) -> &'static str {
         match self {
+            Page::Map => "Carte",
             Page::Essential => "Essentiel",
             Page::Altitude => "Altitude",
         }
     }
 }
 
-/// The ride pages for what the device has (docs/PRODUCT.md, "Data pages"): without a route nor a sensor,
-/// Essential then Altitude. The map, climbs and effort pages come with the route and the sensors.
-pub fn pages() -> Pages {
-    Pages {
-        list: [Some(Page::Essential), Some(Page::Altitude), None, None],
-    }
+/// The ride pages for what the device has (docs/PRODUCT.md, "Data pages"): to explore, the map first when a route
+/// is loaded, else Essential then Altitude; to train, Essential first. The climbs and effort pages come with the
+/// climbs of the route and the sensors.
+pub fn pages(route: bool, train: bool) -> Pages {
+    use Page::*;
+    let list = match (route, train) {
+        (true, false) => [Some(Map), Some(Essential), None, None],
+        (true, true) => [Some(Essential), Some(Map), None, None],
+        (false, _) => [Some(Essential), Some(Altitude), None, None],
+    };
+    Pages { list }
 }
+
+/// Map zooms: metres for the scale bar (60 pixels).
+pub const ZOOMS_M: [u32; 3] = [500, 1000, 2000];
+/// Off the route farther than this, decimetres: the banner.
+pub const OFF_ROUTE_DM: u32 = 500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pages {
@@ -233,6 +248,21 @@ pub struct View {
     pub rides_stored: Option<u16>,
     /// The last finished ride can be resumed.
     pub resumable: bool,
+    /// The route loaded, and where the rider is on it.
+    pub route: Option<RouteView>,
+}
+
+/// The route loaded: what the home screen tells, where the map is drawn from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RouteView {
+    pub name: Line,
+    pub length_dm: u32,
+    pub ascent_m: u16,
+    /// The rider on the route's plane (decimetres) with a fix.
+    pub me: Option<(i32, i32)>,
+    /// Course over ground, hundredths of a degree (the last one while stopped).
+    pub heading_cdeg: Option<u16>,
+    pub progress: Option<route::Progress>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -300,6 +330,11 @@ pub struct Ui {
     scroll_ms: u64,
     scrolled_at: u64,
     banner: Option<Banner>,
+    /// Map zoom, index in [`ZOOMS_M`].
+    zoom: u8,
+    /// What picks the pages: a route is loaded, the usage is training.
+    route: bool,
+    train: bool,
     /// The GNSS had a fix during this ride ("lost" rather than "searching").
     had_fix: bool,
     fix: bool,
@@ -325,6 +360,9 @@ impl Ui {
             scroll_ms: SCROLL_MS,
             scrolled_at: 0,
             banner: None,
+            zoom: 1,
+            route: false,
+            train: false,
             had_fix: false,
             fix: false,
         }
@@ -335,10 +373,26 @@ impl Ui {
         self.scroll_ms = s as u64 * 1000;
     }
 
+    /// What picks the ride pages (at the next start): a route is loaded, the usage setting is training.
+    pub fn set_context(&mut self, route: bool, train: bool) {
+        self.route = route;
+        self.train = train;
+    }
+
+    /// The pages a ride would have now.
+    pub fn next_pages(&self) -> Pages {
+        pages(self.route, self.train)
+    }
+
+    /// The map's scale bar, metres.
+    pub fn zoom_m(&self) -> u32 {
+        ZOOMS_M[self.zoom as usize]
+    }
+
     /// At power-on with a paused ride: the screen that offers to resume or finish it.
     pub fn found_paused_ride(&mut self) {
         self.screen = Screen::Resume;
-        self.pages = pages();
+        self.pages = self.next_pages();
     }
 
     pub fn screen(&self) -> Screen {
@@ -422,6 +476,12 @@ impl Ui {
                 }
             }
             (Status, TopLeft, Click) => (if self.back == Home { Menu } else { PauseMenu }, None),
+            // a page changed or zoomed by hand stays a full interval before the next scroll
+            (Ride, TopLeft, Click) if self.page() == Some(Page::Map) => {
+                self.zoom = (self.zoom + 1) % ZOOMS_M.len() as u8;
+                self.scrolled_at = now_ms;
+                (Ride, None)
+            }
             (Ride, TopLeft, Click) => {
                 self.scroll = !self.scroll;
                 self.scrolled_at = now_ms;
@@ -429,6 +489,7 @@ impl Ui {
             }
             (Ride, BottomLeft, Click) => {
                 self.next_page();
+                self.scrolled_at = now_ms;
                 (Ride, None)
             }
             (Ride, BottomRight, Click) => {
@@ -459,7 +520,7 @@ impl Ui {
     }
 
     fn start_ride(&mut self) {
-        self.pages = pages();
+        self.pages = self.next_pages();
         self.page = 0;
         self.had_fix = false;
     }
@@ -485,33 +546,47 @@ impl Ui {
             self.next_page();
             self.scrolled_at = now_ms;
         }
-        // GNSS banners while riding: searching or lost while there is no fix, then found again for a while
+        // Attention banners while riding: the GNSS searching or lost while there is no fix, then off the route;
+        // when the GNSS comes back, an information for a while.
         let fix = matches!(view.gnss, Gnss::Fix { .. });
         let riding = ride.is_some();
-        if riding && !fix {
-            let (title, detail) = if self.had_fix {
-                ("GPS perdu", "Distance en attente du GPS")
-            } else {
-                ("Recherche du GPS", "La distance part au fix")
-            };
-            if !self.banner.is_some_and(|b| b.title == title) {
+        let off_route = view
+            .route
+            .and_then(|r| r.progress)
+            .filter(|p| p.off_dm > OFF_ROUTE_DM);
+        let attention = match (riding, fix, off_route) {
+            (true, false, _) if self.had_fix => Some(("GPS perdu", Line::new(format_args!("Distance en attente du GPS")))),
+            (true, false, _) => Some(("Recherche du GPS", Line::new(format_args!("La distance part au fix")))),
+            // in metres up to 2 km, then in km
+            (true, true, Some(p)) if p.off_dm < 20_000 => {
+                Some(("Hors de la trace", Line::new(format_args!("à {} m", p.off_dm / 10))))
+            }
+            (true, true, Some(p)) => Some((
+                "Hors de la trace",
+                Line::new(format_args!("à {},{} km", p.off_dm / 10_000, p.off_dm / 1_000 % 10)),
+            )),
+            _ => None,
+        };
+        match (attention, self.banner) {
+            (Some((title, detail)), Some(b)) if b.title == title => {
+                self.banner = Some(Banner { detail, ..b });
+            }
+            (Some((title, detail)), _) => {
                 self.banner = Some(Banner {
                     kind: BannerKind::Attention,
                     title,
-                    detail: Line::new(format_args!("{detail}")),
+                    detail,
                     since_ms: now_ms,
                     left_tenths: 10,
                 });
             }
-        } else if self.banner.is_some_and(|b| b.kind == BannerKind::Attention) {
-            self.banner = None;
-            if let (true, Gnss::Fix { used }) = (riding && self.had_fix, view.gnss) {
-                self.inform(
-                    "GPS retrouvé",
-                    Line::new(format_args!("{used} satellites")),
-                    now_ms,
-                );
+            (None, Some(b)) if b.kind == BannerKind::Attention => {
+                self.banner = None;
+                if let (true, "GPS perdu", Gnss::Fix { used }) = (riding, b.title, view.gnss) {
+                    self.inform("GPS retrouvé", Line::new(format_args!("{used} satellites")), now_ms);
+                }
             }
+            _ => {}
         }
         if riding && fix {
             self.had_fix = true;
@@ -542,6 +617,16 @@ impl Ui {
             ],
             Menu | PauseMenu => [BACK, NEXT, OPEN],
             Status => [BACK, NOTHING, NOTHING],
+            // the map's top left key is its scale: the length of the bar drawn next to it ([`Ui::map_scale`]);
+            // without a position the whole route is shown, at no fixed scale
+            Ride if self.page() == Some(Page::Map) => [
+                match self.map_scale(view) {
+                    Some(_) => Hint::new(["250 m", "500 m", "1 km"][self.zoom as usize]),
+                    None => Hint::new("\u{e00f} Zoom"),
+                },
+                Hint::new("Page \u{e004}"),
+                Hint::new("Pause \u{e001}").kind(Kind::Pause),
+            ],
             Ride => [
                 Hint::new(if self.scroll {
                     "\u{e00c} Défil. oui"
@@ -571,6 +656,15 @@ impl Ui {
                 Hint::new("OK").kind(Kind::Select),
             ],
         }
+    }
+
+    /// The map's scale bar in the top left key, pixels (for the length in its label), when the map is shown around
+    /// the rider.
+    pub fn map_scale(&self, view: &View) -> Option<i32> {
+        (self.screen == Screen::Ride
+            && self.page() == Some(Page::Map)
+            && view.route.is_some_and(|r| r.me.is_some()))
+        .then_some(map::SCALE_PX as i32 / 2)
     }
 
     /// The top bar shows "GPS ✕" in place of the clock (riding without a fix).
@@ -685,6 +779,45 @@ mod tests {
     }
 
     #[test]
+    fn off_the_route_in_metres_then_in_km_from_2_km() {
+        let off = |off_dm| {
+            let mut v = view();
+            v.route = Some(RouteView {
+                name: Line::new(format_args!("x")),
+                length_dm: 100_000,
+                ascent_m: 0,
+                me: Some((0, 0)),
+                heading_cdeg: None,
+                progress: Some(route::Progress { along_dm: 0, off_dm, segment: 0 }),
+            });
+            let mut ui = Ui::new();
+            press(&mut ui, BottomRight);
+            ui.tick(0, Some(true), &v);
+            ui.banner().map(|b| Line::new(format_args!("{}", b.detail.as_str())))
+        };
+        assert_eq!(off(12_340).unwrap().as_str(), "à 1234 m");
+        assert_eq!(off(23_456).unwrap().as_str(), "à 2,3 km");
+        assert!(off(400).is_none());
+    }
+
+    #[test]
+    fn a_page_changed_by_hand_waits_a_full_interval_before_the_next_scroll() {
+        let mut ui = Ui::new();
+        press(&mut ui, BottomRight);
+        ui.key(TopLeft, Click, 0, &view());
+        assert!(ui.scrolling());
+        // by hand just before the scroll was due
+        ui.key(BottomLeft, Click, SCROLL_MS - 100, &view());
+        assert_eq!(ui.page(), Some(Page::Altitude));
+        ui.tick(SCROLL_MS, Some(true), &view());
+        assert_eq!(ui.page(), Some(Page::Altitude));
+        ui.tick(2 * SCROLL_MS - 101, Some(true), &view());
+        assert_eq!(ui.page(), Some(Page::Altitude));
+        ui.tick(2 * SCROLL_MS - 100, Some(true), &view());
+        assert_eq!(ui.page(), Some(Page::Essential));
+    }
+
+    #[test]
     fn switching_off_from_home_or_the_pause_menu() {
         let mut ui = Ui::new();
         assert_eq!(ui.key(TopLeft, Long, 0, &view()), Some(Command::PowerOff));
@@ -762,7 +895,9 @@ mod tests {
 
     #[test]
     fn page_names() {
-        assert_eq!(pages().names().as_str(), "Essentiel · Altitude");
+        assert_eq!(pages(false, false).names().as_str(), "Essentiel · Altitude");
+        assert_eq!(pages(true, false).names().as_str(), "Carte · Essentiel");
+        assert_eq!(pages(true, true).names().as_str(), "Essentiel · Carte");
     }
 
     #[test]

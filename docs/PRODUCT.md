@@ -191,12 +191,16 @@ Status on 2026-10-20 (updated by the bring-up work; altitude is worked on in par
       `tools/prototype_shots.py` and `tools/compare_screens.py`): home (GPS acquisition, pages, rides to upload),
       menu, ride pages Essential and Altitude (gradient, last 5 km), auto-scroll, GPS banners, pause and pause menu,
       finish confirmed, end screen, a ride paused at power-off or interrupted offered again at power-on, the last
-      finished ride resumable (no upload yet: always the newest). Not yet: sensors, Wi-Fi sync, route pages, auto
+      finished ride resumable (no upload yet: always the newest). Not yet: sensors, Wi-Fi sync, Climbs page, auto
       pause, start reminder, beeps; the menus show the device status instead.
 - [ ] **Beeps** (once the buzzer is understood): key feedback (can be turned off), alerts — off route, sensor lost,
       low battery, recording started/stopped. Every beep comes with a message on screen.
-- [ ] **Load a GPX route and display the route line** (no background map yet), and switch to a free ride without
-      it (route kept, see UI rules).
+- [x] **Load a GPX route and display the route line** (no background map yet): `crates/route`, sent over USB by
+      `tools/send_route.py` until the app does it, kept in `/route`. Map page turned to the heading, the part done
+      in grey, zooms 250 m / 500 m / 1 km on the top key (its scale bar), remaining distance and speed; home
+      with the route; off-route banner beyond 50 m. Drawn in 28–47 ms on the device (`bench map`). Tested on the
+      device with positions sent over USB (`tools/replay_gpx.py`, `tests/hil/test_route.py`).
+- [ ] **Switch to a free ride without the route** (route kept, see UI rules).
 - [x] **Settings kept in flash** (`crates/settings`, `/settings`, one `key=value` line each, written in one
       commit): sound, time zone as a POSIX rule with summer time (default `CET-1CEST,M3.5.0,M10.5.0/3`, used
       for the clock and the FIT `local_timestamp`), theme day / night, backlight, usage (explore / train, for the

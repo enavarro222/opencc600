@@ -778,6 +778,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "route"
+version = "0.1.0"
+dependencies = [
+ "libm",
+ "route",
+]
+
+[[package]]
+name = "route-tool"
+version = "0.1.0"
+dependencies = [
+ "embedded-graphics",
+ "png",
+ "route",
+ "settings",
+ "ui",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -954,7 +973,9 @@ name = "ui"
 version = "0.1.0"
 dependencies = [
  "embedded-graphics",
+ "libm",
  "png",
+ "route",
 ]
 
 [[package]]

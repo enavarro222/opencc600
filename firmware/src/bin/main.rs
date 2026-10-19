@@ -12,7 +12,7 @@
 )]
 #![deny(clippy::large_stack_frames)]
 
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::Mutex;
@@ -247,8 +247,17 @@ async fn main(spawner: Spawner) -> ! {
     // the ride in progress, else the last one saved (the "saved" screen)
     let mut ride_shown = ride.as_deref().map(Ride::info).unwrap_or_default();
     let mut trip_log: Option<TripLog> = None;
+    // the route (`/route`) and where the rider is on it
+    let mut route_data = fs.as_ref().ok().and_then(load_route);
+    let mut nav = ui::nav::Nav::default();
     loop {
         let _ = with_timeout(Duration::from_secs(1), STATUS_CHANGED.wait()).await;
+        if let Some(new) = ROUTE_RECEIVED.try_take()
+            && let Ok(fs) = fs.as_ref()
+        {
+            route_data = store_route(fs, new);
+            nav = ui::nav::Nav::default();
+        }
         if SETTINGS_CHANGED.signaled() {
             SETTINGS_CHANGED.reset();
             let s = settings();
@@ -350,7 +359,26 @@ async fn main(spawner: Spawner) -> ! {
             ride_shown = r;
         }
         let resumable = ride.is_none() && last_finished.is_some();
-        let view = view_of(&state, &ride_shown, resumable);
+        let mut view = view_of(&state, &ride_shown, resumable);
+        let route = route_data
+            .as_deref()
+            .and_then(|d| route::Route::parse(d).ok());
+        if BENCH_MAP.try_take().is_some()
+            && let Some(r) = route.as_ref()
+        {
+            bench_map(&mut fb, r, &view);
+            shown = None;
+        }
+        let fix = state.fix.filter(|f| f.valid).and_then(|f| {
+            Some(ui::nav::Fix {
+                lat_e7: f.lat_e7?,
+                lon_e7: f.lon_e7?,
+                speed_mm_s: f.speed_mm_s,
+                course_cdeg: f.course_cdeg,
+            })
+        });
+        view.route = route.as_ref().map(|r| nav.update(r, fix));
+        ui.set_context(route.is_some(), settings().usage == settings::Usage::Train);
         ui.tick(
             Instant::now().as_millis(),
             ride_info.map(|r| r.running),
@@ -360,7 +388,14 @@ async fn main(spawner: Spawner) -> ! {
         let status_shown = (ui.screen() == ui::Screen::Status).then_some(state);
         let screen = (ui, view, status_shown);
         if shown != Some(screen) {
-            ui::draw(&mut fb, &ui, &view, &theme()).unwrap();
+            let t = Instant::now();
+            ui::draw(&mut fb, &ui, &view, route.as_ref(), &theme()).unwrap();
+            let ms = t.elapsed().as_millis();
+            if ms > 100 {
+                warn!("ui: {:?} {:?} drawn in {ms} ms", ui.screen(), ui.page());
+            } else {
+                debug!("ui: drawn in {ms} ms");
+            }
             if status_shown.is_some() {
                 draw_status(&mut fb, &state, ride_info);
             }
@@ -389,6 +424,14 @@ const RUN_BENCH: bool = false;
 /// Latest state from the nRF, written by the nRF task, read by the display loop.
 static STATUS: Mutex<CriticalSectionRawMutex, Cell<Status>> = Mutex::new(Cell::new(Status::new()));
 static STATUS_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+/// When the last position came over USB (`fix`, tools/replay_gpx.py): until [`SIM_FIX_HOLD`] after it, the
+/// receiver's epochs are ignored.
+static SIM_FIX_AT: Mutex<CriticalSectionRawMutex, Cell<Option<Instant>>> = Mutex::new(Cell::new(None));
+const SIM_FIX_HOLD: Duration = Duration::from_secs(5);
+
+fn sim_fix_active() -> bool {
+    SIM_FIX_AT.lock(Cell::get).is_some_and(|t| t.elapsed() < SIM_FIX_HOLD)
+}
 static NRF_KEYS: Channel<CriticalSectionRawMutex, (u8, KeyAction), 8> = Channel::new();
 
 static NRF_COMMANDS: Channel<CriticalSectionRawMutex, [u8; command::CTRL_FRAME], 4> =
@@ -613,7 +656,7 @@ async fn gnss_task(mut uart: GnssUart) {
                 s.set(status);
             });
         }
-        if epoch {
+        if epoch && !sim_fix_active() {
             let calibration = STATUS.lock(|s| {
                 let mut status = s.get();
                 status.fix = Some(fix);
@@ -881,6 +924,165 @@ fn save_settings(fs: &Fs<'_>, s: &settings::Settings) {
         Ok(()) => info!("settings: saved"),
         Err(e) => warn!("settings: save failed, littlefs error {}", e.code()),
     }
+}
+
+/// The route file, and the one being written (renamed over it once complete: a power cut keeps one of the two).
+const ROUTE_FILE: &str = "/route";
+const ROUTE_NEW: &str = "/route.new";
+/// Largest route accepted (~9 000 points).
+const ROUTE_MAX: usize = 64 * 1024;
+/// A route being received over USB.
+static ROUTE_RX: Mutex<CriticalSectionRawMutex, RefCell<Option<Vec<u8>>>> =
+    Mutex::new(RefCell::new(None));
+/// The test hook asks for the map benchmark.
+static BENCH_MAP: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+/// A route received (`None`: remove the route).
+static ROUTE_RECEIVED: Signal<CriticalSectionRawMutex, Option<Vec<u8>>> = Signal::new();
+
+/// The data of a `route data` line (hex, then the CRC-16 of the bytes in 4 hex digits) if its CRC matches.
+fn route_line(hex: &str) -> Option<&str> {
+    let (data, crc) = hex.split_at_checked(hex.len().checked_sub(4)?)?;
+    let mut bytes = Vec::with_capacity(data.len() / 2);
+    (unhex(data, &mut bytes) && u16::from_str_radix(crc, 16).ok()? == route::crc16(&bytes))
+        .then_some(data)
+}
+
+/// `hex` appended to `buf`; false if it is not hex.
+fn unhex(hex: &str, buf: &mut Vec<u8>) -> bool {
+    let b = hex.as_bytes();
+    if !b.len().is_multiple_of(2) {
+        return false;
+    }
+    let digit = |c: u8| (c as char).to_digit(16);
+    for pair in b.chunks(2) {
+        match (digit(pair[0]), digit(pair[1])) {
+            (Some(h), Some(l)) => buf.push((h * 16 + l) as u8),
+            _ => return false,
+        }
+    }
+    true
+}
+
+#[allow(
+    clippy::large_stack_frames,
+    reason = "littlefs file handle, once at boot from main"
+)]
+fn load_route(fs: &Fs<'_>) -> Option<Vec<u8>> {
+    let path = littlefs2::path::PathBuf::try_from(ROUTE_FILE).unwrap();
+    let data = fs
+        .open_file_and_then(&path, |file| {
+            let mut data = alloc::vec![0; file.len()?.min(ROUTE_MAX)];
+            let mut n = 0;
+            while n < data.len() {
+                match file.read(&mut data[n..])? {
+                    0 => break,
+                    k => n += k,
+                }
+            }
+            data.truncate(n);
+            Ok(data)
+        })
+        .ok()?;
+    match route::Route::parse(&data) {
+        Ok(r) => {
+            info!(
+                "route: {:?}, {} points, {} m",
+                r.name(),
+                r.info.count,
+                r.info.length_dm / 10
+            );
+            Some(data)
+        }
+        Err(e) => {
+            warn!("route: {ROUTE_FILE} unreadable ({e:?})");
+            None
+        }
+    }
+}
+
+/// Checks a route received and makes it the route (`None`: removes the route); returns the route now.
+#[allow(
+    clippy::large_stack_frames,
+    reason = "littlefs file handles, once a route from main"
+)]
+fn store_route(fs: &Fs<'_>, data: Option<Vec<u8>>) -> Option<Vec<u8>> {
+    let path = littlefs2::path::PathBuf::try_from(ROUTE_FILE).unwrap();
+    let Some(data) = data else {
+        let _ = fs.remove(&path);
+        info!("route: removed");
+        return None;
+    };
+    if let Err(e) = route::Route::parse(&data) {
+        warn!("route: received file refused ({e:?}), the route stays as it was");
+        return load_route(fs);
+    }
+    let new = littlefs2::path::PathBuf::try_from(ROUTE_NEW).unwrap();
+    match fs.write(&new, &data).and_then(|()| fs.rename(&new, &path)) {
+        Ok(()) => {
+            let r = route::Route::parse(&data).unwrap();
+            info!(
+                "route: loaded {:?}, {} points, {} m",
+                r.name(),
+                r.info.count,
+                r.info.length_dm / 10
+            );
+            Some(data)
+        }
+        Err(e) => {
+            warn!("route: write failed, littlefs error {}", e.code());
+            load_route(fs)
+        }
+    }
+}
+
+/// The map page drawn on the route, at each zoom (the test hook's `bench map`).
+fn bench_map(fb: &mut FrameBuffer, r: &route::Route<'_>, view: &ui::View) {
+    let p = r.points().nth(r.info.count as usize / 3).unwrap();
+    let mut ui = ui::Ui::new();
+    ui.set_context(true, false);
+    let mut v = *view;
+    v.route = Some(ui::RouteView {
+        name: ui::fonts::Line::new(format_args!("{}", r.name())),
+        length_dm: r.info.length_dm,
+        ascent_m: r.info.ascent_m,
+        me: Some((p.x, p.y)),
+        heading_cdeg: Some(4_500),
+        progress: Some(r.locate(p.x, p.y, None)),
+    });
+    ui.key(ui::Key::BottomRight, ui::Press::Click, 0, &v);
+    for _ in ui::ZOOMS_M {
+        let t = Instant::now();
+        ui::draw(fb, &ui, &v, Some(r), &theme()).unwrap();
+        let draw = t.elapsed().as_millis();
+        let t = Instant::now();
+        let fix = Some(ui::nav::Fix {
+            lat_e7: r.info.lat0_e7,
+            lon_e7: r.info.lon0_e7,
+            speed_mm_s: Some(5_000),
+            course_cdeg: Some(0),
+        });
+        let _ = ui::nav::Nav::default().update(r, fix);
+        let locate = t.elapsed().as_millis();
+        info!(
+            "bench: map at {} m drawn in {draw} ms, located in {locate} ms",
+            ui.zoom_m()
+        );
+        ui.key(ui::Key::TopLeft, ui::Press::Click, 0, &v);
+    }
+    // what the rest costs: the map without the route, the Essential page, a clear
+    let t = Instant::now();
+    ui::draw(fb, &ui, &v, None, &theme()).unwrap();
+    let no_route = t.elapsed().as_millis();
+    ui.key(ui::Key::BottomLeft, ui::Press::Click, 0, &v);
+    let t = Instant::now();
+    ui::draw(fb, &ui, &v, Some(r), &theme()).unwrap();
+    let essential = t.elapsed().as_millis();
+    let t = Instant::now();
+    fb.clear(Rgb565::WHITE).unwrap();
+    let clear = t.elapsed().as_micros();
+    info!(
+        "bench: map page without the route {no_route} ms, Essential page {essential} ms, clear {clear} us"
+    );
 }
 
 fn theme() -> ui::Theme {
@@ -1316,6 +1518,7 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
         whole: ride.history.whole(),
         rides_stored: s.storage.and_then(|r| r.ok()).map(|(rides, _, _)| rides),
         resumable,
+        route: None,
     }
 }
 
@@ -1330,8 +1533,8 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
     reason = "task future: line buffer, statically allocated by embassy"
 )]
 async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
-    // room for `set tz` and a time zone rule with summer time, after a sequence number
-    let mut line = [0u8; 64];
+    // room for `route data` and 100 bytes in hex, after a sequence number
+    let mut line = [0u8; 256];
     let mut len = 0;
     let mut last_seq = None;
     loop {
@@ -1341,6 +1544,15 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
             if b == b'\n' || b == b'\r' {
                 let text = core::str::from_utf8(&line[..len]).unwrap_or("");
                 let (seq, text) = split_seq(text);
+                // the link also loses bytes inside a line: a route data line carries its CRC, a damaged one is not
+                // acknowledged, so the host sends it again
+                if let Some(hex) = text.strip_prefix("route data ")
+                    && route_line(hex).is_none()
+                {
+                    warn!("usb: route data line damaged, not acknowledged");
+                    len = 0;
+                    continue;
+                }
                 if let Some(seq) = seq {
                     // acknowledged again when repeated (the host resends until it sees the ack), run once; only
                     // the last number counts: a new host session starts again from 1
@@ -1389,6 +1601,50 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                             info!("usb: {line}");
                         }
                     }
+                    Some(UsbCommand::RouteBegin(n)) if n <= ROUTE_MAX => {
+                        ROUTE_RX.lock(|r| *r.borrow_mut() = Some(Vec::with_capacity(n)));
+                        info!("usb: route begin, {n} bytes");
+                    }
+                    Some(UsbCommand::RouteBegin(n)) => {
+                        warn!("usb: route of {n} bytes, more than {ROUTE_MAX}")
+                    }
+                    Some(UsbCommand::RouteData(hex)) => {
+                        let data = route_line(hex).unwrap_or(hex);
+                        let ok = ROUTE_RX.lock(|r| match r.borrow_mut().as_mut() {
+                            Some(buf) if buf.len() + data.len() / 2 <= ROUTE_MAX => {
+                                unhex(data, buf)
+                            }
+                            _ => false,
+                        });
+                        if !ok {
+                            warn!("usb: route data refused (no begin, too long or not hex)");
+                        }
+                    }
+                    Some(UsbCommand::RouteEnd) => match ROUTE_RX.lock(|r| r.borrow_mut().take()) {
+                        Some(data) => {
+                            info!("usb: route end, {} bytes", data.len());
+                            ROUTE_RECEIVED.signal(Some(data));
+                        }
+                        None => warn!("usb: route end without begin"),
+                    },
+                    Some(UsbCommand::RouteClear) => ROUTE_RECEIVED.signal(None),
+                    Some(UsbCommand::BenchMap) => BENCH_MAP.signal(()),
+                    Some(UsbCommand::SimFix(Some((lat_e7, lon_e7, speed_mm_s, course_cdeg)))) => {
+                        if !sim_fix_active() {
+                            info!("usb: simulated position, the receiver's ignored");
+                        }
+                        SIM_FIX_AT.lock(|c| c.set(Some(Instant::now())));
+                        STATUS.lock(|c| {
+                            let mut s = c.get();
+                            s.fix = Some(sim_fix(&s, lat_e7, lon_e7, speed_mm_s, course_cdeg));
+                            c.set(s);
+                        });
+                        STATUS_CHANGED.signal(());
+                    }
+                    Some(UsbCommand::SimFix(None)) => {
+                        SIM_FIX_AT.lock(|c| c.set(None));
+                        info!("usb: simulated position off");
+                    }
                     Some(UsbCommand::RtcShift(s)) => match STATUS.lock(Cell::get).rtc {
                         Some(rtc) => {
                             let t = RtcTime::from_unix(rtc.unix() + s as i64);
@@ -1408,6 +1664,26 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
         }
         Timer::after(Duration::from_millis(50)).await;
     }
+}
+
+/// A valid fix at this position, timed by the RTC (the recorder takes one point per new second), without altitude
+/// (the altimeter keeps to the barometer).
+fn sim_fix(s: &Status, lat_e7: i32, lon_e7: i32, speed_mm_s: Option<u32>, course_cdeg: Option<u16>) -> gnss::Fix {
+    let mut f = gnss::Fix::default();
+    f.valid = true;
+    f.quality = 1;
+    f.sats_used = 9;
+    f.sats_in_view = 9;
+    f.hdop_c = Some(100);
+    f.lat_e7 = Some(lat_e7);
+    f.lon_e7 = Some(lon_e7);
+    f.speed_mm_s = speed_mm_s;
+    f.course_cdeg = course_cdeg;
+    if let Some(t) = s.rtc {
+        f.time = Some(gnss::Time { hour: t.hour, minute: t.minute, second: t.second, millis: 0 });
+        f.date = Some(gnss::Date { year: t.year, month: t.month, day: t.day });
+    }
+    f
 }
 
 /// `<seq> <command>` → (seq, command); a line without a number is a command typed by hand.
@@ -1431,8 +1707,23 @@ enum UsbCommand<'a> {
     Set(&'a str, &'a str),
     Get(&'a str),
     Settings,
+    /// `route begin <bytes>`, `route data <hex>`..., `route end`: a route file sent from the PC
+    /// (`tools/send_route.py`); `route clear` removes it.
+    RouteBegin(usize),
+    RouteData(&'a str),
+    RouteEnd,
+    RouteClear,
+    /// Draws the map page on the route at each zoom and logs the times (the rider placed a third along it).
+    BenchMap,
+    /// `fix <lat_e7> <lon_e7> [<speed_mm_s> [<course_cdeg>]]`: a position in place of the receiver's, for
+    /// [`SIM_FIX_HOLD`] (tools/replay_gpx.py); `fix off` gives the receiver back at once.
+    SimFix(Option<(i32, i32, Option<u32>, Option<u16>)>),
 }
 
+#[allow(
+    clippy::large_stack_frames,
+    reason = "number parsing inlined (clippy's estimate); called from the USB task, whose stack is static"
+)]
 fn usb_command(line: &str) -> Option<UsbCommand<'_>> {
     let mut words = line.split_whitespace();
     match (words.next()?, words.next()?, words.next()) {
@@ -1456,6 +1747,17 @@ fn usb_command(line: &str) -> Option<UsbCommand<'_>> {
         ("set", key, Some(value)) => Some(UsbCommand::Set(key, value)),
         ("get", key, None) => Some(UsbCommand::Get(key)),
         ("settings", "?", None) => Some(UsbCommand::Settings),
+        ("route", "begin", Some(n)) => Some(UsbCommand::RouteBegin(n.parse().ok()?)),
+        ("route", "data", Some(hex)) => Some(UsbCommand::RouteData(hex)),
+        ("route", "end", None) => Some(UsbCommand::RouteEnd),
+        ("route", "clear", None) => Some(UsbCommand::RouteClear),
+        ("bench", "map", None) => Some(UsbCommand::BenchMap),
+        ("fix", "off", None) => Some(UsbCommand::SimFix(None)),
+        ("fix", lat, Some(lon)) => {
+            let speed = words.next().map(str::parse).transpose().ok()?;
+            let course = words.next().map(str::parse).transpose().ok()?;
+            Some(UsbCommand::SimFix(Some((lat.parse().ok()?, lon.parse().ok()?, speed, course))))
+        }
         ("key", key, Some(action)) => {
             let key = key.parse().ok().filter(|&k: &u8| k <= 2)?;
             let actions: &[KeyAction] = match action {
