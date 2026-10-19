@@ -171,6 +171,10 @@ Right after the MVP: corridor background map.
 0. **Bring-up spike, first risk to clear**: an `esp-hal` image written to `ota_0` boots under the **vendor
    second-stage bootloader and partition table** (both left untouched), with the 2 MB quad PSRAM.
    Done when: backlight on + log line on the USB serial.
+   **Done 2026-10-19** (`firmware/`, esp-hal 1.2.2 + esp-rtos 0.4): the vendor bootloader loads the 101 KB image
+   from 0x20000, PSRAM comes up in quad mode (2 MB, set explicitly: `PsramMode::Auto` probes octal first),
+   LEDC backlight on GPIO45, `log` output over the USB-Serial/JTAG. The vendor bootloader prints its own log
+   (partition table, segments) on the same port. Flashed with `tools/flash_ota0.py`.
 1. Toolchain: Rust Xtensa fork via `espup` (ESP32-S3 is Xtensa), `espflash` to build the image,
    `esptool` to write `ota_0` (see the workflow below). Pinned in `rust-toolchain.toml`.
 2. Cargo workspace:
@@ -207,10 +211,10 @@ Right after the MVP: corridor background map.
 - Status of `esp-radio` BLE (central role, GATT client) to check early with a heart-rate strap and a power meter.
 
 ## Flash and rollback workflow (checked on 2026-10-19)
-- Build: `cargo build --release`, then `espflash save-image --chip esp32s3` to get an app image for `ota_0`
-  *(to validate in step 0)*. The c606-oss Docker build in REVERSE_NOTES.md stays useful to run the reference firmware.
+- Build: `cargo build --release`, then `espflash save-image --chip esp32s3 --flash-size 16mb` to get an app image
+  for `ota_0` (checked in step 0). The c606-oss Docker build in REVERSE_NOTES.md stays useful to run the reference firmware.
 - Flash: only `ota_0` (0x20000), then erase `otadata` (c606-oss `tools/flash_poc.py` does this and backs up first;
-  we will have our own script that refuses any other offset).
+  `tools/flash_ota0.py` does the same and refuses any other offset).
 - **Back to the vendor firmware**: write the original otadata back,
   `esptool -p /dev/ttyACM0 write-flash 0xd000 otadata.bin` → boots `ota_1` (V1.407).
 - Keep a full 16 MB flash dump of the device before the first write.

@@ -17,3 +17,6 @@ target/
 # Simulator / test outputs (golden references are committed elsewhere)
 *.png.new
 *.snap.new
+
+# Python
+__pycache__/
