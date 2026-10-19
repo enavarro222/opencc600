@@ -1,0 +1,7 @@
+[package]
+name         = "settings"
+description  = "Device settings: a small key=value text file, defaults, POSIX time zone rules (summer time), no_std"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
