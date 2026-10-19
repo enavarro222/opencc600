@@ -2,11 +2,12 @@
 
 Open firmware for the **GEOID CC600** bike computer (ESP32-S3; a Magene C606 board without eMMC and without touch).
 
-Status: reverse engineering and product definition done, code to come. The hardware drivers will come from
-[c606-oss](https://github.com/HighwayStar/c606-oss) (GPL-3.0).
+Status: reverse engineering and product definition done, code to come. Written in **Rust (`no_std`, esp-hal +
+Embassy)**; the hardware layer is a rewrite based on [c606-oss](https://github.com/HighwayStar/c606-oss) (GPL-3.0).
 
 ## Docs
 - [docs/PRODUCT.md](docs/PRODUCT.md): decisions, constraints, product questions, technical plan, flash / rollback workflow.
+- [docs/DEV_PROCESS.md](docs/DEV_PROCESS.md): development and test process (PC, simulator, QEMU, hardware bench, CI).
 - [docs/REVERSE_NOTES.md](docs/REVERSE_NOTES.md): reverse engineering notes (hardware, eFuses, partitions,
   pinout read over JTAG, first run of c606-oss).
 - [docs/pins_live.txt](docs/pins_live.txt): raw output of `tools/read_pins.py` on the vendor firmware.

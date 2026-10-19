@@ -10,3 +10,10 @@ build-*/
 sdkconfig
 sdkconfig.old
 managed_components/
+
+# Rust build output
+target/
+
+# Simulator / test outputs (golden references are committed elsewhere)
+*.png.new
+*.snap.new

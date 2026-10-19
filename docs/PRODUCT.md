@@ -2,31 +2,46 @@
 
 Hardware and reverse engineering background: [REVERSE_NOTES.md](REVERSE_NOTES.md).
 
-## Decisions (2026-10-19)
-- **Base**: [c606-oss](https://github.com/HighwayStar/c606-oss) is used as the **hardware layer**, not as the
-  application. Its UI/app is not what we want; its drivers work on the CC600.
-- **License**: GPL-3.0-or-later, so c606-oss code can be reused as is (credits kept).
-- **Architecture**: move the drivers into an ESP-IDF component `cc600_bsp`, and write our own firmware on top.
+## Decisions
+
+### 2026-10-19, evening (replaces the morning's software stack)
+- **Language and stack**: **Rust, `no_std`**, on [`esp-hal`](https://github.com/esp-rs/esp-hal) + Embassy (async).
+  No ESP-IDF, no LVGL. The `no_std` core compiles unchanged on a PC, which is what makes most of the testing
+  automatic (see [DEV_PROCESS.md](DEV_PROCESS.md)).
+- **c606-oss is rewritten, not reused**: it becomes the **reference** for a Rust hardware layer (ST7789 i80 init,
+  nRF UART protocol, GNSS commands, FIT writer), together with its `docs/HARDWARE.md`. Both projects are
+  GPL-3.0, credits kept.
+- **Radio stays in Rust**: BLE with `esp-radio` + `trouble-host`, Wi-Fi with `esp-radio` + `embassy-net`.
+  The radio blobs are Espressif's whatever the language; the risk is kept behind traits so a brick can be
+  swapped. ANT+ stays on the nRF and is driven over the UART link.
+- **Testing**: as automatic as possible, **including on the real hardware**, not only on a PC.
+  See [DEV_PROCESS.md](DEV_PROCESS.md).
+
+### 2026-10-19, morning (still valid)
+- c606-oss is a **hardware reference**, not the application: its UI/app is not what we want.
+- **License**: GPL-3.0-or-later.
 - **Hardware target**: CC600 = Magene C606 board **without eMMC and without touch** (pinout checked over JTAG).
 
-## What we take from c606-oss (BSP layer)
-| Block | c606-oss files | Status on the CC600 |
-|---|---|---|
-| ST7789 panel, 16-bit i80 bus, LVGL 9 | `main/lcd.c`, `main/ui_port.c`, `main/backlight.c`, `main/board_c606.h`, `main/board.h` | OK |
-| nRF link (UART2, CRC16 frames, handshake, keys, battery, temperature/pressure, RTC) | `main/nrf_link.c` | OK |
-| ANT+ sensors via the nRF | `main/ant.c`, `main/sensor_list.c` | not tested yet |
-| Airoha AG3352Q GNSS (UART0 921600, NMEA, `$PAIR`) | `main/gps.c` | OK, fix in ~6 s |
-| FIT writer | `main/fit.c` | to move to littlefs |
-| UTC / RTC handling | `main/utc.c` | RTC not written back to the nRF yet |
-| Reference doc | `docs/HARDWARE.md` | — |
+## What we port from c606-oss
+| Block | c606-oss reference | Status on the CC600 (C) | Rust target |
+|---|---|---|---|
+| ST7789 panel, 16-bit i80 bus, backlight | `main/lcd.c`, `main/backlight.c`, `main/board_c606.h`, `main/board.h` | OK | `cc600-board` (esp-hal LCD_CAM i8080 + LEDC) + `embedded-graphics` |
+| nRF link (UART2, CRC16 frames, handshake, keys, battery, temperature/pressure, RTC) | `main/nrf_link.c` | OK | `nrf-link`: pure protocol (`no_std`, host tested) + UART glue |
+| ANT+ sensors via the nRF | `main/ant.c`, `main/sensor_list.c` | not tested yet | `nrf-link` (ANT+ messages) |
+| Airoha AG3352Q GNSS (UART0 921600, NMEA, `$PAIR`) | `main/gps.c` | OK, fix in ~6 s | `gnss`: NMEA (`nmea` crate) + `$PAIR` commands |
+| FIT writer | `main/fit.c` | to move to littlefs | `fit`: own writer, output checked with a FIT decoder in tests |
+| UTC / RTC handling | `main/utc.c` | RTC not written back to the nRF yet | `core` |
+| Reference doc | `docs/HARDWARE.md` | — | — |
 
-To drop or adapt for the CC600: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, Mapsforge maps (`mapfile.c`, `mapview.c`).
+Not ported: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, `ui_port.c` (LVGL), Mapsforge maps (`mapfile.c`, `mapview.c`).
 
 ## Hardware constraints
 - 240x320 colour panel, **3 keys, no touch** → the whole UX is button driven.
 - ESP32-S3, 2 MB quad PSRAM, app ≤ **0x420000 (4.1 MB)** per OTA slot.
 - Storage: 7.8 MB littlefs `storage` partition (0x860000). **It holds the vendor's recorded rides**:
-  write into a dedicated subdirectory, or back it up first.
+  write into a dedicated subdirectory, or back it up first. In Rust, staying compatible means
+  `littlefs2` (Rust wrapper around the C littlefs, built for Xtensa). *(open: keep littlefs, or back the
+  vendor rides up and use a Rust-native power-loss-safe store)*
 - BLE + Wi-Fi on the ESP32; ANT+ through the nRF (its firmware is not replaced).
 - 1800 mAh battery: battery life is a requirement (Wi-Fi and backlight are expensive).
 - The nRF RTC is not written by c606-oss → wrong time before the first GPS fix.
@@ -55,7 +70,7 @@ The "no maps" limit only applies to a global map. A map restricted to the loaded
   (roads, tracks, water, maybe coarse contours) should be in the range of a few hundred KB to 1–2 MB,
   which fits in littlefs next to the vendor FIT files. *(to measure on real routes)*
 - **Prepared off the device**: the OSM extract is clipped to the corridor and pre-projected on the phone or
-  a server, then pushed over Wi-Fi. The CC600 only draws polylines on a 240x320 LVGL canvas.
+  a server, then pushed over Wi-Fi. The CC600 only draws polylines on its 240x320 framebuffer (`embedded-graphics`).
 
 ### MVP
 - [ ] Reliable FIT recording on littlefs, in a dedicated subdirectory; survives a crash or an empty battery
@@ -72,16 +87,49 @@ Right after the MVP: corridor background map.
 - …
 
 ## Technical plan
-1. ESP-IDF 5.4, target esp32s3, partition table identical to the vendor's
-   (ota_0 / ota_1 0x420000, littlefs `storage` kept).
-2. `cc600_bsp` component: display, nRF, GNSS, keys, battery (copied and refactored from c606-oss).
-3. littlefs storage (`esp_littlefs`) mounted on `storage`, dedicated subdirectory.
-4. App: LVGL UI + ride logic + FIT.
-5. Then sync / configuration / differentiating features, following the MVP.
+0. **Bring-up spike, first risk to clear**: an `esp-hal` image written to `ota_0` boots under the **vendor
+   second-stage bootloader and partition table** (both left untouched), with the 2 MB quad PSRAM.
+   Done when: backlight on + log line on the USB serial.
+1. Toolchain: Rust Xtensa fork via `espup` (ESP32-S3 is Xtensa), `espflash` to build the image,
+   `esptool` to write `ota_0` (see the workflow below). Pinned in `rust-toolchain.toml`.
+2. Cargo workspace:
+
+   | Crate | `no_std` | Content |
+   |---|---|---|
+   | `core` | yes | ride logic, screens state machine, sensors model, UTC/RTC, sync protocol; no hardware dependency |
+   | `ui` | yes | screens drawn with `embedded-graphics` |
+   | `fit` | yes | FIT writer |
+   | `nrf-link` | yes | nRF frames, CRC16, handshake, keys, battery, RTC, ANT+ |
+   | `gnss` | yes | NMEA parsing, `$PAIR` commands |
+   | `cc600-board` | yes | esp-hal wiring: i80 panel, UARTs, backlight, flash, radio |
+   | `firmware` | yes | the binary flashed to `ota_0` |
+   | `sim` | no (PC) | SDL simulator, headless renderer, scenario player, fakes |
+
+   Drivers and core only see traits (`embedded-hal`, `embedded-io-async`, `embedded-storage` and our own
+   `SensorSource`, `SyncTransport`, …), so everything above `cc600-board` runs on a PC.
+3. Bring-up order on the device: panel → nRF link (keys, battery, RTC) → storage → GNSS → FIT recording
+   → BLE / ANT+ sensors → Wi-Fi sync.
+4. Then sync / configuration / differentiating features, following the MVP.
+
+### Planned dependencies
+- Base: `esp-hal`, `esp-rtos`, `esp-alloc`, `esp-storage`, `esp-backtrace`, `embassy-executor` / `-time` / `-sync`, `defmt`
+- Radio: `esp-radio`, `trouble-host` (BLE host), `embassy-net` + `reqwless` (HTTP) + `embedded-tls` or `esp-mbedtls`
+- Display: `embedded-graphics`, `embedded-graphics-simulator` (PC)
+- Data: `nmea`, `littlefs2` (or `sequential-storage` / `ekv`, see storage above)
+- Update: an OTA path with a safe fallback (`embassy-boot` or ESP-IDF style OTA slots) — needed as soon as
+  other people install the firmware
+- Tests: `proptest`, `insta`, `embedded-hal-mock`, `embedded-test`
+
+### Open technical choices
+- UI: `embedded-graphics` + our own small widgets (lean) vs Slint (full framework, heavier on RAM).
+- Storage: `littlefs2` on the existing partition vs a Rust-native store after backing up the vendor rides.
+- Status of `esp-radio` BLE (central role, GATT client) to check early with a heart-rate strap and a power meter.
 
 ## Flash and rollback workflow (checked on 2026-10-19)
-- Build: Docker `espressif/idf:v5.4.2` (command in REVERSE_NOTES.md).
-- Flash: only `ota_0`, then erase `otadata` (c606-oss `tools/flash_poc.py` does this and backs up first).
+- Build: `cargo build --release`, then `espflash save-image --chip esp32s3` to get an app image for `ota_0`
+  *(to validate in step 0)*. The c606-oss Docker build in REVERSE_NOTES.md stays useful to run the reference firmware.
+- Flash: only `ota_0` (0x20000), then erase `otadata` (c606-oss `tools/flash_poc.py` does this and backs up first;
+  we will have our own script that refuses any other offset).
 - **Back to the vendor firmware**: write the original otadata back,
   `esptool -p /dev/ttyACM0 write-flash 0xd000 otadata.bin` → boots `ota_1` (V1.407).
 - Keep a full 16 MB flash dump of the device before the first write.
