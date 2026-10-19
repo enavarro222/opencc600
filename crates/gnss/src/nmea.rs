@@ -269,3 +269,63 @@ pub fn write_command(body: &str, out: &mut [u8]) -> Option<usize> {
     ]);
     Some(n)
 }
+
+/// Receiver restart commands (Airoha `$PAIR004`..`$PAIR007`), for measuring the time to first fix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Start {
+    /// Keeps time, position, ephemerides.
+    Hot,
+    /// Drops the ephemerides.
+    Warm,
+    /// Drops time, position and ephemerides.
+    Cold,
+    /// Cold start that also clears the almanac and the settings.
+    FullCold,
+}
+
+impl Start {
+    pub const fn command(self) -> &'static str {
+        match self {
+            Self::Hot => "PAIR004",
+            Self::Warm => "PAIR005",
+            Self::Cold => "PAIR006",
+            Self::FullCold => "PAIR007",
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Hot => "hot start",
+            Self::Warm => "warm start",
+            Self::Cold => "cold start",
+            Self::FullCold => "full cold start",
+        }
+    }
+}
+
+/// What a `$PAIR010` aiding request asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Aiding {
+    /// EPO (orbit predictions) for a constellation (0 GPS, 1 GLONASS, 2 Galileo, 3 BeiDou).
+    Epo(u8),
+    Time,
+    Position,
+    Other(u8),
+}
+
+/// Airoha aiding request `PAIR010,<type>,<system>,<GPS week>,<TOW>` (0 EPO, 1 time, 2 position), sent at start.
+pub fn aiding_request(body: &str) -> Option<Aiding> {
+    let mut f = body.strip_prefix("PAIR010,")?.split(',');
+    let kind: u8 = f.next()?.parse().ok()?;
+    Some(match kind {
+        0 => Aiding::Epo(f.next()?.parse().ok()?),
+        1 => Aiding::Time,
+        2 => Aiding::Position,
+        k => Aiding::Other(k),
+    })
+}
+
+/// Airoha system message `PAIR011,001`: the receiver has (re)started.
+pub fn is_started(body: &str) -> bool {
+    body == "PAIR011,001"
+}

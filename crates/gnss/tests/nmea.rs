@@ -1,6 +1,8 @@
 //! Parsing checked against the anonymised CC600 capture (tests/fixtures/README.md).
 
-use gnss::{Epoch, Fix, LineReader, OUTPUT_SETUP, is_turned_off, pair_ack, write_command};
+use gnss::{
+    Aiding, Epoch, Fix, LineReader, OUTPUT_SETUP, aiding_request, is_started, is_turned_off, pair_ack, write_command,
+};
 
 const CAPTURE: &[u8] = include_bytes!("fixtures/ag3352q_10s.nmea");
 
@@ -131,4 +133,15 @@ fn output_setup() {
     for on in ["GNGGA,", "GNRMC,", "GPGSV,", "PAIR001,062,0", "GN"] {
         assert!(!is_turned_off(on), "{on}");
     }
+}
+
+#[test]
+fn start_messages() {
+    // Seen at a receiver start (dump/, 2026-10-19).
+    assert_eq!(aiding_request("PAIR010,0,2,2441,122873"), Some(Aiding::Epo(2)));
+    assert_eq!(aiding_request("PAIR010,1,-1"), Some(Aiding::Time));
+    assert_eq!(aiding_request("PAIR010,2,-1"), Some(Aiding::Position));
+    assert_eq!(aiding_request("PAIR001,010,0"), None);
+    assert!(is_started("PAIR011,001"));
+    assert!(!is_started("PAIR011,002"));
 }

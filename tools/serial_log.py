@@ -5,7 +5,8 @@ The ESP32-S3 USB-Serial/JTAG port ignores the baud rate. Does not reset the devi
 starts at the bootloader).
 
 --send T:TEXT writes TEXT + newline at T seconds (repeatable): with the firmware's test hook, `--send "5:key 1 click"`
-presses key 1 at 5 s (`key N click`, `key N long`, `sound off` mutes the buzzer until the next boot).
+presses key 1 at 5 s (`key N click`, `key N long`, `sound off` mutes the buzzer until the next boot,
+`gnss hot|warm|cold|full` restarts the receiver, `gnss time on|off` answers it with the RTC time).
 
 usage: serial_log.py [SECONDS] [-p /dev/ttyACM0] [--reset] [--send T:TEXT]...
 """

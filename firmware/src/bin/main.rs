@@ -319,6 +319,13 @@ static NRF_KEYS: Channel<CriticalSectionRawMutex, (u8, KeyAction), 8> = Channel:
 static NRF_COMMANDS: Channel<CriticalSectionRawMutex, [u8; command::CTRL_FRAME], 4> =
     Channel::new();
 
+/// Requests to the GNSS task from the USB test hook (time-to-first-fix measurements).
+enum GnssRequest {
+    Start(gnss::Start),
+    /// Answer the receiver's time requests (and each restart) with the RTC time (`$PAIR590`).
+    TimeAiding(bool),
+}
+static GNSS_REQUESTS: Channel<CriticalSectionRawMutex, GnssRequest, 4> = Channel::new();
 
 /// UART2, TX GPIO42 / RX GPIO41, 115200 8N1. Built here: the async UART halves are not `Send`, so they cannot be
 /// handed over from the thread-mode executor.
@@ -411,7 +418,29 @@ async fn gnss_task(mut uart: GnssUart) {
     // Output setup: sent once the receiver talks, again when a sentence it turns off shows up (power cycle).
     let mut setup_needed = true;
     let mut last_setup: Option<Instant> = None;
+    let mut link = GnssLink::new();
+    // Last (re)start of the receiver, for the time to first fix: ESP32 boot, restart seen, or commanded.
+    let mut started = (Instant::now(), "boot");
+    let mut answer_time = false;
+    let mut time_aid_at: Option<Instant> = None;
     loop {
+        while let Ok(request) = GNSS_REQUESTS.try_receive() {
+            match request {
+                GnssRequest::Start(kind) => {
+                    info!("gnss: {kind:?} start ({})", kind.command());
+                    send_pair(&mut uart, kind.command());
+                    started = (Instant::now(), kind.name());
+                    link.ttff_ms = None;
+                    if answer_time {
+                        time_aid_at = Some(Instant::now() + Duration::from_secs(1));
+                    }
+                }
+                GnssRequest::TimeAiding(on) => {
+                    info!("gnss: time aiding {}", if on { "on" } else { "off" });
+                    answer_time = on;
+                }
+            }
+        }
         let mut epoch = false;
         let n = uart.drain(|data| {
             reader.feed(data, |line| {
@@ -423,6 +452,25 @@ async fn gnss_task(mut uart: GnssUart) {
                 if let Some((cmd, result)) = gnss::pair_ack(line) {
                     info!("gnss: PAIR{cmd:03} -> {result}");
                 }
+                if let Some(aiding) = gnss::aiding_request(line) {
+                    info!("gnss: aiding request {aiding:?}");
+                    link.aiding_requests += 1;
+                    if aiding == gnss::Aiding::Time && answer_time {
+                        time_aid_at = Some(Instant::now());
+                    }
+                }
+                if gnss::is_started(line) {
+                    info!("gnss: receiver started");
+                    link.restarts += 1;
+                    // a commanded start also shows up here: keep its time
+                    if started.0.elapsed() >= Duration::from_secs(5) {
+                        started = (Instant::now(), "receiver start");
+                        link.ttff_ms = None;
+                    }
+                    if answer_time {
+                        time_aid_at = Some(Instant::now() + Duration::from_millis(500));
+                    }
+                }
             })
         });
         if n > 0
@@ -430,29 +478,68 @@ async fn gnss_task(mut uart: GnssUart) {
             && last_setup.is_none_or(|at| at.elapsed() >= Duration::from_secs(10))
         {
             info!("gnss: sending the output setup");
-            let mut out = [0; gnss_uart::MAX_COMMAND];
             for body in gnss::OUTPUT_SETUP {
-                let len = gnss::write_command(body, &mut out).unwrap();
-                uart.send(&out[..len]);
+                send_pair(&mut uart, body);
             }
             setup_needed = false;
             last_setup = Some(Instant::now());
+            link.setups += 1;
+        }
+        if time_aid_at.is_some_and(|at| Instant::now() >= at) {
+            time_aid_at = None;
+            match STATUS.lock(Cell::get).rtc {
+                Some(t) => {
+                    let body = format!(
+                        "PAIR590,{},{:02},{:02},{:02},{:02},{:02}",
+                        t.year, t.month, t.day, t.hour, t.minute, t.second
+                    );
+                    info!("gnss: time aiding from the RTC: {body}");
+                    send_pair(&mut uart, &body);
+                    link.time_aids += 1;
+                }
+                None => warn!("gnss: no RTC time for the time aiding"),
+            }
         }
         if n > 0 {
             last_data = Instant::now();
             silent = false;
         } else if !silent && last_data.elapsed() >= Duration::from_secs(3) {
             silent = true;
+            link.silences += 1;
             // The nRF powers the receiver and can leave it off after a power cycle (seen once). Only when silent:
             // `gps_power(1)` restarts a running receiver, which then loses its output setup.
             warn!("gnss: no data for 3 s (receiver off, or DMA stopped), powering it on");
             NRF_COMMANDS.send(command::gps_power(1)).await;
         }
+        if epoch
+            && fix.valid
+            && link.ttff_ms.is_none()
+            // epochs computed before a commanded restart can still be in flight
+            && started.0.elapsed() >= Duration::from_millis(1500)
+        {
+            let ms = started.0.elapsed().as_millis() as u32;
+            link.ttff_ms = Some(ms);
+            info!(
+                "gnss: first fix {}.{} s after {}, {}/{} sats",
+                ms / 1000,
+                ms % 1000 / 100,
+                started.1,
+                fix.sats_used,
+                fix.sats_in_view
+            );
+        }
+        if n > 0 || STATUS.lock(Cell::get).gnss_link != link {
+            STATUS.lock(|s| {
+                let mut status = s.get();
+                status.gnss = Some(reader.stats);
+                status.gnss_link = link;
+                s.set(status);
+            });
+        }
         if epoch {
             let calibration = STATUS.lock(|s| {
                 let mut status = s.get();
                 status.fix = Some(fix);
-                status.gnss = Some(reader.stats);
                 let calibration = calibrate(&mut status.altimeter, &fix);
                 s.set(status);
                 calibration
@@ -470,8 +557,9 @@ async fn gnss_task(mut uart: GnssUart) {
         if last_report.elapsed() >= Duration::from_secs(10) {
             last_report = Instant::now();
             info!(
-                "gnss: {:?}, fix {} q{} {}/{} sats{}",
+                "gnss: {:?}, {:?}, fix {} q{} {}/{} sats{}",
                 reader.stats,
+                link,
                 fix.valid,
                 fix.quality,
                 fix.sats_used,
@@ -480,6 +568,44 @@ async fn gnss_task(mut uart: GnssUart) {
             );
         }
         Timer::after(Duration::from_millis(50)).await;
+    }
+}
+
+fn send_pair(uart: &mut GnssUart, body: &str) {
+    let mut out = [0; gnss_uart::MAX_COMMAND];
+    match gnss::write_command(body, &mut out) {
+        Some(len) => uart.send(&out[..len]),
+        None => warn!("gnss: command too long: {body}"),
+    }
+}
+
+/// GNSS receiver events since boot, for the trip log and the time-to-first-fix measurements.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GnssLink {
+    /// 3 s without data (receiver off or DMA stopped), each answered by `gps_power(1)`.
+    silences: u16,
+    /// Output setups sent (at boot, then after each receiver restart).
+    setups: u16,
+    /// `PAIR011,001` seen: the receiver (re)started.
+    restarts: u16,
+    /// `PAIR010` aiding requests (EPO, time, position).
+    aiding_requests: u16,
+    /// `PAIR590` time aiding sent.
+    time_aids: u16,
+    /// Time to the first valid fix since the last start (ESP32 boot, restart seen, or commanded), ms.
+    ttff_ms: Option<u32>,
+}
+
+impl GnssLink {
+    const fn new() -> Self {
+        Self {
+            silences: 0,
+            setups: 0,
+            restarts: 0,
+            aiding_requests: 0,
+            time_aids: 0,
+            ttff_ms: None,
+        }
     }
 }
 
@@ -546,6 +672,7 @@ struct Status {
     storage: Option<Result<(u16, u16, u16), i32>>,
     /// GNSS link counters and latest complete fix.
     gnss: Option<gnss::Stats>,
+    gnss_link: GnssLink,
     fix: Option<gnss::Fix>,
 }
 
@@ -568,6 +695,7 @@ impl Status {
             stream0a: None,
             storage: None,
             gnss: None,
+            gnss_link: GnssLink::new(),
             fix: None,
         }
     }
@@ -667,8 +795,9 @@ struct TripLog {
     lines: u32,
 }
 
-const TRIP_LOG_HEADER: &str = "unix,uptime_s,fix,quality,sats_used,sats_in_view,hdop_c,lat_e7,lon_e7,gnss_alt_dm,\
-speed_mm_s,course_cdeg,baro_c_celsius,pressures_cpa,altitude_dm,battery_mv,battery_pct,charger,light,ride\n";
+const TRIP_LOG_HEADER: &str = "unix,gnss_unix,rtc_unix,uptime_s,fix,quality,sats_used,sats_in_view,hdop_c,lat_e7,\
+lon_e7,gnss_alt_dm,speed_mm_s,course_cdeg,baro_c_celsius,pressures_cpa,altitude_dm,battery_mv,battery_pct,charger,\
+light,ride,gnss_bytes,gnss_silences,gnss_setups,gnss_restarts,gnss_aiding_requests,gnss_time_aids,gnss_ttff_ms\n";
 
 impl TripLog {
     #[allow(
@@ -724,8 +853,10 @@ impl TripLog {
             p.push_str(&format!("{v}"));
         }
         let line = format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
             opt(now_unix(s).map(i64::from)),
+            opt(gnss_unix(s).map(i64::from)),
+            opt(rtc_unix(s).map(i64::from)),
             self.started.elapsed().as_secs(),
             f.valid as u8,
             f.quality,
@@ -749,6 +880,13 @@ impl TripLog {
                 Some(r) if r.running => 1,
                 Some(_) => 2,
             },
+            s.gnss.map_or(0, |g| g.bytes),
+            s.gnss_link.silences,
+            s.gnss_link.setups,
+            s.gnss_link.restarts,
+            s.gnss_link.aiding_requests,
+            s.gnss_link.time_aids,
+            opt(s.gnss_link.ttff_ms.map(i64::from)),
         );
         self.buf.push_str(&line);
         self.lines += 1;
@@ -1008,6 +1146,7 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                         info!("usb: sound {}", if on { "on" } else { "off" });
                         SOUND_ON.store(on, Ordering::Relaxed);
                     }
+                    Some(UsbCommand::Gnss(request)) => GNSS_REQUESTS.send(request).await,
                     None if !text.is_empty() => warn!("usb: unknown command {text:?}"),
                     None => {}
                 }
@@ -1033,6 +1172,7 @@ fn split_seq(line: &str) -> (Option<u32>, &str) {
 enum UsbCommand {
     Key(u8, &'static [KeyAction]),
     Sound(bool),
+    Gnss(GnssRequest),
 }
 
 fn usb_command(line: &str) -> Option<UsbCommand> {
@@ -1040,6 +1180,19 @@ fn usb_command(line: &str) -> Option<UsbCommand> {
     match (words.next()?, words.next()?, words.next()) {
         ("sound", "on", None) => Some(UsbCommand::Sound(true)),
         ("sound", "off", None) => Some(UsbCommand::Sound(false)),
+        ("gnss", "time", Some(on @ ("on" | "off"))) => {
+            Some(UsbCommand::Gnss(GnssRequest::TimeAiding(on == "on")))
+        }
+        ("gnss", start, None) => {
+            let start = match start {
+                "hot" => gnss::Start::Hot,
+                "warm" => gnss::Start::Warm,
+                "cold" => gnss::Start::Cold,
+                "full" => gnss::Start::FullCold,
+                _ => return None,
+            };
+            Some(UsbCommand::Gnss(GnssRequest::Start(start)))
+        }
         ("key", key, Some(action)) => {
             let key = key.parse().ok().filter(|&k: &u8| k <= 2)?;
             let actions: &[KeyAction] = match action {

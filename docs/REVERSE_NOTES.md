@@ -273,6 +273,18 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
 - **`gps_power(1)` (`E2 02 07 01`) restarts a running receiver**: it reboots (`PAIR011,001`, then acks for
   `PAIR002`, `021`, `382` sent by its own start-up) and loses its output setup. The firmware sends it only after
   3 s of silence. *The silent-receiver path is not tested on the device yet.*
+- **Start messages** (Airoha PAIR, decoded in `crates/gnss`): `PAIR011,001` = the receiver started;
+  `PAIR010,<type>,<system>,<GPS week>,<TOW>` = aiding request, type 0 EPO per constellation (0 GPS, 1 GLONASS,
+  2 Galileo, 3 BeiDou), 1 time (`PAIR010,1,-1`), 2 position (`PAIR010,2,-1`). Seen after a receiver start: it
+  asks for EPO, time and position, which we do not provide yet. Restarts: `$PAIR004` hot, `005` warm, `006` cold,
+  `007` full cold; `$PAIR590,YYYY,MM,DD,hh,mm,ss` = UTC time aiding (from the vendor strings, *ack not checked
+  yet*). The firmware counts these (trip log columns `gnss_*`) and logs `gnss: first fix N s after <start>`;
+  `tools/ttff.py` measures the time to first fix per kind of start.
+- **Long time to first fix after a power cycle (ride of 2026-10-19)**: 0 satellites for 37 min with the device in
+  a pocket outdoors, then 29 at once, still in the pocket. Likely a cold start (the nRF cut the receiver when
+  unplugged) with the body attenuating the signal (acquisition needs a stronger signal than tracking). The vendor
+  parks the receiver (`$PAIR650`), gives A-GNSS data and probably the time (`$PAIR590`). To measure with
+  `tools/ttff.py`.
 - Fixtures: `crates/gnss/tests/fixtures/` holds an anonymised 10 s capture (fake position, randomised satellite
   geometry). Raw captures contain the real position and stay in `dump/`.
 
