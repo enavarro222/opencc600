@@ -37,6 +37,9 @@ embedded-graphics = "0.8.2"
 embassy-sync      = "0.8.0"
 nrf-link          = { path = "../crates/nrf-link" }
 static_cell      = "2.1.1"
+littlefs2 = { version = "0.8.1", default-features = false, features = ["c-stubs"] }
+esp-storage = { version = "0.10.0", features = ["embedded-storage", "esp32s3"] }
+embedded-storage = "0.3.2"
 
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html

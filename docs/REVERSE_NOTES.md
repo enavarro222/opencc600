@@ -238,6 +238,10 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   (ride index, binary, format unknown), `/LOG/<date>.log` (vendor logs, up to ~450 KB a day), `/CONFIG/`
   (`ProductInfo.config`, `sensor.bin`, `wifi.bin`, `WifiList.config`, `user_info.bin`, `riding_mode*.bin`,
   `<t>_agnss.bin` 157 KB of A-GNSS data, `avatar_file.bmp`…), `/ABNORMAL/CoredumpInfo.bin`, `/APP/`, `/NOTIFY/`.
+- **`littlefs2` (Rust) cannot mount it**: the crate pins the on-disk version to 2.0 (`DISK_VERSION`, littlefs
+  multiversion), the vendor formatted 2.1 → `lfs_mount` fails with `-22` "Invalid version v2.1 != v2.0", on the
+  device and on a PC alike. Irrelevant once we format the partition ourselves (option b); the same error on both
+  sides shows the Xtensa build of littlefs reads the flash correctly.
 - **Ride files are compressed FIT**: `".ZIP"` + the 14-byte FIT header + `{u16 LE length, zlib stream}*` + the
   2-byte FIT CRC. Inflated, header + records + CRC is a valid FIT file (all 24 rides decode, CRC OK; ~30 % smaller
   stored). `tools/vendor_fit.py` does the conversion.

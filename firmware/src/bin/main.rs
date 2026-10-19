@@ -36,18 +36,24 @@ use esp_hal::lcd_cam::lcd::i8080::{self, I8080};
 use esp_hal::ledc::channel::{self, ChannelIFace};
 use esp_hal::ledc::timer::{self, TimerIFace};
 use esp_hal::ledc::{LSGlobalClkSource, Ledc, LowSpeed};
+use esp_hal::peripherals::FLASH;
 use esp_hal::peripherals::{GPIO41, GPIO42, UART2};
 use esp_hal::time::{self as hal_time, Rate};
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::uart::{self, Uart, UartRx, UartTx};
 use esp_rtos::embassy::InterruptExecutor;
+use esp_storage::FlashStorage;
+use littlefs2::fs::{Allocation, Filesystem};
+use littlefs2::path;
 use log::{debug, info, warn};
 use nrf_link::{Decoder, KeyAction, Message, RtcTime, command};
 use opencc600_firmware::panel::{self, FrameBuffer, Panel};
+use opencc600_firmware::storage;
 use static_cell::StaticCell;
 
 extern crate alloc;
 
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 
@@ -120,6 +126,18 @@ async fn main(_spawner: Spawner) -> ! {
     let dma_buf = dma_tx_buffer!(panel::BAND_BYTES).unwrap();
     let mut panel = Panel::new(bus, dma_buf);
     info!("panel initialised");
+
+    // Storage spike: mount the littlefs partition read-only, count its rides. The vendor's is littlefs disk v2.1,
+    // littlefs2 only mounts v2.0: expected to fail with -22 until we format the partition ourselves.
+    let storage_info = mount_storage(peripherals.FLASH);
+    if let Err(code) = storage_info {
+        warn!("storage: littlefs error {code}");
+    }
+    STATUS.lock(|s| {
+        let mut status = s.get();
+        status.storage = Some(storage_info);
+        s.set(status);
+    });
 
     let mut fb = FrameBuffer::new();
     draw_test_pattern(&mut fb);
@@ -354,6 +372,8 @@ struct Status {
     stream0a: Option<[u8; 6]>,
     /// Last `E2 01 XX` probe sent (buzzer hunt).
     probe: Option<u8>,
+    /// Storage partition: Ok((rides in /FITS/FIT, free blocks, total blocks)) or the littlefs error code.
+    storage: Option<Result<(u16, u16, u16), i32>>,
 }
 
 impl Status {
@@ -370,6 +390,7 @@ impl Status {
             light: None,
             stream0a: None,
             probe: None,
+            storage: None,
         }
     }
 
@@ -406,6 +427,38 @@ impl Status {
     }
 }
 
+/// Mounts the `storage` partition read-only (write and erase fail) and counts the vendor rides.
+#[allow(
+    clippy::large_stack_frames,
+    reason = "one-off at boot from main; littlefs2 directory iteration keeps paths on the stack"
+)]
+fn mount_storage(flash: FLASH<'_>) -> Result<(u16, u16, u16), i32> {
+    let mut partition = storage::Partition::read_only(FlashStorage::new(flash));
+    let mut alloc = Box::new(Allocation::new());
+    let t = Instant::now();
+    let fs = Filesystem::mount(&mut alloc, &mut partition).map_err(|e| e.code())?;
+    let mounted = t.elapsed();
+    let mut rides = 0u16;
+    fs.read_dir_and_then(path!("/FITS/FIT"), |dir| {
+        for entry in dir {
+            let entry = entry?;
+            if entry.file_type().is_file() {
+                rides += 1;
+            }
+        }
+        Ok(())
+    })
+    .map_err(|e| e.code())?;
+    let free = fs.available_blocks().map_err(|e| e.code())? as u16;
+    let total = fs.total_blocks() as u16;
+    info!(
+        "storage: mounted in {} ms, {rides} rides, {free} / {total} blocks free, listed in {} ms",
+        mounted.as_millis(),
+        t.elapsed().as_millis()
+    );
+    Ok((rides, free, total))
+}
+
 /// Centred box over the current screen.
 fn draw_message(fb: &mut FrameBuffer, text: &str) {
     let style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
@@ -439,7 +492,15 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status) {
 
     let none = || String::from("-");
     let u16le = |d: &[u8; 6], i: usize| u16::from_le_bytes([d[i], d[i + 1]]);
-    let rows: [(&str, String); 8] = [
+    let rows: [(&str, String); 9] = [
+        (
+            "storage (read-only): rides / free blocks",
+            match s.storage {
+                None => none(),
+                Some(Ok((rides, free, total))) => format!("{rides} / {free} of {total}"),
+                Some(Err(e)) => format!("error {e}"),
+            },
+        ),
         (
             "battery / charger status",
             format!(
@@ -510,7 +571,7 @@ fn draw_status(fb: &mut FrameBuffer, s: &Status) {
         ),
     ];
     for (i, (name, v)) in rows.iter().enumerate() {
-        let y = 50 + i as i32 * 34;
+        let y = 48 + i as i32 * 30;
         Text::new(name, Point::new(8, y), label).draw(fb).unwrap();
         Text::new(v, Point::new(8, y + 20), value).draw(fb).unwrap();
     }

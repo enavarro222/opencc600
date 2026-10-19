@@ -4,6 +4,13 @@ include = ["esp-config.toml"]
 [target.xtensa-esp32s3-none-elf]
 runner = "espflash flash --monitor --chip esp32s3"
 
+[env]
+# C code (littlefs): the `cc` crate does not know this target and picks a big-endian Xtensa compiler otherwise.
+CC_xtensa_esp32s3_none_elf = "xtensa-esp32s3-elf-gcc"
+AR_xtensa_esp32s3_none_elf = "xtensa-esp32s3-elf-ar"
+# Code in flash (0x42...) calls into IRAM (0x4037...), out of range of a plain call8 (like ESP-IDF).
+CFLAGS_xtensa_esp32s3_none_elf = "-mlongcalls -Os"
+
 [build]
 rustflags = [
   "-C", "link-arg=-nostartfiles",
