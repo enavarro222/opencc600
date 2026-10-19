@@ -69,9 +69,18 @@ C606 hardware according to c606-oss:
 - **Barometric pressure sensor** (listed in the CC600 specs; the C606 and CC700 have one too). It is **read by the
   nRF**, not by the ESP32: pressure and temperature arrive as nRF frames on UART2. This is why the vendor
   firmware's elevation gain (D+) is accurate: it is computed from pressure, not from GNSS altitude.
-  *(To check: the nRF message carrying it, field layout, units, resolution and update rate. c606-oss
-  `main/nrf_link.c` only does the link layer and passes frames to a callback; look at the code consuming them,
-  its `docs/HARDWARE.md`, or record the frames as described in DEV_PROCESS.md step 3.)*
+  According to c606-oss `docs/HARDWARE.md`: nRF sensor stream `cmd 0x10`, payload `F1 03`, ~5 Hz,
+  temperature int16 @2 in 0.01 °C, pressure u32 @4 in 0.01 Pa (so ~0.1 m resolution). The vendor uses
+  `44330 * (1 - (p/1013.25)^0.19)`. The stream only starts after a **long press of the power key**: after an
+  ESP-only reset it stays off, and no known ESP32 command starts it. The same stream carries accelerometer (`F1 01`),
+  gyro (`F1 02`) and magnetometer calibration (`F1 00`) → there is an IMU behind the nRF.
+  *(To check on the CC600: same frames, actual rate.)*
+- **Buzzer**: the CC600 beeps, but nothing is known yet about how. c606-oss documents no buzzer and no beep command.
+  The live pinout (JTAG snapshot taken while not beeping) shows no PWM on the ESP32 except the backlight (GPIO45),
+  so it is either driven by the **nRF** (like keys and power; candidate: the undocumented ESP32→nRF
+  `E2 01 XX` "LED/misc" command, XX < 0x1c), or by an ESP32 GPIO configured only while beeping.
+  *(To find: FCC internal photos of 2ALZG-309 (where the buzzer sits), `beep`/`buzzer` strings in the vendor app,
+  a JTAG pin snapshot / UART2 TX breakpoint during a vendor beep.)*
 - 4 GB eMMC mounted as FAT on `/sdcard`
 
 Recovery: holding all three buttons hard-resets the ESP32.
