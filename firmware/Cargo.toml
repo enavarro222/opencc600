@@ -32,7 +32,8 @@ esp-backtrace = { version = "0.20.0", features = [
 ] }
 esp-println = { version = "0.18.0", features = ["esp32s3", "log-04"] }
 
-critical-section = "1.2.0"
+critical-section  = "1.2.0"
+embedded-graphics = "0.8.2"
 static_cell      = "2.1.1"
 
 

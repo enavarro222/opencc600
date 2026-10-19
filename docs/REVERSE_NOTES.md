@@ -138,6 +138,11 @@ Needs OpenOCD's `60-openocd.rules` udev rule for non-root USB access.
   spike showed the vendor's last frame ("Batterie actuelle: 100%", its USB charging screen). → the panel init must
   clear the GRAM (SWRESET + fill) before the backlight goes on, or stale frames from another firmware show up.
 
+- **Panel with esp-hal** (`firmware/src/panel.rs`): LCD_CAM i8080 16-bit at 15 MHz, the vendor ST7789 init replayed
+  as is, MADCTL `0x00` (RGB order and orientation correct), 8-bit commands/parameters (padded on the 16-bit bus),
+  pixels as little-endian RGB565 words with the default (native) byte order. Test pattern checked on the
+  device: orientation, colour order, smooth 32-step ramps on R/G/B (all 16 data lines OK), no offset.
+
 ## Safety rules
 
 - **Never** write eFuses (irreversible).

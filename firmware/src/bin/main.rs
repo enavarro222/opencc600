@@ -1,7 +1,7 @@
-//! Step 0 bring-up spike (docs/PRODUCT.md, technical plan).
+//! Bring-up firmware (docs/PRODUCT.md, technical plan).
 //!
-//! Proves that an esp-hal image written to `ota_0` boots under the vendor second-stage bootloader and
-//! partition table, with the 2 MB quad PSRAM. Done when: backlight on + log line on the USB serial.
+//! Step 0: an esp-hal image in `ota_0` boots under the vendor bootloader, with the 2 MB quad PSRAM.
+//! Panel: ST7789 on the i8080 16-bit bus, test pattern drawn with `embedded-graphics`.
 
 #![no_std]
 #![no_main]
@@ -14,15 +14,25 @@
 
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
+use embedded_graphics::mono_font::MonoTextStyle;
+use embedded_graphics::mono_font::ascii::FONT_10X20;
+use embedded_graphics::pixelcolor::Rgb565;
+use embedded_graphics::prelude::*;
+use embedded_graphics::primitives::{PrimitiveStyle, Rectangle};
+use embedded_graphics::text::{Alignment, Text};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::DriveMode;
+use esp_hal::dma_tx_buffer;
+use esp_hal::gpio::{DriveMode, Level, Output, OutputConfig};
+use esp_hal::lcd_cam::LcdCam;
+use esp_hal::lcd_cam::lcd::i8080::{self, I8080};
 use esp_hal::ledc::channel::{self, ChannelIFace};
 use esp_hal::ledc::timer::{self, TimerIFace};
 use esp_hal::ledc::{LSGlobalClkSource, Ledc, LowSpeed};
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use log::info;
+use opencc600_firmware::panel::{self, FrameBuffer, Panel};
 
 extern crate alloc;
 
@@ -61,6 +71,44 @@ async fn main(_spawner: Spawner) -> ! {
     info!("opencc600 spike: booted from ota_0");
     info!("heap: {}", esp_alloc::HEAP.stats());
 
+    // Panel before backlight, so the stale frame left in the GRAM is never shown.
+    // RD is held high (we never read from the panel); `_rd` must live as long as the panel.
+    let _rd = Output::new(peripherals.GPIO39, Level::High, OutputConfig::default());
+    let lcd_cam = LcdCam::new(peripherals.LCD_CAM);
+    let bus = I8080::new(
+        lcd_cam.lcd,
+        peripherals.DMA_CH0,
+        i8080::Config::default().with_frequency(Rate::from_mhz(15)),
+    )
+    .unwrap()
+    .with_cs(peripherals.GPIO2)
+    .with_dc(peripherals.GPIO40)
+    .with_wrx(peripherals.GPIO3)
+    .with_data0(peripherals.GPIO4)
+    .with_data1(peripherals.GPIO38)
+    .with_data2(peripherals.GPIO5)
+    .with_data3(peripherals.GPIO37)
+    .with_data4(peripherals.GPIO6)
+    .with_data5(peripherals.GPIO36)
+    .with_data6(peripherals.GPIO7)
+    .with_data7(peripherals.GPIO35)
+    .with_data8(peripherals.GPIO8)
+    .with_data9(peripherals.GPIO34)
+    .with_data10(peripherals.GPIO9)
+    .with_data11(peripherals.GPIO33)
+    .with_data12(peripherals.GPIO10)
+    .with_data13(peripherals.GPIO47)
+    .with_data14(peripherals.GPIO11)
+    .with_data15(peripherals.GPIO48);
+    let dma_buf = dma_tx_buffer!(panel::BAND_BYTES).unwrap();
+    let mut panel = Panel::new(bus, dma_buf);
+    info!("panel initialised");
+
+    let mut fb = FrameBuffer::new();
+    draw_test_pattern(&mut fb);
+    panel.flush(&fb);
+    info!("test pattern drawn");
+
     let mut ledc = Ledc::new(peripherals.LEDC);
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
     let mut bl_timer = ledc.timer::<LowSpeed>(timer::Number::Timer0);
@@ -86,4 +134,61 @@ async fn main(_spawner: Spawner) -> ! {
         ticks += 1;
         Timer::after(Duration::from_secs(1)).await;
     }
+}
+
+/// Checks orientation (red square top-left), colour order (bars), data lines (smooth 32-step gradients per
+/// channel: a swapped or stuck bus line breaks the ramp) and offsets (1 px white border).
+#[allow(clippy::large_stack_frames, reason = "one-off at boot, ~1 KB")]
+fn draw_test_pattern(fb: &mut FrameBuffer) {
+    let fill = |c| PrimitiveStyle::with_fill(c);
+    fb.clear(Rgb565::BLACK).unwrap();
+    Rectangle::new(Point::zero(), Size::new(240, 320))
+        .into_styled(PrimitiveStyle::with_stroke(Rgb565::WHITE, 1))
+        .draw(fb)
+        .unwrap();
+    Rectangle::new(Point::new(4, 4), Size::new(24, 24))
+        .into_styled(fill(Rgb565::RED))
+        .draw(fb)
+        .unwrap();
+
+    let bars = [
+        Rgb565::RED,
+        Rgb565::GREEN,
+        Rgb565::BLUE,
+        Rgb565::WHITE,
+        Rgb565::YELLOW,
+        Rgb565::CYAN,
+    ];
+    for (i, c) in bars.into_iter().enumerate() {
+        Rectangle::new(Point::new(i as i32 * 40, 80), Size::new(40, 60))
+            .into_styled(fill(c))
+            .draw(fb)
+            .unwrap();
+    }
+
+    // 32 steps per channel (green: 64 levels, sampled every other level)
+    for step in 0..32u8 {
+        let x = 8 + step as i32 * 7;
+        for (row, c) in [
+            Rgb565::new(step, 0, 0),
+            Rgb565::new(0, step * 2, 0),
+            Rgb565::new(0, 0, step),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            Rectangle::new(Point::new(x, 160 + row as i32 * 30), Size::new(7, 26))
+                .into_styled(fill(c))
+                .draw(fb)
+                .unwrap();
+        }
+    }
+
+    let text = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+    Text::with_alignment("opencc600", Point::new(120, 60), text, Alignment::Center)
+        .draw(fb)
+        .unwrap();
+    Text::with_alignment("R G B W Y C", Point::new(120, 270), text, Alignment::Center)
+        .draw(fb)
+        .unwrap();
 }

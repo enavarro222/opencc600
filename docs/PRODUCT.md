@@ -192,7 +192,8 @@ Right after the MVP: corridor background map.
 
    Drivers and core only see traits (`embedded-hal`, `embedded-io-async`, `embedded-storage` and our own
    `SensorSource`, `SyncTransport`, …), so everything above `cc600-board` runs on a PC.
-3. Bring-up order on the device: panel → nRF link (keys, battery, RTC) → storage → GNSS → FIT recording
+3. Bring-up order on the device: panel *(done 2026-10-19: `firmware/src/panel.rs`, framebuffer in PSRAM
+   flushed in 40-line DMA bands)* → nRF link (keys, battery, RTC) → storage → GNSS → FIT recording
    → BLE / ANT+ sensors → Wi-Fi sync.
 4. Then sync / configuration / differentiating features, following the MVP.
 
