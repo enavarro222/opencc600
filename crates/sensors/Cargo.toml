@@ -1,0 +1,7 @@
+[package]
+name         = "sensors"
+description  = "Cycling sensors: the BLE measurements and ANT+ pages (heart rate, speed and cadence, power) decoded, rates from revolution counts, no_std"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
