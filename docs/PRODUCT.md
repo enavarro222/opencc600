@@ -98,7 +98,11 @@ Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [pro
 - Every screen shows what each of the 3 keys does, next to the key (top-left key = top-left label, bottom keys =
   bottom bar corners). Labels stay consistent with the front silkscreen: bottom-right = main action (start, pause,
   resume, OK), bottom-left = menu / next, top-left = back / contextual.
-- No hidden action. One long press only, always labelled: "⏻ Maintenir" on the home screen to switch off (and on).
+- No hidden action. Two long presses only, both labelled: "⏻ Maintenir" on the home screen to switch off (and on),
+  and the **key lock**: both bottom keys held together (~1 s) lock the keys during a ride (and unlock them the same
+  way). Locked, a small padlock stays in the top bar; any press shows a banner "Verrouillé · maintiens les 2 boutons
+  du bas", the keys do nothing else. Alerts and pages still show (auto-scroll keeps going); the lock does not
+  survive a power off. The hint for the gesture is shown on the pause screen.
 - Irreversible actions go through a confirmation screen that says what will happen; confirming uses a different
   key than the one that opened it.
 - Riding: up to 4 pages, picked automatically (see "Data pages"), bottom-left cycles pages. Top-left is contextual: map zoom on the
@@ -130,6 +134,9 @@ Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [pro
 No page editor to start with. The app asks **one question** ("ride to explore" or "train"); the device detects the
 rest when a ride starts (sensors seen, route loaded) and picks standard views:
 - **Essential**: speed (big), time, distance, D+, HR if present (else average speed).
+- **Distances under 1 km are shown in metres** ("850 m", by 10 m), then in km with one decimal ("1,2 km"): the
+  ride distance, the remaining distance, the distance to a climb or to the route. The threshold is a constant,
+  to tune on real rides.
 - **Effort**: 3 s power (big) or HR if no power meter, zone bar, then by priority avg power, HR, cadence, speed, time.
 - **Map** (route loaded), **Climbs** (route with climbs), **Altitude** (no route: altitude, gradient, D+/D-, last 5 km).
 
@@ -191,6 +198,12 @@ Status on 2026-10-19 (updated by the bring-up work; altitude is worked on in par
       it (route kept, see UI rules).
 - [ ] **Settings kept in flash**: sound on/off (the USB test hook already mutes), time zone (UTC hard-coded in the
       FIT `local_timestamp` today), backlight level; FIT `serial_number` from the MAC address (600 today).
+- [ ] **GPS fix as early as possible**: the GNSS is powered and configured first thing at boot, before the UI and
+      the storage checks, and stays on from the home screen (not only when a ride starts). Hot start: last position
+      and time saved in flash at power off and sent to the receiver at boot (`$PAIR` time/position aiding), the RTC
+      gives the time. Later: A-GNSS / EPO data pushed by the app or downloaded over home Wi-Fi. Measure the
+      time-to-fix cold/warm/hot with `tools/ttff.py`, against the vendor firmware.
+- [ ] **Key lock**: both bottom keys held together lock and unlock (see UI rules).
 - [ ] **Battery life** ([POWER.md](POWER.md)): battery-run log (`/power/<run>.csv`, one line a minute), clean power
       off at low battery, a reference run against the vendor firmware, then the first levers (automatic backlight
       from the ambient light sensor, CPU sleep, GNSS settings).
