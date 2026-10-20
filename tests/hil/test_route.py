@@ -83,3 +83,110 @@ def test_ride_along_a_route(dut, out_dir):
     s = m["session_mesgs"][0]
     expected = KMH / 3.6 * s["total_timer_time"]
     assert abs(s["total_distance"] - expected) <= 0.1 * expected, (s["total_distance"], expected)
+
+
+def test_a_ride_resumed_at_boot_keeps_its_map(dut, out_dir):
+    """2026-10-20: a ride reopened at power-on had its pages picked before the route was read: no map page, while
+    the "off the route" banner showed. The pages now follow the route."""
+    dut.reset()
+    dut.to_home()
+    fs = dut.read_storage(out_dir / "before_map.bin")
+    kept_route = fs.open("/route", "rb").read() if "route" in fs.listdir("/") else None
+    dut.reset()
+    dut.send("sound off")
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            gpx = Path(d) / "test.gpx"
+            synthetic_gpx(gpx)
+            assert send_route.send(dut, send_route.route_bytes(gpx)).startswith("loaded"), "route refused"
+        dut.to_home()
+        dut.press(2)  # start
+        dut.wait_screen("Ride")
+        time.sleep(12)  # on flash (appends every 10 s)
+        dut.reset()  # cut: reopened paused at the next boot
+        dut.send("sound off")
+        dut.wait_screen("Resume")
+        dut.press(2)  # resume
+        dut.wait_screen("Ride")
+        pages = []
+        for _ in range(4):
+            pages.append(dut.selected()[1])
+            dut.press(1)  # next page
+            time.sleep(0.5)
+        assert "Map" in pages, pages
+    finally:
+        dut.reset()
+        dut.send("sound off")
+        dut.to_home()
+        if kept_route is not None:
+            send_route.send(dut, kept_route)
+        else:
+            dut.send("route clear")
+
+
+def ride_pages(dut) -> list[str]:
+    """The ride pages, cycled once with the bottom left key."""
+    pages = []
+    for _ in range(4):
+        pages.append(dut.selected()[1])
+        dut.press(1)
+        time.sleep(0.5)
+    return pages
+
+
+def pick(dut, item: str, tries: int = 5):
+    """Selects a menu entry (the menu shown) with the bottom left key, then opens it."""
+    for _ in range(tries):
+        if dut.selected()[1:] == [item]:
+            dut.press(2)
+            return
+        dut.press(1)
+        time.sleep(0.3)
+    raise AssertionError(f"no {item} in the menu: {dut.selected()}")
+
+
+def test_a_free_ride_sets_the_route_aside(dut, out_dir):
+    """Menu › "Rouler sans trace": the ride has no map page, the route stays stored; "Suivre la trace" from the
+    pause menu brings the map back mid-ride."""
+    dut.reset()
+    dut.to_home()
+    fs = dut.read_storage(out_dir / "before_free.bin")
+    kept_route = fs.open("/route", "rb").read() if "route" in fs.listdir("/") else None
+    dut.reset()
+    dut.send("sound off")
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            gpx = Path(d) / "test.gpx"
+            synthetic_gpx(gpx)
+            assert send_route.send(dut, send_route.route_bytes(gpx)).startswith("loaded"), "route refused"
+        dut.to_home()
+        dut.press(1)  # menu
+        dut.wait_screen("Menu")
+        mark = dut.mark()
+        pick(dut, "FreeRide")
+        dut.expect(r"route: set aside \(free ride\)", since=mark)
+        dut.wait_screen("Home")
+        dut.press(2)  # start
+        dut.wait_screen("Ride")
+        assert "Map" not in ride_pages(dut)
+        # mid-ride, from the pause menu: follow it again
+        dut.press(2)  # pause
+        dut.wait_screen("Paused")
+        dut.press(0)  # pause menu
+        dut.wait_screen("PauseMenu")
+        mark = dut.mark()
+        pick(dut, "FollowRoute")
+        dut.expect(r"route: followed", since=mark)
+        dut.wait_screen("Paused")
+        dut.press(2)  # resume
+        dut.wait_screen("Ride")
+        assert "Map" in ride_pages(dut)
+    finally:
+        dut.reset()
+        dut.send("sound off")
+        dut.send("set follow_route on")
+        dut.to_home()
+        if kept_route is not None:
+            send_route.send(dut, kept_route)
+        else:
+            dut.send("route clear")

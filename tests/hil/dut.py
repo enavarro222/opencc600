@@ -70,6 +70,22 @@ class Dut:
             self.log.write(f"{line.t:8.3f} {text}\n")
             self.log.flush()
 
+    def reopen(self, timeout: float = 30.0):
+        """Opens the port again after the device went away (switched off, then started by the nRF on USB power)."""
+        self._close()
+        self._add("--- port closed by the test")
+        end = time.time() + timeout
+        while True:
+            time.sleep(1)
+            try:
+                self._open()
+                break
+            except serial.SerialException:
+                if time.time() > end:
+                    raise
+        self.seq = 0
+        self._add("--- port opened again")
+
     def close(self):
         self._close()
         if self.log:
@@ -132,9 +148,21 @@ class Dut:
             mark = self.mark()
             self.send("screen ?")
             try:
-                return self.expect(r"screen (\w+)$", timeout=1.0, since=mark).group(1)
+                return self.expect(r"screen (\w+)( .*)?$", timeout=1.0, since=mark).group(1)
             except TimeoutError:
                 continue  # the log line was lost
+        raise TimeoutError("no screen line")
+
+    def selected(self) -> list[str]:
+        """The screen shown and what is selected on it: `["Menu", "Sensors"]`, `["Sensors", "Power"]`,
+        `["SensorScan", "HeartRate", "0"]`."""
+        for _ in range(5):
+            mark = self.mark()
+            self.send("screen ?")
+            try:
+                return self.expect(r"screen (\w+.*)$", timeout=1.0, since=mark).group(1).split()
+            except TimeoutError:
+                continue
         raise TimeoutError("no screen line")
 
     def wait_screen(self, name: str, timeout: float = 10.0):
