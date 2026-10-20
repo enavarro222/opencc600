@@ -124,3 +124,96 @@ pub use nmea::{
     Aiding, Date, Epoch, Fix, OUTPUT_SETUP, Start, Time, aiding_request, is_started, is_turned_off, pair_ack,
     write_command,
 };
+
+/// Watches the receiver's output: silent for [`Silence::AFTER_MS`], it is powered on (through the nRF), again every
+/// [`Silence::RETRY_MS`] while it stays silent. The nRF powers the receiver and can leave it off: on 2026-10-20 a
+/// single power-on at the start of a silence left it off for 6 minutes of a ride. Only when silent: powering on a
+/// running receiver restarts it (and it loses its output setup).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Silence {
+    last_data_ms: u64,
+    /// When the last power-on was asked, during the current silence.
+    powered_ms: Option<u64>,
+    /// Silences since boot.
+    pub count: u16,
+}
+
+impl Silence {
+    pub const AFTER_MS: u64 = 3_000;
+    pub const RETRY_MS: u64 = 10_000;
+
+    pub const fn new(now_ms: u64) -> Self {
+        Self { last_data_ms: now_ms, powered_ms: None, count: 0 }
+    }
+
+    /// Called at each poll with the bytes received since the last one; `true`: power the receiver on now.
+    pub fn poll(&mut self, bytes: usize, now_ms: u64) -> bool {
+        if bytes > 0 {
+            self.last_data_ms = now_ms;
+            self.powered_ms = None;
+            return false;
+        }
+        if now_ms.saturating_sub(self.last_data_ms) < Self::AFTER_MS {
+            return false;
+        }
+        match self.powered_ms {
+            Some(at) if now_ms.saturating_sub(at) < Self::RETRY_MS => false,
+            at => {
+                if at.is_none() {
+                    self.count += 1;
+                }
+                self.powered_ms = Some(now_ms);
+                true
+            }
+        }
+    }
+
+    /// Milliseconds since the last data.
+    pub fn silent_ms(&self, now_ms: u64) -> u64 {
+        now_ms.saturating_sub(self.last_data_ms)
+    }
+}
+
+#[cfg(test)]
+mod silence_tests {
+    use super::Silence;
+
+    /// Polls every 100 ms from `from` to `to` (ms) with no data; the times a power-on is asked.
+    fn quiet(s: &mut Silence, from: u64, to: u64) -> ([u64; 16], usize) {
+        let mut at = [0; 16];
+        let mut n = 0;
+        for t in (from..to).step_by(100) {
+            if s.poll(0, t) {
+                at[n] = t;
+                n += 1;
+            }
+        }
+        (at, n)
+    }
+
+    #[test]
+    fn a_receiver_left_off_is_powered_on_again_until_it_talks() {
+        let mut s = Silence::new(0);
+        assert!(!s.poll(879, 2_000));
+        // silent for the 6 minutes of the 2026-10-20 ride: at 3 s, then every 10 s
+        let (at, n) = quiet(&mut s, 2_100, 62_100);
+        assert_eq!(&at[..n], &[5_000, 15_000, 25_000, 35_000, 45_000, 55_000]);
+        assert_eq!(s.count, 1, "one silence");
+        // it talks again: nothing more, and the next silence counts
+        assert!(!s.poll(500, 62_100));
+        let (_, n) = quiet(&mut s, 62_200, 65_000);
+        assert_eq!(n, 0, "less than 3 s");
+        assert!(s.poll(0, 65_100));
+        assert_eq!(s.count, 2);
+    }
+
+    #[test]
+    fn a_talking_receiver_is_left_alone() {
+        let mut s = Silence::new(0);
+        // bursts once a second (the NMEA epoch), polls in between with nothing
+        for t in (0..60_000).step_by(100) {
+            assert!(!s.poll(if t % 1_000 == 0 { 1_500 } else { 0 }, t));
+        }
+        assert_eq!(s.count, 0);
+    }
+}
