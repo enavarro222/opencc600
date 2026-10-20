@@ -17,6 +17,16 @@ use ride_store::littlefs2::driver::Storage;
 use ride_store::littlefs2::fs::Filesystem;
 use ride_store::littlefs2::io::{Error, Result, SeekFrom};
 
+/// Bytes a ride takes a second: one [`Record`] (the closing messages are small next to it), ~122 KB an hour.
+pub const RIDE_BYTES_PER_S: u32 = Record::DEFINITION.data_len() as u32;
+
+/// Hours of riding the free space holds, with `extra_bytes_per_s` written alongside (the trip log); a tenth is kept
+/// for the file system (its metadata, the blocks half filled).
+pub fn hours_left(free_bytes: u64, extra_bytes_per_s: u32) -> u32 {
+    let per_hour = (RIDE_BYTES_PER_S + extra_bytes_per_s) as u64 * 3600;
+    (free_bytes * 9 / 10 / per_hour) as u32
+}
+
 /// Appends at most this often (seconds of ride time): each append is a littlefs commit (a block copy).
 pub const FLUSH_EVERY_S: u32 = 10;
 /// RAM buffer: a flush period of records (34 bytes each) plus events, and the file start (~230 bytes).
@@ -27,6 +37,12 @@ const BUF: usize = 384;
 /// is the barometer with a bias calibrated on the GNSS, whose corrections would count as climbing
 /// (docs/ALTITUDE.md). No pressure, no ascent: never from the GNSS altitude.
 pub const CLIMB_HYSTERESIS_DM: i32 = 20;
+/// Faster than this a pressure altitude cannot rise on a bike (a strong rider climbs ~0.5 m/s), decimetres a second:
+/// such a rise is held, not counted, until it falls back (a pressure wave: a train in a tunnel, a door slammed) or
+/// [`SPIKE_HOLD_S`] goes by (it was real: a lift, a car). Falls are never held: a fast descent counts at once.
+pub const MAX_CLIMB_DM_S: i32 = 15;
+/// A held rise still there after this long counts.
+pub const SPIKE_HOLD_S: u32 = 60;
 
 /// Totals over the ride, fed with the messages of the file in order.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -39,6 +55,9 @@ pub struct Summary {
     distance_cm: u32,
     max_speed_mm_s: u32,
     climb_ref_dm: Option<i32>,
+    /// The last pressure altitude (FIT timestamp, dm), and a rise held: the altitude before it, since when.
+    last_alt: Option<(u32, i32)>,
+    held: Option<(i32, u32)>,
     ascent_dm: u32,
     descent_dm: u32,
     pub records: u32,
@@ -72,6 +91,20 @@ impl Summary {
         }
         if let Some(pa) = r.pressure_pa {
             let alt = altitude::pressure_altitude_dm(pa);
+            let last = self.last_alt.replace((r.timestamp, alt));
+            if let Some((base, since)) = self.held {
+                if alt <= base + CLIMB_HYSTERESIS_DM || r.timestamp.saturating_sub(since) > SPIKE_HOLD_S {
+                    self.held = None;
+                } else {
+                    return;
+                }
+            } else if let Some((t, a)) = last
+                && let dt @ 1..=5 = r.timestamp.saturating_sub(t)
+                && alt - a > MAX_CLIMB_DM_S * dt as i32
+            {
+                self.held = Some((a, r.timestamp));
+                return;
+            }
             let reference = self.climb_ref_dm.get_or_insert(alt);
             if alt >= *reference + CLIMB_HYSTERESIS_DM {
                 self.ascent_dm += (alt - *reference) as u32;

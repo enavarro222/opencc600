@@ -586,3 +586,13 @@ fn a_resumed_ride_survives_any_power_cut() {
     );
     assert!(cut > 10, "suspiciously few operations: {cut}");
 }
+
+#[test]
+fn hours_left_on_the_storage() {
+    // the CC600's partition, empty (1943 blocks of 4 KB free): ~58 h of rides, ~8 h with the trip log
+    let free = 1943 * 4096;
+    assert_eq!(recorder::RIDE_BYTES_PER_S, 34);
+    assert_eq!(recorder::hours_left(free, 0), 58);
+    assert_eq!(recorder::hours_left(free, 190), 8);
+    assert_eq!(recorder::hours_left(100_000, 0), 0);
+}

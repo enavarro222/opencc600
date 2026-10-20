@@ -110,6 +110,13 @@ plus a few metres per hour.
 - The FIT `enhanced_altitude` is the filtered altitude (the absolute profile). Without a reference yet, it is the
   raw GNSS altitude.
 
+- **Pressure spikes are held, never the descents**: a pressure altitude rising faster than 1.5 m/s
+  (`MAX_CLIMB_DM_S`; a strong rider climbs ~0.5 m/s) is not counted while it stays up; if it falls back within a
+  minute (`SPIKE_HOLD_S`) it was a pressure wave, else it counts (a lift, a car). Seen in a train on 2026-10-20: two
+  tunnels raised the pressure altitude by 45–50 m for 15–30 s; the ride counted 251 / 207 m where the line climbs
+  ~130 m (EU-DEM under the positions); the rule gives 129 / 85 m on the same records. A fast descent is never held
+  (`crates/recorder/tests/climb.rs`: tunnel, fast MTB descent with bumps, short steep climbs, lift).
+
 Known limits of this choice:
 
 - **Weather drift** during the ride counts: a front lowering the pressure by 1 hPa over a flat ride gives ~8 m of
@@ -117,6 +124,8 @@ Known limits of this choice:
 - **Temperature scale**: the standard atmosphere assumes 15 °C at sea level, −6.5 °C/km. On a hot day the real
   Δh is larger: at 30 °C a 1000 m climb reads ~950 m. The case temperature (sun, pocket, car) does not tell the
   air temperature, so there is no correction yet.
+- **A pressure wave that lowers the altitude** (a sudden over-pressure) is not caught: the drop counts as a
+  descent, and the return as a climb if it is slow enough. Not seen so far.
 - **Dynamic pressure**: a constant speed gives a constant offset, which does not count. A sudden sprint into the
   wind can look like a ~1–2 m step. That is under the hysteresis.
 
