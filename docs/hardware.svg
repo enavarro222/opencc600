@@ -1,0 +1,233 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 880" width="1200" height="880" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title>CC600 hardware architecture</title>
+  <style>
+    .bg { fill: #ffffff; }
+    .t { fill: #1f2328; }
+    .m { fill: #59636e; }
+    .h { font-weight: 600; font-size: 15px; }
+    .s { font-size: 12px; }
+    .xs { font-size: 11px; }
+    .mono { font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 11px; }
+    .box { stroke-width: 1.5; }
+    .esp { fill: #e8f1fd; stroke: #2f6fd0; }
+    .nrf { fill: #fdf1e3; stroke: #c8741a; }
+    .gnss { fill: #e7f6ec; stroke: #2e8b57; }
+    .neu { fill: #f3f4f6; stroke: #8b949e; }
+    .sub { fill: #ffffff; stroke: #c9d1d9; stroke-width: 1; }
+    .zone { fill: none; stroke: #c8741a; stroke-width: 1; stroke-opacity: 0.55; }
+    .ours { fill: #d6f0dc; stroke: #2e8b57; stroke-width: 1; }
+    .line { stroke: #57606a; stroke-width: 1.8; fill: none; }
+    .dash { stroke-dasharray: 6 4; }
+    .pwr { stroke: #c0392b; }
+    .arrow { fill: #57606a; }
+    .arrowp { fill: #c0392b; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .t { fill: #e6edf3; }
+      .m { fill: #9198a1; }
+      .esp { fill: #13233d; stroke: #5b9cf0; }
+      .nrf { fill: #33230f; stroke: #e0953f; }
+      .gnss { fill: #10291b; stroke: #4fbf7f; }
+      .neu { fill: #1c2128; stroke: #6e7681; }
+      .sub { fill: #0d1117; stroke: #30363d; }
+      .zone { stroke: #e0953f; }
+      .ours { fill: #143322; stroke: #4fbf7f; }
+      .line { stroke: #9198a1; }
+      .arrow { fill: #9198a1; }
+      .pwr { stroke: #ff6b5b; }
+      .arrowp { fill: #ff6b5b; }
+    }
+  </style>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="arrow"/>
+    </marker>
+    <marker id="ap" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" class="arrowp"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1200" height="880"/>
+
+  <text x="40" y="38" class="t" font-size="20" font-weight="700">GEOID CC600 — hardware architecture</text>
+  <text x="40" y="60" class="m s">Seen from the firmware over USB-C (case never opened). C606 board without touch and eMMC.</text>
+
+  <!-- ===================== Display ===================== -->
+  <rect x="40" y="110" width="270" height="180" rx="8" class="box neu"/>
+  <text x="56" y="134" class="t h">ST7789 TFT panel</text>
+  <text x="56" y="154" class="m s">240 × 320, RGB565</text>
+  <text x="56" y="172" class="m s">keeps its frame across an ESP32 reset</text>
+  <text x="56" y="190" class="m s">(RESET line on the nRF side)</text>
+  <text x="56" y="208" class="m s">no touch controller fitted</text>
+  <rect x="52" y="226" width="246" height="52" rx="5" class="sub"/>
+  <text x="64" y="246" class="t s" font-weight="600">Backlight</text>
+  <text x="64" y="266" class="m xs">LEDC PWM 20 kHz · auto via light sensor</text>
+
+  <!-- ===================== Flash ===================== -->
+  <rect x="40" y="340" width="270" height="180" rx="8" class="box neu"/>
+  <text x="56" y="364" class="t h">16 MB flash (Puya, quad)</text>
+  <rect x="52" y="376" width="246" height="24" rx="4" class="sub"/>
+  <text x="62" y="392" class="m xs">bootloader · partitions · nvs · otadata</text>
+  <rect x="52" y="404" width="246" height="24" rx="4" class="ours"/>
+  <text x="62" y="420" class="t xs">ota_0 4.1 MB — opencc600 (Rust)</text>
+  <rect x="52" y="432" width="246" height="24" rx="4" class="sub"/>
+  <text x="62" y="448" class="m xs">ota_1 4.1 MB — vendor app (kept)</text>
+  <rect x="52" y="460" width="246" height="46" rx="4" class="ours"/>
+  <text x="62" y="477" class="t xs">storage 7.8 MB — littlefs</text>
+  <text x="62" y="495" class="m xs">rides (FIT), routes, map, settings</text>
+
+  <!-- ===================== USB-C ===================== -->
+  <rect x="40" y="570" width="270" height="100" rx="8" class="box neu"/>
+  <text x="56" y="594" class="t h">USB-C</text>
+  <text x="56" y="614" class="m s">D− 19 / D+ 20 → USB-Serial/JTAG</text>
+  <text x="56" y="632" class="m s">303a:1001 · logs, flashing, test hook</text>
+  <text x="56" y="650" class="m s">VBUS → charger</text>
+
+  <!-- ===================== ESP32-S3 ===================== -->
+  <rect x="430" y="150" width="300" height="380" rx="10" class="box esp"/>
+  <text x="446" y="176" class="t" font-size="17" font-weight="700">ESP32-S3</text>
+  <text x="446" y="195" class="m s">main processor · our Rust firmware (esp-hal)</text>
+
+  <rect x="444" y="208" width="272" height="44" rx="5" class="sub"/>
+  <text x="456" y="226" class="t s" font-weight="600">2 × Xtensa LX7 @ 240 MHz</text>
+  <text x="456" y="243" class="m xs">512 KB SRAM · GNSS DMA ring in internal RAM</text>
+
+  <rect x="444" y="260" width="272" height="44" rx="5" class="sub"/>
+  <text x="456" y="278" class="t s" font-weight="600">2 MB PSRAM (in package, 80 MHz)</text>
+  <text x="456" y="295" class="m xs">framebuffer, map tiles</text>
+
+  <rect x="444" y="312" width="272" height="124" rx="5" class="sub"/>
+  <text x="456" y="330" class="t s" font-weight="600">Peripherals in use</text>
+  <text x="456" y="349" class="mono t">LCD_CAM  i8080 16-bit → panel</text>
+  <text x="456" y="366" class="mono t">LEDC     → backlight (GPIO 45)</text>
+  <text x="456" y="383" class="mono t">UART0    + UHCI DMA → GNSS</text>
+  <text x="456" y="400" class="mono t">UART2    → nRF (IRQ executor)</text>
+  <text x="456" y="417" class="mono t">USB-Serial/JTAG → host</text>
+
+  <rect x="444" y="444" width="272" height="72" rx="5" class="sub"/>
+  <text x="456" y="462" class="t s" font-weight="600">Radio: BLE 5 + Wi-Fi</text>
+  <text x="456" y="480" class="m xs">BLE sensors (HR, CSC, power)</text>
+  <text x="456" y="496" class="m xs">later: routes / map transfer</text>
+  <text x="456" y="510" class="m xs">Wi-Fi: sync at home only</text>
+
+  <!-- BLE sensors (wireless) -->
+  <rect x="455" y="78" width="250" height="44" rx="22" class="box neu"/>
+  <text x="580" y="98" class="t s" text-anchor="middle" font-weight="600">BLE sensors</text>
+  <text x="580" y="114" class="m xs" text-anchor="middle">heart rate · speed/cadence · power</text>
+  <line x1="580" y1="122" x2="580" y2="148" class="line dash" marker-start="url(#a)" marker-end="url(#a)"/>
+
+  <!-- ===================== GNSS ===================== -->
+  <rect x="430" y="610" width="300" height="120" rx="8" class="box gnss"/>
+  <text x="446" y="634" class="t h">Airoha AG3352Q GNSS</text>
+  <text x="446" y="654" class="m s">multi-constellation (GPS, GLONASS,</text>
+  <text x="446" y="671" class="m s">Galileo, BeiDou) · NMEA + $PAIR</text>
+  <text x="446" y="689" class="m s">output trimmed with $PAIR062</text>
+  <text x="446" y="707" class="m s">power switched by the nRF</text>
+
+  <!-- ===================== nRF domain ===================== -->
+  <rect x="880" y="146" width="300" height="630" rx="12" class="zone"/>
+  <text x="1030" y="762" class="m xs" text-anchor="middle">behind the nRF (reached only over UART2)</text>
+
+  <rect x="900" y="176" width="260" height="126" rx="8" class="box nrf"/>
+  <text x="916" y="200" class="t h">nRF co-processor</text>
+  <text x="916" y="220" class="m s">vendor firmware 1.2.16 (not replaced)</text>
+  <text x="916" y="238" class="m s">power on/off, keys, sensor stream</text>
+  <text x="916" y="256" class="m s">long press key 0 = power-on gesture</text>
+  <text x="916" y="274" class="m s">can cut the ESP32 and the GNSS</text>
+  <text x="916" y="292" class="m s">ANT+ radio (not tested yet)</text>
+
+  <g class="s">
+    <rect x="900" y="316" width="260" height="52" rx="6" class="box nrf"/>
+    <text x="914" y="337" class="t" font-weight="600">3 keys</text>
+    <text x="914" y="356" class="m xs">0 top left · 1 bottom left · 2 bottom right</text>
+
+    <rect x="900" y="376" width="260" height="52" rx="6" class="box nrf"/>
+    <text x="914" y="397" class="t" font-weight="600">RTC (UTC)</text>
+    <text x="914" y="416" class="m xs">5 Hz · set from a valid GNSS fix</text>
+
+    <rect x="900" y="436" width="260" height="52" rx="6" class="box nrf"/>
+    <text x="914" y="457" class="t" font-weight="600">Li-ion 1800 mAh + charger</text>
+    <text x="914" y="476" class="m xs">mV, %, charge status · 3.3 Hz</text>
+
+    <rect x="900" y="496" width="260" height="52" rx="6" class="box nrf"/>
+    <text x="914" y="517" class="t" font-weight="600">Barometer + temperature</text>
+    <text x="914" y="536" class="m xs">F1 03 · 0.01 Pa · 5 Hz → altitude, D+</text>
+
+    <rect x="900" y="556" width="260" height="52" rx="6" class="box nrf"/>
+    <text x="914" y="577" class="t" font-weight="600">Ambient light sensor</text>
+    <text x="914" y="596" class="m xs">F1 04 · auto backlight</text>
+
+    <rect x="900" y="616" width="260" height="52" rx="6" class="box nrf dash"/>
+    <text x="914" y="637" class="t" font-weight="600">Unknown sensor (F1 0A)</text>
+    <text x="914" y="656" class="m xs">u16 ≈ temperature · 2nd thermometer?</text>
+
+    <rect x="900" y="676" width="260" height="52" rx="6" class="box nrf"/>
+    <text x="914" y="697" class="t" font-weight="600">Buzzer</text>
+    <text x="914" y="716" class="m xs">E2 01 XX · built-in tunes 00–1B</text>
+  </g>
+
+  <!-- ANT+ sensors (wireless), next to the BLE ones -->
+  <rect x="905" y="78" width="250" height="44" rx="22" class="box neu"/>
+  <text x="1030" y="98" class="t s" text-anchor="middle" font-weight="600">ANT+ sensors</text>
+  <text x="1030" y="114" class="m xs" text-anchor="middle">heart rate · speed/cadence · power</text>
+  <line x1="1030" y1="122" x2="1030" y2="174" class="line dash" marker-start="url(#a)" marker-end="url(#a)"/>
+
+  <!-- ===================== Links ===================== -->
+  <!-- ESP32 ↔ panel -->
+  <line x1="428" y1="200" x2="312" y2="200" class="line" marker-end="url(#a)"/>
+  <text x="370" y="192" class="t xs" text-anchor="middle" font-weight="600">i80 16-bit, 15 MHz</text>
+  <text x="370" y="214" class="m xs" text-anchor="middle">D0–15 · DC 40</text>
+  <text x="370" y="228" class="m xs" text-anchor="middle">WR 3 · CS 2</text>
+  <line x1="428" y1="252" x2="312" y2="252" class="line" marker-end="url(#a)"/>
+  <text x="370" y="268" class="m xs" text-anchor="middle">GPIO 45</text>
+
+  <!-- ESP32 ↔ flash -->
+  <line x1="312" y1="430" x2="428" y2="430" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="370" y="422" class="t xs" text-anchor="middle" font-weight="600">quad SPI</text>
+  <text x="370" y="446" class="m xs" text-anchor="middle">XIP code</text>
+
+  <!-- ESP32 ↔ USB -->
+  <polyline points="312,610 390,610 390,500 428,500" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="352" y="602" class="t xs" text-anchor="middle" font-weight="600">USB FS</text>
+
+  <!-- ESP32 ↔ GNSS -->
+  <line x1="580" y1="532" x2="580" y2="608" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="590" y="556" class="t xs" font-weight="600">UART0 · TX 1 / RX 0</text>
+  <text x="590" y="572" class="m xs">921 600 Bd · UHCI DMA</text>
+  <text x="590" y="588" class="m xs">(no loss during flash writes)</text>
+
+  <!-- ESP32 ↔ nRF -->
+  <line x1="732" y1="210" x2="898" y2="210" class="line" marker-start="url(#a)" marker-end="url(#a)"/>
+  <text x="815" y="202" class="t xs" text-anchor="middle" font-weight="600">UART2 · TX 42 / RX 41</text>
+  <text x="815" y="226" class="m xs" text-anchor="middle">115 200 Bd</text>
+  <text x="815" y="240" class="m xs" text-anchor="middle">framed, CRC16</text>
+
+  <!-- nRF → ESP32 power -->
+  <line x1="898" y1="280" x2="732" y2="280" class="line pwr dash" marker-end="url(#ap)"/>
+  <text x="815" y="296" class="xs" fill="#c0392b" text-anchor="middle">power on / off</text>
+  <text x="815" y="310" class="xs" fill="#c0392b" text-anchor="middle">(cuts the ESP32 even on USB)</text>
+
+  <!-- nRF → GNSS power -->
+  <polyline points="878,740 800,740 800,690 732,690" class="line pwr dash" marker-end="url(#ap)"/>
+  <text x="806" y="734" class="xs" fill="#c0392b">power</text>
+
+  <!-- USB VBUS → charger -->
+  <polyline points="175,672 175,762 860,762 860,462 898,462" class="line pwr" marker-end="url(#ap)"/>
+  <text x="520" y="756" class="xs" fill="#c0392b" text-anchor="middle">VBUS 5 V → charger</text>
+
+  <!-- ===================== Legend ===================== -->
+  <g transform="translate(40,796)">
+    <line x1="0" y1="0" x2="30" y2="0" class="line"/>
+    <text x="38" y="4" class="m xs">data link (checked on the device)</text>
+    <line x1="0" y1="18" x2="30" y2="18" class="line dash"/>
+    <text x="38" y="22" class="m xs">wireless</text>
+    <line x1="0" y1="36" x2="30" y2="36" class="line pwr"/>
+    <text x="38" y="40" class="m xs">power</text>
+    <line x1="0" y1="54" x2="30" y2="54" class="line pwr dash"/>
+    <text x="38" y="58" class="m xs">power switched by the nRF (circuit not seen)</text>
+    <rect x="320" y="-6" width="30" height="12" rx="2" class="box nrf dash"/>
+    <text x="358" y="4" class="m xs">dashed box: not identified</text>
+    <rect x="320" y="12" width="30" height="12" rx="2" class="ours"/>
+    <text x="358" y="22" class="m xs">ours</text>
+  </g>
+</svg>

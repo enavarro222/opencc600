@@ -44,6 +44,12 @@ Hardware and reverse engineering background: [REVERSE_NOTES.md](REVERSE_NOTES.md
 Not ported: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, `ui_port.c` (LVGL), Mapsforge maps (`mapfile.c`, `mapview.c`).
 
 ## Hardware constraints
+
+![CC600 hardware architecture](hardware.svg)
+
+The ESP32-S3 runs our firmware; the nRF co-processor (vendor firmware, not replaced) owns the keys, power, charger,
+RTC, barometer, light sensor, buzzer and ANT+, and is reached only over UART2. Details in
+[REVERSE_NOTES.md](REVERSE_NOTES.md).
 - 240x320 colour panel, **3 keys, no touch** → the whole UX is button driven.
 - ESP32-S3, 2 MB quad PSRAM, app ≤ **0x420000 (4.1 MB)** per OTA slot.
 - Storage: 7.8 MB littlefs `storage` partition (0x860000), 68 % used by the vendor (24 rides = 4.1 MB, its logs,
