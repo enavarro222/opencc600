@@ -109,6 +109,9 @@ Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [pro
   true: off route, sensor lost), climb ahead, auto-pause. One at a time, by priority.
 - One route on the device, sent from the app at any time (even mid-ride). Rides are uploaded as soon as possible
   (home Wi-Fi or app) and deleted only after the upload is confirmed.
+- The loaded route can be **set aside from the device** to ride free (no route): the route pages and the off-route
+  alerts go away, the route itself stays stored and can be followed again later from the same menu. Deleting it
+  from the device is possible too, but as a separate, confirmed action.
 - GPS: the home screen shows acquisition (state + progress bar); a ride can start before the fix (distance and
   map start at the fix). While riding, "GPS ◌" appears in the top bar only while searching or lost, with a banner.
 - Pause screen: bottom-right resume, bottom-left "Finish…" (then confirmation), top "≡ Menu" (sensors, switch off).
@@ -180,7 +183,8 @@ Status on 2026-10-19 (updated by the bring-up work; altitude is worked on in par
       the map and climb pages wait for the GPX route.
 - [ ] **Beeps** (once the buzzer is understood): key feedback (can be turned off), alerts — off route, sensor lost,
       low battery, recording started/stopped. Every beep comes with a message on screen.
-- [ ] **Load a GPX route and display the route line** (no background map yet).
+- [ ] **Load a GPX route and display the route line** (no background map yet), and switch to a free ride without
+      it (route kept, see UI rules).
 - [ ] **Settings kept in flash**: sound on/off (the USB test hook already mutes), time zone (UTC hard-coded in the
       FIT `local_timestamp` today), backlight level; FIT `serial_number` from the MAC address (600 today).
 - [ ] **Battery life** ([POWER.md](POWER.md)): battery-run log (`/power/<run>.csv`, one line a minute), clean power
