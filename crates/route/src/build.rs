@@ -298,7 +298,7 @@ fn distance_to_segment(p: (i32, i32, i32), a: (i32, i32, i32), b: (i32, i32, i32
     libm::sqrt(ex * ex + ey * ey)
 }
 
-fn varint(out: &mut Vec<u8>, mut v: u32) {
+pub(crate) fn varint(out: &mut Vec<u8>, mut v: u32) {
     while v >= 0x80 {
         out.push(v as u8 | 0x80);
         v >>= 7;
@@ -306,6 +306,6 @@ fn varint(out: &mut Vec<u8>, mut v: u32) {
     out.push(v as u8);
 }
 
-fn zigzag(out: &mut Vec<u8>, v: i32) {
+pub(crate) fn zigzag(out: &mut Vec<u8>, v: i32) {
     varint(out, ((v << 1) ^ (v >> 31)) as u32);
 }

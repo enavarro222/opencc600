@@ -2,8 +2,11 @@
 //! `route-tool info FILE.route`: what it holds.
 //! `route-tool sim IN.gpx OUT_DIR [EVERY_S]`: the ride replayed second by second along the GPX (its times, else
 //! 20 km/h) through the firmware's screens and navigation (crates/ui), without the device: a PNG of the map and
-//! the Essential page every EVERY_S seconds (300), and how far from the route the rider was placed.
+//! the Essential page every EVERY_S seconds (300), and how far from the route the rider was placed; with MAP, its
+//! background and the whole-route view.
+//! `route-tool map IN.gpx OSM.json OUT.map [CORRIDOR_M]`: the background map of the route (see `osm.rs`).
 
+mod osm;
 mod sim;
 
 use std::process::exit;
@@ -16,8 +19,11 @@ fn main() {
         ["build", gpx, out] => build_file(gpx, out, 3.0),
         ["build", gpx, out, tol] => build_file(gpx, out, tol.parse().unwrap_or_else(|_| usage())),
         ["info", file] => info(&std::fs::read(file).unwrap_or_else(|e| fail(file, e))),
-        ["sim", gpx, out] => sim::run(gpx, out, 300),
-        ["sim", gpx, out, every] => sim::run(gpx, out, every.parse().unwrap_or_else(|_| usage())),
+        ["sim", gpx, out] => sim::run(gpx, out, 300, None),
+        ["sim", gpx, out, every] => sim::run(gpx, out, every.parse().unwrap_or_else(|_| usage()), None),
+        ["sim", gpx, out, every, map] => sim::run(gpx, out, every.parse().unwrap_or_else(|_| usage()), Some(map)),
+        ["map", gpx, osm, out] => osm::run(gpx, osm, out, 1000.0),
+        ["map", gpx, osm, out, corridor] => osm::run(gpx, osm, out, corridor.parse().unwrap_or_else(|_| usage())),
         _ => usage(),
     }
 }
@@ -25,7 +31,8 @@ fn main() {
 fn usage() -> ! {
     eprintln!(
         "usage: route-tool build IN.gpx OUT.route [TOLERANCE_M]\n       route-tool info FILE.route\n       \
-         route-tool sim IN.gpx OUT_DIR [EVERY_S]"
+         route-tool sim IN.gpx OUT_DIR [EVERY_S [MAP]]\n       \
+         route-tool map IN.gpx OSM.json OUT.map [CORRIDOR_M]"
     );
     exit(2)
 }

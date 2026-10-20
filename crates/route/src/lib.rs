@@ -16,7 +16,12 @@ extern crate alloc;
 #[cfg(feature = "build")]
 mod build;
 #[cfg(feature = "build")]
+mod build_map;
+pub mod map;
+#[cfg(feature = "build")]
 pub use build::{Gpx, GpxError, build, parse_gpx};
+#[cfg(feature = "build")]
+pub use build_map::{MapFeature, MapStats, build_map};
 
 pub const MAGIC: &[u8; 4] = b"OCRT";
 pub const VERSION: u8 = 1;

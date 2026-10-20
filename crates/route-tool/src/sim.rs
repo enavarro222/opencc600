@@ -4,6 +4,7 @@ use std::path::Path;
 
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
+use route::map::Map;
 use route::{Route, build, parse_gpx};
 use ui::history::History;
 use ui::nav::{Fix, Nav};
@@ -36,9 +37,9 @@ impl DrawTarget for Fb {
     }
 }
 
-fn screen(ui: &Ui, v: &View, r: &Route<'_>) -> Fb {
+fn screen(ui: &Ui, v: &View, r: &Route<'_>, m: Option<&Map<'_>>) -> Fb {
     let mut fb = Fb(vec![Rgb565::BLACK; 240 * 320]);
-    ui::draw(&mut fb, ui, v, Some(r), &ui::DAY).unwrap();
+    ui::draw(&mut fb, ui, v, Some(r), m, &ui::DAY).unwrap();
     fb
 }
 
@@ -59,11 +60,16 @@ fn save(path: &Path, screens: &[Fb]) {
     enc.write_header().unwrap().write_image_data(&out).unwrap();
 }
 
-pub fn run(gpx_path: &str, out: &str, every_s: u32) {
+pub fn run(gpx_path: &str, out: &str, every_s: u32, map_path: Option<&str>) {
     let text = std::fs::read_to_string(gpx_path).unwrap_or_else(|e| fail(gpx_path, e));
     let gpx = parse_gpx(&text).unwrap_or_else(|e| fail(gpx_path, format!("{e:?}")));
     let file = build(&gpx, 3.0);
     let r = Route::parse(&file).unwrap();
+    let map_file = map_path.map(|p| std::fs::read(p).unwrap_or_else(|e| fail(p, e)));
+    let m = map_file.as_deref().map(|d| Map::parse(d).unwrap_or_else(|e| fail("map", format!("{e:?}"))));
+    if m.is_some_and(|m| m.route_crc != route::crc16(&file)) {
+        fail("map", "made for another route");
+    }
     std::fs::create_dir_all(out).unwrap_or_else(|e| fail(out, e));
 
     // the GPX's points on the route's plane, with their times (or 20 km/h)
@@ -174,11 +180,15 @@ pub fn run(gpx_path: &str, out: &str, every_s: u32) {
             max_off = (p.off_dm, t);
         }
         if t % every_s == 0 || t == end {
-            let map = screen(&ui, &view, &r);
+            let map = screen(&ui, &view, &r, m.as_ref());
+            // the other zooms, the whole route last
             let mut other = ui;
-            other.key(Key::BottomLeft, Press::Click, 0, &view);
-            let essential = screen(&other, &view, &r);
-            save(&Path::new(out).join(format!("t{t:05}.png")), &[map, essential]);
+            let mut zooms = vec![map];
+            for _ in 1..ui::ZOOM_STEPS {
+                other.key(Key::TopLeft, Press::Click, 0, &view);
+                zooms.push(screen(&other, &view, &r, m.as_ref()));
+            }
+            save(&Path::new(out).join(format!("t{t:05}.png")), &zooms);
             frames += 1;
             println!(
                 "{:>2}:{:02}:{:02}  {:5.1} km along, {:5.1} m off, {:4.1} km left",

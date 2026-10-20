@@ -12,3 +12,4 @@ settings          = { path = "../settings" }
 ui                = { path = "../ui" }
 embedded-graphics = "0.8.2"
 png               = "0.18.1"
+serde_json        = "1"
