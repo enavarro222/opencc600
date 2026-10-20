@@ -292,8 +292,9 @@ async fn main(spawner: Spawner) -> ! {
             ui.set_scroll_s(s.scroll_s);
             ui.set_auto_off_min(s.auto_off_min);
         }
-        // The vendor repeats SendPowerOnCmd; c606-oss does it every 5 s. No nRF watchdog seen so far.
-        if last_power_on.elapsed() >= Duration::from_secs(5) {
+        // SendPowerOnCmd until the nRF answers, as the vendor: each one kills the ANT+ channels opened within ~6 s
+        // at the nRF's next 5 s tick (c606-oss), so every 5 s no channel lived more than a few seconds.
+        if STATUS.lock(Cell::get).power_on_reason.is_none() && last_power_on.elapsed() >= Duration::from_secs(5) {
             NRF_COMMANDS.send(command::power_on()).await;
             last_power_on = Instant::now();
         }
@@ -1133,12 +1134,13 @@ fn set_sensor(role: ui::Role, sensor: settings::Sensor) {
     SETTINGS_CHANGED.signal(());
 }
 
-/// What names a sensor on the screens: the name it gave, else the end of its address or its ANT number.
+/// What names a sensor on the screens, after its radio (a dual strap is listed twice): the name it gave, else the
+/// end of its address or its ANT number.
 fn sensor_name(sensor: &settings::Sensor) -> ui::fonts::Line {
     use settings::Sensor;
     match (ble::name_of(sensor), sensor) {
-        (Some(n), _) => ui::fonts::Line::new(format_args!("{}", n.as_str())),
-        (None, Sensor::Ble { addr, .. }) => ui::fonts::Line::new(format_args!("BLE …{:02X}{:02X}", addr[1], addr[0])),
+        (Some(n), _) => ui::fonts::Line::new(format_args!("BT {}", n.as_str())),
+        (None, Sensor::Ble { addr, .. }) => ui::fonts::Line::new(format_args!("BT …{:02X}{:02X}", addr[1], addr[0])),
         (None, Sensor::Ant { device_type, number, .. }) => {
             let kind = match *device_type {
                 sensors::ant::SPEED_CADENCE => " V+C",

@@ -162,8 +162,11 @@ Needs OpenOCD's `60-openocd.rules` udev rule for non-root USB access.
 Same framing, CRC and messages as the C606 documented by c606-oss, with these differences and measurements:
 
 - **nRF firmware 1.2.16** (`cmd 01` version frame; the C606 in c606-oss reports 0.2.19).
-- Every `SendPowerOnCmd` (sent every 5 s, like c606-oss) is answered by an `Ack`, the power-on reason and the version.
+- Every `SendPowerOnCmd` is answered by an `Ack`, the power-on reason and the version.
   Power-on reason seen: 4 (manual) at the first boot, then 5 and 6 after esptool resets with USB plugged in.
+- **Sent only until the nRF answers, as the vendor** (2026-10-20): repeated every 5 s (as c606-oss, harmless on its
+  C606), it killed every ANT+ channel and search on the CC600 within 1–4 s (state 4, one or a few pages, searches
+  hearing nothing). Once it stopped, a heart rate strap sent its pages for minutes.
 - **RTC write found and checked**: the ESP32 sends the nRF's own RTC frame back as a type 2 (set) frame,
   `A5 0C 6F F1 02 00 | 53 FF ss mm hh dd MM yy | CRC`, day byte = day | weekday << 5 (0 = Sunday, as in the frames the
   nRF sends: `0x91` = Thursday 17), **but month 1..12** where the nRF reports 0..11 (writing month - 1 moved the RTC
