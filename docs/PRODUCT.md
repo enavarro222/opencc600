@@ -86,7 +86,7 @@ core a rider checks after every ride.
    - a **corridor map around the loaded route** (see below);
    - a lean, fast 3-key UX;
    - easy ride sync (see 5).
-   Later ideas: crash / long-stop detection with the IMU, fully configurable screens, BLE remotes, structured workouts, FTMS home trainer control,
+   Later ideas: crash / long-stop detection with the IMU, fully configurable screens, BLE remotes, structured workouts (big later project: interval sessions programmed in the app, followed on the device), FTMS home trainer control,
    integration with home_trainer_game.
 5. **Ride sync**: over **Wi-Fi when back home**, to the phone or a **configurable cloud**
    (Strava, self-hosted server…). Wi-Fi stays off during the ride.
@@ -186,6 +186,10 @@ Status on 2026-10-19 (updated by the bring-up work; altitude is worked on in par
 - [ ] **Battery life** ([POWER.md](POWER.md)): battery-run log (`/power/<run>.csv`, one line a minute), clean power
       off at low battery, a reference run against the vendor firmware, then the first levers (automatic backlight
       from the ambient light sensor, CPU sleep, GNSS settings).
+- [ ] **Automatic power off during a ride**: after a while without moving (delay set in the app), the device
+      pauses the ride if needed and switches off on its own, keeping the ride to resume after power-on. Going
+      through the menu to switch off mid-ride is not good enough. A banner warns before it happens, any key
+      cancels it.
 - [ ] **Sensors over BLE and ANT+**: heart rate, cadence, power (the FIT record already has the fields).
 - [ ] **Open questions understood** (list below): each one explained, or its impact known and accepted.
 
