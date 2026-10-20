@@ -22,6 +22,84 @@ pub struct Settings {
     pub usage: Usage,
     /// Page auto-scroll, seconds a page.
     pub scroll_s: u8,
+    /// The paired sensors: heart rate, speed and cadence, power (one device can be several).
+    pub hr: Sensor,
+    pub speed_cadence: Sensor,
+    pub power: Sensor,
+    /// The loaded route is followed; off: set aside for a free ride (it stays stored). A new route is followed.
+    pub follow_route: bool,
+    /// Switch off after this many minutes still during a ride (the ride kept); 0: never.
+    pub auto_off_min: u8,
+    /// The trip log (`/logs`, a line a second while switched on, ~5 times what a ride takes): for bring-up.
+    pub trip_log: bool,
+}
+
+/// A paired sensor: `none`, `ble:r:E0:E2:58:63:35:07` (random address, `p:` public; most significant byte first,
+/// as phones show it) or `ant:121:12345:1` (ANT+ device type, device number, transmission type).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Sensor {
+    #[default]
+    None,
+    Ble {
+        random: bool,
+        /// Least significant byte first, as on the air.
+        addr: [u8; 6],
+    },
+    Ant {
+        /// The ANT+ device type: 120 heart rate, 121 speed and cadence, 122 cadence, 123 speed, 11 power.
+        device_type: u8,
+        number: u16,
+        transmission: u8,
+    },
+}
+
+impl Sensor {
+    pub fn parse(v: &str) -> Option<Self> {
+        if v == "none" {
+            return Some(Self::None);
+        }
+        if let Some(rest) = v.strip_prefix("ble:") {
+            let (kind, hex) = rest.split_once(':')?;
+            let random = match kind {
+                "r" => true,
+                "p" => false,
+                _ => return None,
+            };
+            let mut addr = [0; 6];
+            let mut bytes = hex.split(':');
+            for b in addr.iter_mut().rev() {
+                let h = bytes.next()?;
+                if h.len() != 2 {
+                    return None;
+                }
+                *b = u8::from_str_radix(h, 16).ok()?;
+            }
+            return bytes.next().is_none().then_some(Self::Ble { random, addr });
+        }
+        let (device_type, rest) = v.strip_prefix("ant:")?.split_once(':')?;
+        let (number, transmission) = rest.split_once(':')?;
+        Some(Self::Ant {
+            device_type: device_type.parse().ok()?,
+            number: number.parse().ok()?,
+            transmission: transmission.parse().ok()?,
+        })
+    }
+}
+
+impl fmt::Display for Sensor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::None => f.write_str("none"),
+            Self::Ble { random, addr } => {
+                f.write_str(if random { "ble:r" } else { "ble:p" })?;
+                for b in addr.iter().rev() {
+                    write!(f, ":{b:02X}")?;
+                }
+                Ok(())
+            }
+            Self::Ant { device_type, number, transmission } => write!(f, "ant:{device_type}:{number}:{transmission}"),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -48,6 +126,12 @@ impl Default for Settings {
             backlight: 50,
             usage: Usage::Explore,
             scroll_s: 4,
+            hr: Sensor::None,
+            speed_cadence: Sensor::None,
+            power: Sensor::None,
+            follow_route: true,
+            auto_off_min: 20,
+            trip_log: false,
         }
     }
 }
@@ -60,7 +144,20 @@ pub enum Error {
 }
 
 /// The keys, in the order the file is written.
-pub const KEYS: [&str; 6] = ["sound", "tz", "theme", "backlight", "usage", "scroll_s"];
+pub const KEYS: [&str; 12] = [
+    "sound",
+    "tz",
+    "theme",
+    "backlight",
+    "usage",
+    "scroll_s",
+    "hr",
+    "speed_cadence",
+    "power",
+    "follow_route",
+    "auto_off_min",
+    "trip_log",
+];
 
 impl Settings {
     /// Reads a settings file: defaults for what is missing or invalid, unknown keys and other lines ignored.
@@ -96,6 +193,12 @@ impl Settings {
                 }
             }
             "scroll_s" => self.scroll_s = value.parse().ok().filter(|&v| (2..=60).contains(&v)).ok_or(bad)?,
+            "hr" => self.hr = Sensor::parse(value).ok_or(bad)?,
+            "speed_cadence" => self.speed_cadence = Sensor::parse(value).ok_or(bad)?,
+            "power" => self.power = Sensor::parse(value).ok_or(bad)?,
+            "follow_route" => self.follow_route = on_off(value).ok_or(bad)?,
+            "auto_off_min" => self.auto_off_min = value.parse().ok().filter(|&v| v <= 120).ok_or(bad)?,
+            "trip_log" => self.trip_log = on_off(value).ok_or(bad)?,
             _ => return Err(Error::UnknownKey),
         }
         Ok(())
@@ -116,6 +219,12 @@ impl Settings {
                 Usage::Train => "train",
             }),
             "scroll_s" => write!(out, "{}", self.scroll_s),
+            "hr" => write!(out, "{}", self.hr),
+            "speed_cadence" => write!(out, "{}", self.speed_cadence),
+            "power" => write!(out, "{}", self.power),
+            "follow_route" => out.write_str(if self.follow_route { "on" } else { "off" }),
+            "auto_off_min" => write!(out, "{}", self.auto_off_min),
+            "trip_log" => out.write_str(if self.trip_log { "on" } else { "off" }),
             _ => return Err(Error::UnknownKey),
         };
         r.map_err(|_| Error::BadValue)
@@ -370,9 +479,15 @@ mod tests {
         s.set("tz", "UTC0").unwrap();
         s.set("backlight", "80").unwrap();
         s.set("usage", "train").unwrap();
+        s.set("hr", "ble:r:E0:E2:58:63:35:07").unwrap();
+        s.set("power", "ant:11:12345:5").unwrap();
         let mut text = String::new();
         s.write(&mut text).unwrap();
-        assert_eq!(text, "sound=off\ntz=UTC0\ntheme=day\nbacklight=80\nusage=train\nscroll_s=4\n");
+        assert_eq!(
+            text,
+            "sound=off\ntz=UTC0\ntheme=day\nbacklight=80\nusage=train\nscroll_s=4\n\
+             hr=ble:r:E0:E2:58:63:35:07\nspeed_cadence=none\npower=ant:11:12345:5\nfollow_route=on\nauto_off_min=20\ntrip_log=off\n"
+        );
         assert_eq!(Settings::parse(&text), s);
     }
 
@@ -386,6 +501,9 @@ mod tests {
         assert_eq!(s.set("colour", "red"), Err(Error::UnknownKey));
         assert_eq!(s.set("tz", "Paris"), Err(Error::BadValue));
         assert_eq!(s.set("scroll_s", "1"), Err(Error::BadValue));
+        for bad in ["ble:x:E0:E2:58:63:35:07", "ble:r:E0:E2:58:63:35", "ble:r:E0:E2:58:63:35:07:00", "ant:120:70000:1", "ant:12345:1", "ant:300:1:1", "hrm"] {
+            assert_eq!(s.set("hr", bad), Err(Error::BadValue), "{bad}");
+        }
         assert_eq!(s, Settings::default(), "a refused value changes nothing");
     }
 
