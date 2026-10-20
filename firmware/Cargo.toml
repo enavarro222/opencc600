@@ -12,11 +12,15 @@ path = "./src/bin/main.rs"
 [features]
 # Power-cut test of the ride store on the device (tools/hil_storage.py); never in a normal build.
 hil-storage = []
+# A background map built in (`dump/bench.map`, `route-tool map`, for the route on the device): drawing benchmark
+# until maps are sent; never in a normal build (the map is a real place).
+bench-map = []
 
 [dependencies]
 esp-hal = { version = "~1.2.2", features = ["esp32s3", "log-04", "unstable"] }
 
 esp-rtos = { version = "0.4.0", features = [
+  "esp-radio",
   "embassy",
   "esp-alloc",
   "esp32s3",
@@ -38,7 +42,7 @@ esp-println = { version = "0.18.0", features = ["esp32s3", "log-04"] }
 
 critical-section  = "1.2.0"
 embedded-graphics = "0.8.2"
-embassy-sync      = "0.8.0"
+embassy-sync      = "0.8"
 altitude          = { path = "../crates/altitude" }
 fit               = { path = "../crates/fit" }
 gnss              = { path = "../crates/gnss" }
@@ -52,6 +56,12 @@ static_cell      = "2.1.1"
 littlefs2 = { version = "0.8.1", default-features = false, features = ["c-stubs"] }
 esp-storage = { version = "0.10.0", features = ["embedded-storage", "esp32s3"] }
 embedded-storage = "0.3.2"
+esp-radio = { version = "1.0.0-beta.1", features = ["esp32s3", "ble", "log-04", "unstable", "esp-alloc"] }
+trouble-host = { version = "0.7.0", features = ["log", "central", "gatt", "scan", "gatt-client-notification-max-subscribers-2", "gatt-client-notification-queue-size-4"] }
+bt-hci = "0.9"
+embassy-futures = "0.1"
+heapless = "0.9"
+sensors = { version = "0.1.0", path = "../crates/sensors" }
 
 
 # For fine tuning these settings, please refer to https://doc.rust-lang.org/cargo/reference/profiles.html

@@ -16,7 +16,7 @@ use littlefs2::io::{Error, Result};
 /// `storage` partition (data/0x83), checked against the device partition table by tools/flash_ota0.py.
 pub const OFFSET: u32 = 0x86_0000;
 pub const SIZE: usize = 0x79_E000;
-const BLOCK: usize = 4096;
+pub const BLOCK: usize = 4096;
 
 pub struct Partition<'d> {
     flash: FlashStorage<'d>,

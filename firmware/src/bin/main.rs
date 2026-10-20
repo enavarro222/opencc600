@@ -1,7 +1,7 @@
 //! Bring-up firmware (docs/PRODUCT.md, technical plan).
 //!
 //! Step 0: an esp-hal image in `ota_0` boots under the vendor bootloader, with the 2 MB quad PSRAM.
-//! Panel: ST7789 on the i8080 16-bit bus, test pattern drawn with `embedded-graphics`.
+//! Panel: ST7789 on the i8080 16-bit bus, drawn with `embedded-graphics` (the test pattern only in the bench).
 
 #![no_std]
 #![no_main]
@@ -13,7 +13,7 @@
 #![deny(clippy::large_stack_frames)]
 
 use core::cell::{Cell, RefCell};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -47,6 +47,7 @@ use esp_storage::FlashStorage;
 use littlefs2::fs::{Allocation, Filesystem};
 use log::{debug, info, warn};
 use nrf_link::{Decoder, KeyAction, Message, RtcTime, command};
+use opencc600_firmware::{ant, ble};
 use opencc600_firmware::gnss_uart::{self, GnssUart};
 #[cfg(feature = "hil-storage")]
 use opencc600_firmware::hil_storage;
@@ -160,6 +161,8 @@ async fn main(spawner: Spawner) -> ! {
         .map_or_else(|_| settings::Settings::default(), load_settings);
     SETTINGS.lock(|s| s.set(Some(loaded)));
     SOUND_ON.store(loaded.sound, Ordering::Relaxed);
+    ble::PAIRED.signal(paired(&loaded));
+    ant::pair(&paired(&loaded));
     let storage_info = fs.as_ref().map_err(|&code| code).and_then(storage_summary);
     STATUS.lock(|s| {
         let mut status = s.get();
@@ -185,11 +188,14 @@ async fn main(spawner: Spawner) -> ! {
     // Test hook: key presses typed on the USB serial port (esp-println keeps writing the log on the TX side).
     let (usb_rx, _usb_tx) = UsbSerialJtag::new(peripherals.USB_DEVICE).split();
     spawner.spawn(usb_keys(usb_rx).unwrap());
+    spawner.spawn(ble_task(peripherals.BT).unwrap());
 
+    // the logo until the first screen (the backlight comes on next)
     let mut fb = FrameBuffer::new();
-    draw_test_pattern(&mut fb);
+    let mut splash = ui::Ui::new();
+    splash.show_splash();
+    let _ = ui::draw(&mut fb, &splash, &ui::View::default(), None, None, &theme());
     panel.flush(&fb);
-    info!("test pattern drawn");
 
     let mut ledc = Ledc::new(peripherals.LEDC);
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
@@ -229,9 +235,11 @@ async fn main(spawner: Spawner) -> ! {
     NRF_COMMANDS.send(command::check_power_on_reason()).await;
 
     let mut shown = None;
+    let mut scan_sent: Option<Instant> = None;
     let mut last_power_on = Instant::now();
     let mut ui = ui::Ui::new();
     ui.set_scroll_s(settings().scroll_s);
+    ui.set_auto_off_min(settings().auto_off_min);
     let mut ride: Option<Box<Ride>> = None;
     if let (Some(id), Ok(fs)) = (interrupted, fs.as_ref()) {
         ride = Ride::reopen(fs, id, false);
@@ -239,6 +247,7 @@ async fn main(spawner: Spawner) -> ! {
             ui.found_paused_ride();
         }
     }
+    ui.show_splash();
     // the newest finished ride: resumable until uploaded (no upload yet)
     let mut last_finished = fs
         .as_ref()
@@ -247,16 +256,28 @@ async fn main(spawner: Spawner) -> ! {
     // the ride in progress, else the last one saved (the "saved" screen)
     let mut ride_shown = ride.as_deref().map(Ride::info).unwrap_or_default();
     let mut trip_log: Option<TripLog> = None;
+    // the free space, for the hours of riding left on the home screen: read again now and then
+    let mut storage_read = Instant::now();
     // the route (`/route`) and where the rider is on it
     let mut route_data = fs.as_ref().ok().and_then(load_route);
+    let mut bg_map = map_for(route_data.as_deref());
     let mut nav = ui::nav::Nav::default();
+    let mut route_shown: (Option<ui::RouteView>, bool) = (None, false);
+    let mut auto_off: Option<ui::Command> = None;
+    let mut auto_off_announced = false;
+    let mut unplugged_at: Option<Instant> = None;
     loop {
         let _ = with_timeout(Duration::from_secs(1), STATUS_CHANGED.wait()).await;
         if let Some(new) = ROUTE_RECEIVED.try_take()
             && let Ok(fs) = fs.as_ref()
         {
             route_data = store_route(fs, new);
+            bg_map = map_for(route_data.as_deref());
             nav = ui::nav::Nav::default();
+            // a route sent is the one to follow
+            if route_data.is_some() && !settings().follow_route {
+                follow_route(true);
+            }
         }
         if SETTINGS_CHANGED.signaled() {
             SETTINGS_CHANGED.reset();
@@ -265,20 +286,53 @@ async fn main(spawner: Spawner) -> ! {
                 save_settings(fs, &s);
             }
             SOUND_ON.store(s.sound, Ordering::Relaxed);
+            ble::PAIRED.signal(paired(&s));
+            ant::pair(&paired(&s));
             let _ = bl.set_duty(s.backlight);
             ui.set_scroll_s(s.scroll_s);
+            ui.set_auto_off_min(s.auto_off_min);
         }
         // The vendor repeats SendPowerOnCmd; c606-oss does it every 5 s. No nRF watchdog seen so far.
         if last_power_on.elapsed() >= Duration::from_secs(5) {
             NRF_COMMANDS.send(command::power_on()).await;
             last_power_on = Instant::now();
         }
+        if let Some(frame) = ant::poll() {
+            NRF_COMMANDS.send(frame).await;
+        }
         // What each key does is up to the screen (crates/ui): bottom right starts / pauses / resumes, a ride ends
         // from the pause screen (confirmed), power off is a long press on the top left key of the home screen or
         // the pause menu.
         let resumable = ride.is_none() && last_finished.is_some();
-        let view = view_of(&STATUS.lock(Cell::get), &ride_shown, resumable);
-        let mut commands = Vec::new();
+        let mut view = view_of(&STATUS.lock(Cell::get), &ride_shown, resumable);
+        // the route as last shown: the menu offers to set it aside or follow it
+        (view.route, view.route_set_aside) = route_shown;
+        // the automatic power off asked by the last tick
+        let mut commands: Vec<ui::Command> = auto_off.take().into_iter().collect();
+        // the logo until the nRF's sensor stream shows up (at least 1.5 s), or is known missing
+        if ui.screen() == ui::Screen::Splash {
+            let up_ms = Instant::now().as_millis();
+            let stream = STREAM_AT.lock(Cell::get).is_some();
+            if (up_ms >= 1_500 && stream) || up_ms >= 3_500 {
+                ui.end_splash();
+            }
+        }
+        // Like the vendor ("off, charging"): started by the charger, or after a power off with USB in, the nRF has no
+        // sensor stream until its power-on gesture: the charging screen until a long press. Unplugged there: off.
+        if view.stream_lost && view.plugged && matches!(ui.screen(), ui::Screen::Home | ui::Screen::Resume) {
+            info!("charging screen: no sensor stream from the nRF, on USB power");
+            ui.show_charging();
+        }
+        if ui.screen() == ui::Screen::Charging && !view.plugged {
+            let since = *unplugged_at.get_or_insert_with(Instant::now);
+            if since.elapsed() >= Duration::from_secs(10) {
+                info!("charging screen: unplugged, switching off");
+                commands.push(ui::Command::PowerOff);
+                unplugged_at = None;
+            }
+        } else {
+            unplugged_at = None;
+        }
         while let Ok((key, action)) = NRF_KEYS.try_receive() {
             let press = match action {
                 KeyAction::Click => ui::Press::Click,
@@ -296,13 +350,22 @@ async fn main(spawner: Spawner) -> ! {
         for c in commands {
             match (c, ride.as_mut(), fs.as_ref()) {
                 (ui::Command::PowerOff, _, _) => {
-                    // a ride (paused) is kept: offered again at power-on
+                    // a ride is paused if needed and kept: offered again at power-on
                     if let (Some(r), Ok(fs)) = (ride.as_mut(), fs.as_ref()) {
+                        if r.info().running {
+                            r.toggle_pause(fs, &state);
+                        }
                         r.keep(fs);
                     }
                     info!("power off");
                     draw_message(&mut fb, "Power off");
                     panel.flush(&fb);
+                    if DRY_POWER_OFF.load(Ordering::Relaxed) {
+                        // a real power off stops the nRF's sensor stream (time, barometer) until a long press
+                        info!("power off: test hook, restarting instead");
+                        Timer::after(Duration::from_millis(200)).await;
+                        esp_hal::system::software_reset();
+                    }
                     NRF_COMMANDS.send(command::power_off()).await;
                     Timer::after(Duration::from_secs(2)).await;
                     warn!("still powered 2 s after power_off");
@@ -332,6 +395,11 @@ async fn main(spawner: Spawner) -> ! {
                     let r = ride.take().unwrap();
                     ride_shown = r.info();
                     last_finished = Some(r.recorder.id());
+                    // it takes a while (the file sealed, the storage read again): said on the screen first
+                    let saving = ui::View { saving: true, ..view_of(&state, &ride_shown, false) };
+                    ui::draw(&mut fb, &ui, &saving, None, None, &theme()).unwrap();
+                    panel.flush(&fb);
+                    let t = Instant::now();
                     r.stop(fs, &state);
                     let storage_info = storage_summary(fs);
                     STATUS.lock(|s| {
@@ -339,20 +407,73 @@ async fn main(spawner: Spawner) -> ! {
                         status.storage = Some(storage_info);
                         s.set(status);
                     });
+                    info!("ride: saved in {} ms", t.elapsed().as_millis());
+                    // the keys pressed meanwhile did nothing on the screen: dropped, not acted on later
+                    while NRF_KEYS.try_receive().is_ok() {}
+                }
+                // the scan follows the scan screen (below)
+                (ui::Command::Scan(_) | ui::Command::StopScan, _, _) => {}
+                (ui::Command::Pair(role, i), _, _) => {
+                    if let Some(sensor) = SHOWN_FOUND.lock(Cell::get).get(i as usize).copied().flatten() {
+                        set_sensor(role, sensor);
+                    }
+                }
+                (ui::Command::Forget(role), _, _) => set_sensor(role, settings::Sensor::None),
+                (ui::Command::WakeUp, _, _) => info!("charging screen: switched on"),
+                (ui::Command::FollowRoute(follow), _, _) => {
+                    follow_route(follow);
+                    let now = Instant::now().as_millis();
+                    if follow {
+                        let name = route_data
+                            .as_deref()
+                            .and_then(|d| route::Route::parse(d).ok())
+                            .map_or_else(String::new, |r| String::from(r.name()));
+                        ui.inform("Trace suivie", ui::fonts::Line::new(format_args!("{name}")), now);
+                    } else {
+                        ui.inform("Parcours libre", ui::fonts::Line::new(format_args!("Trace gardée")), now);
+                    }
                 }
                 (c, _, _) => warn!("ui: {c:?} ignored"),
             }
+        }
+        // a scan while the scan screen is shown (it drops the sensor links meanwhile), renewed before it ends
+        if ui.screen() == ui::Screen::SensorScan {
+            SCAN_ROLE.lock(|c| c.set(Some(ROLE_BITS[role_index(ui.role())])));
+            if scan_sent.is_none_or(|t: Instant| t.elapsed() >= Duration::from_secs(20)) {
+                ble::SCAN.signal(30);
+                NRF_COMMANDS.send(ant::search(30, scan_sent.is_none())).await;
+                scan_sent = Some(Instant::now());
+            }
+        } else if scan_sent.take().is_some() {
+            SCAN_ROLE.lock(|c| c.set(None));
+            ble::SCAN.signal(0);
+            NRF_COMMANDS.send(ant::search(0, false)).await;
         }
         if let Ok(fs) = fs.as_ref() {
             if let Some(r) = ride.as_mut() {
                 r.sample(fs, &state);
             }
-            if trip_log.is_none() {
+            // only when asked for (`set trip_log on`): it takes ~5 times what a ride does
+            let wanted = settings().trip_log;
+            if trip_log.is_none() && wanted {
                 trip_log = TripLog::start(fs, &state);
+            } else if !wanted && let Some(mut log) = trip_log.take() {
+                log.flush(fs);
             }
             if let Some(log) = trip_log.as_mut() {
                 log.sample(fs, &state, ride.as_deref().map(Ride::info));
             }
+        }
+        if let Ok(fs) = fs.as_ref()
+            && storage_read.elapsed() >= Duration::from_secs(300)
+        {
+            storage_read = Instant::now();
+            let storage_info = storage_summary(fs);
+            STATUS.lock(|s| {
+                let mut status = s.get();
+                status.storage = Some(storage_info);
+                s.set(status);
+            });
         }
         let ride_info = ride.as_deref().map(Ride::info);
         if let Some(r) = ride_info {
@@ -366,7 +487,7 @@ async fn main(spawner: Spawner) -> ! {
         if BENCH_MAP.try_take().is_some()
             && let Some(r) = route.as_ref()
         {
-            bench_map(&mut fb, r, &view);
+            bench_map(&mut fb, r, bg_map.as_ref(), &view);
             shown = None;
         }
         let fix = state.fix.filter(|f| f.valid).and_then(|f| {
@@ -377,19 +498,31 @@ async fn main(spawner: Spawner) -> ! {
                 course_cdeg: f.course_cdeg,
             })
         });
+        // a route set aside (free ride): no route pages, no off-route alert; it stays stored
+        let route = route.filter(|_| settings().follow_route);
         view.route = route.as_ref().map(|r| nav.update(r, fix));
+        view.route_set_aside = route.is_none() && route_data.is_some();
+        route_shown = (view.route, view.route_set_aside);
         ui.set_context(route.is_some(), settings().usage == settings::Usage::Train);
-        ui.tick(
+        auto_off = ui.tick(
             Instant::now().as_millis(),
             ride_info.map(|r| r.running),
             &view,
         );
+        if auto_off.is_some() {
+            info!("auto off: still for {} min", settings().auto_off_min);
+        }
+        let announced = ui.banner().is_some_and(|b| b.title == ui::AUTO_OFF);
+        if announced != auto_off_announced {
+            auto_off_announced = announced;
+            info!("auto off: {}", if announced { "announced" } else { "not announced" });
+        }
         // the status screen shows (nearly) all of the status, the others only what is in the view
         let status_shown = (ui.screen() == ui::Screen::Status).then_some(state);
         let screen = (ui, view, status_shown);
         if shown != Some(screen) {
             let t = Instant::now();
-            ui::draw(&mut fb, &ui, &view, route.as_ref(), &theme()).unwrap();
+            ui::draw(&mut fb, &ui, &view, route.as_ref(), bg_map.as_ref(), &theme()).unwrap();
             let ms = t.elapsed().as_millis();
             if ms > 100 {
                 warn!("ui: {:?} {:?} drawn in {ms} ms", ui.screen(), ui.page());
@@ -401,7 +534,9 @@ async fn main(spawner: Spawner) -> ! {
             }
             panel.flush(&fb);
             shown = Some(screen);
-            SCREEN.lock(|s| s.set(ui.screen()));
+            let (items, sel) = ui.menu(&view);
+            let item = items.get(sel as usize).copied().flatten();
+            SCREEN.lock(|s| s.set((ui.screen(), item, ui.role(), ui.scan_item(), ui.page())));
         }
         // HIL: append back to back for 150 ms, so most resets land during a flash operation.
         #[cfg(feature = "hil-storage")]
@@ -433,6 +568,46 @@ fn sim_fix_active() -> bool {
     SIM_FIX_AT.lock(Cell::get).is_some_and(|t| t.elapsed() < SIM_FIX_HOLD)
 }
 static NRF_KEYS: Channel<CriticalSectionRawMutex, (u8, KeyAction), 8> = Channel::new();
+/// The last frame of the nRF's sensor stream (barometer, clock): it only starts on the nRF's own power-on gesture
+/// (a long press of the power key), not when the charger starts the device, nor after a power off.
+static STREAM_AT: Mutex<CriticalSectionRawMutex, Cell<Option<Instant>>> = Mutex::new(Cell::new(None));
+
+/// The nRF's sensor stream is missing (none for 3 s, past the first 3 s after boot).
+fn stream_lost() -> bool {
+    let quiet = Duration::from_secs(3);
+    Instant::now().duration_since(Instant::from_ticks(0)) >= quiet
+        && STREAM_AT.lock(Cell::get).is_none_or(|at| at.elapsed() >= quiet)
+}
+/// The key events since the last trip log line (its `keys` column), oldest first: key, then `C` click, `L` long
+/// press (repeated while held), `R` its release, `?` other; `u` before the ones typed on the USB test hook.
+static KEY_LOG: Mutex<CriticalSectionRawMutex, RefCell<heapless::String<64>>> =
+    Mutex::new(RefCell::new(heapless::String::new()));
+
+fn log_key(key: u8, action: KeyAction, usb: bool) {
+    let a = match action {
+        KeyAction::Click => 'C',
+        KeyAction::LongPress => 'L',
+        KeyAction::LongRelease => 'R',
+        KeyAction::Other(_) => '?',
+    };
+    let event = format!("{}{key}{a}", if usb { "u" } else { "" });
+    KEY_LOG.lock(|l| {
+        let mut l = l.borrow_mut();
+        // a long press repeats while held: once is enough
+        if l.rsplit(';').next() == Some(event.as_str()) && a == 'L' {
+            return;
+        }
+        // full (a stuck key): the oldest go
+        while !l.is_empty() && l.len() + 1 + event.len() > l.capacity() {
+            let rest = l.split_once(';').map_or("", |(_, r)| r);
+            *l = heapless::String::try_from(rest).unwrap_or_default();
+        }
+        if !l.is_empty() {
+            let _ = l.push(';');
+        }
+        let _ = l.push_str(&event);
+    });
+}
 
 static NRF_COMMANDS: Channel<CriticalSectionRawMutex, [u8; command::CTRL_FRAME], 4> =
     Channel::new();
@@ -466,6 +641,16 @@ async fn nrf_link(uart: UART2<'static>, tx_pin: GPIO42<'static>, rx_pin: GPIO41<
 }
 
 #[embassy_executor::task]
+#[allow(
+    clippy::large_stack_frames,
+    reason = "the BLE future (~15 KB, the GATT clients' notification queues) built once on the 215 KB main stack, \
+    then kept on the heap"
+)]
+async fn ble_task(bt: esp_hal::peripherals::BT<'static>) {
+    Box::pin(ble::run(bt)).await;
+}
+
+#[embassy_executor::task]
 async fn nrf_tx(mut tx: UartTx<'static, Async>) {
     loop {
         let frame = NRF_COMMANDS.receive().await;
@@ -488,8 +673,11 @@ async fn nrf_rx(mut rx: UartRx<'static, Async>) -> ! {
         };
         decoder.feed(&buf[..n], |frame| {
             let msg = Message::parse(&frame);
+            ant::on_message(&msg);
             match msg {
                 Message::Unknown => info!("nrf ? {frame:?}"),
+                // the ANT+ commands' (the others come every 5 s)
+                Message::Ack if frame.cmd() == 0x01 => info!("nrf ack {frame:?}"),
                 // periodic: every 5 s (RTC, and the replies to the power-on command)
                 Message::Battery { .. }
                 | Message::Status(_)
@@ -504,9 +692,15 @@ async fn nrf_rx(mut rx: UartRx<'static, Async>) -> ! {
                 | Message::Stream { .. } => {
                     debug!("nrf {msg:?}")
                 }
+                // logged by the ANT module
+                Message::AntChannel { .. } | Message::AntFound { .. } | Message::AntPage { .. } => {}
                 _ => info!("nrf {msg:?}"),
             }
+            if matches!(msg, Message::Baro { .. } | Message::Rtc(_)) {
+                STREAM_AT.lock(|c| c.set(Some(Instant::now())));
+            }
             if let Message::Key { key, action } = msg {
+                log_key(key, action, false);
                 let _ = NRF_KEYS.try_send((key, action));
             }
             STATUS.lock(|s| {
@@ -530,8 +724,7 @@ async fn gnss_task(mut uart: GnssUart) {
     let mut last_report = Instant::now();
     // `is_done()` of the UHCI transfer goes up at every idle EOF: silence is the only sign of a stopped DMA (ring
     // full) or a silent receiver.
-    let mut last_data = Instant::now();
-    let mut silent = false;
+    let mut silence = gnss::Silence::new(Instant::now().as_millis());
     let mut last_rtc_set: Option<Instant> = None;
     // Output setup: sent once the receiver talks, again when a sentence it turns off shows up (power cycle).
     let mut setup_needed = true;
@@ -620,16 +813,19 @@ async fn gnss_task(mut uart: GnssUart) {
                 None => warn!("gnss: no RTC time for the time aiding"),
             }
         }
-        if n > 0 {
-            last_data = Instant::now();
-            silent = false;
-        } else if !silent && last_data.elapsed() >= Duration::from_secs(3) {
-            silent = true;
-            link.silences += 1;
-            // The nRF powers the receiver and can leave it off after a power cycle (seen once). Only when silent:
-            // `gps_power(1)` restarts a running receiver, which then loses its output setup.
-            warn!("gnss: no data for 3 s (receiver off, or DMA stopped), powering it on");
-            NRF_COMMANDS.send(command::gps_power(1)).await;
+        let now_ms = Instant::now().as_millis();
+        if silence.poll(n, now_ms) {
+            link.silences = silence.count;
+            warn!(
+                "gnss: no data for {} s (receiver off, or DMA stopped), powering it on",
+                silence.silent_ms(now_ms) / 1000
+            );
+            if GNSS_POWER_LOST.load(Ordering::Relaxed) > 0 {
+                GNSS_POWER_LOST.fetch_sub(1, Ordering::Relaxed);
+                warn!("gnss: power-on dropped by the test hook");
+            } else {
+                NRF_COMMANDS.send(command::gps_power(1)).await;
+            }
         }
         if epoch
             && fix.valid
@@ -684,7 +880,11 @@ async fn gnss_task(mut uart: GnssUart) {
                 fix.quality,
                 fix.sats_used,
                 fix.sats_in_view,
-                if silent { " SILENT" } else { "" }
+                if silence.silent_ms(Instant::now().as_millis()) >= gnss::Silence::AFTER_MS {
+                    " SILENT"
+                } else {
+                    ""
+                }
             );
         }
         Timer::after(Duration::from_millis(50)).await;
@@ -864,6 +1064,9 @@ impl Status {
             | Message::Accel(_)
             | Message::Gyro(_)
             | Message::Stream { .. }
+            | Message::AntChannel { .. }
+            | Message::AntFound { .. }
+            | Message::AntPage { .. }
             | Message::Unknown => {}
         }
     }
@@ -899,6 +1102,129 @@ fn settings() -> settings::Settings {
 #[allow(
     clippy::large_stack_frames,
     reason = "littlefs file handle and a 512-byte buffer, once at boot from main"
+)]
+/// The role whose sensors are being looked for (the scan screen), as a `ble::ROLE_*` bit.
+static SCAN_ROLE: Mutex<CriticalSectionRawMutex, Cell<Option<u8>>> = Mutex::new(Cell::new(None));
+/// The sensors the scan screen lists, in its order: what [`ui::Command::Pair`] picks from.
+static SHOWN_FOUND: Mutex<CriticalSectionRawMutex, Cell<[Option<settings::Sensor>; ui::FOUND]>> =
+    Mutex::new(Cell::new([None; ui::FOUND]));
+
+const ROLE_BITS: [u8; 3] = [ble::ROLE_HR, ble::ROLE_SPEED_CADENCE, ble::ROLE_POWER];
+
+fn role_index(role: ui::Role) -> usize {
+    ui::Role::ALL.iter().position(|&r| r == role).unwrap_or(0)
+}
+
+/// The paired sensor of each role, in [`ui::Role::ALL`] order.
+fn role_sensors(s: &settings::Settings) -> [settings::Sensor; 3] {
+    [s.hr, s.speed_cadence, s.power]
+}
+
+/// Pairs a role with a sensor (or none): saved, and the BLE task told by the main loop.
+fn set_sensor(role: ui::Role, sensor: settings::Sensor) {
+    let mut s = settings();
+    match role {
+        ui::Role::HeartRate => s.hr = sensor,
+        ui::Role::SpeedCadence => s.speed_cadence = sensor,
+        ui::Role::Power => s.power = sensor,
+    }
+    info!("sensors: {role:?} = {sensor}");
+    SETTINGS.lock(|c| c.set(Some(s)));
+    SETTINGS_CHANGED.signal(());
+}
+
+/// What names a sensor on the screens: the name it gave, else the end of its address or its ANT number.
+fn sensor_name(sensor: &settings::Sensor) -> ui::fonts::Line {
+    use settings::Sensor;
+    match (ble::name_of(sensor), sensor) {
+        (Some(n), _) => ui::fonts::Line::new(format_args!("{}", n.as_str())),
+        (None, Sensor::Ble { addr, .. }) => ui::fonts::Line::new(format_args!("BLE …{:02X}{:02X}", addr[1], addr[0])),
+        (None, Sensor::Ant { device_type, number, .. }) => {
+            let kind = match *device_type {
+                sensors::ant::SPEED_CADENCE => " V+C",
+                sensors::ant::CADENCE => " cadence",
+                sensors::ant::SPEED => " vitesse",
+                _ => "",
+            };
+            ui::fonts::Line::new(format_args!("ANT+ {number}{kind}"))
+        }
+        (None, Sensor::None) => ui::fonts::Line::new(format_args!("–")),
+    }
+}
+
+/// The sensors screens' content: each role's sensor and link, and what the scan found for the role looked for.
+#[allow(
+    clippy::large_stack_frames,
+    reason = "the names (64-byte lines) and the scan list, from the main loop (215 KB stack)"
+)]
+fn sensors_view() -> ui::Sensors {
+    let paired = role_sensors(&settings());
+    let mut out = ui::Sensors::default();
+    for (row, sensor) in out.roles.iter_mut().zip(paired.iter()) {
+        if *sensor != settings::Sensor::None {
+            *row = ui::SensorRow {
+                link: if ble::connected(sensor) || ant::connected(sensor) {
+                    ui::Link::Connected
+                } else {
+                    ui::Link::Searching
+                },
+                name: Some(sensor_name(sensor)),
+            };
+        }
+    }
+    let mut shown = [None; ui::FOUND];
+    if let Some(bit) = SCAN_ROLE.lock(Cell::get) {
+        let role = ROLE_BITS.iter().position(|&b| b == bit).unwrap_or(0);
+        // BLE and ANT+ together, closest first
+        let mut all: heapless::Vec<(settings::Sensor, i8), { 2 * ui::FOUND }> =
+            ble::found::<{ ui::FOUND }>(bit).into_iter().map(|h| (h.sensor, h.rssi_dbm)).collect();
+        all.extend(ant::found::<{ ui::FOUND }>(role));
+        all.sort_unstable_by_key(|&(_, rssi)| core::cmp::Reverse(rssi));
+        for (i, (sensor, rssi_dbm)) in all.into_iter().take(ui::FOUND).enumerate() {
+            shown[i] = Some(sensor);
+            out.found[i] = Some(ui::Found {
+                name: sensor_name(&sensor),
+                rssi_dbm,
+                paired: sensor == paired[role],
+            });
+        }
+    }
+    SHOWN_FOUND.lock(|c| c.set(shown));
+    out
+}
+
+/// The sensor values now: the BLE ones, else the ANT+ ones.
+fn sensor_values() -> ble::Current {
+    let (b, a) = (ble::current(), ant::current());
+    ble::Current {
+        heart_rate: b.heart_rate.or(a.heart_rate),
+        cadence_rpm: b.cadence_rpm.or(a.cadence_rpm),
+        speed_mm_s: b.speed_mm_s.or(a.speed_mm_s),
+        power_w: b.power_w.or(a.power_w),
+    }
+}
+
+/// Follows the loaded route, or sets it aside (saved: a ride resumed after a restart keeps it).
+fn follow_route(follow: bool) {
+    let mut s = settings();
+    s.follow_route = follow;
+    info!("route: {}", if follow { "followed" } else { "set aside (free ride)" });
+    SETTINGS.lock(|c| c.set(Some(s)));
+    SETTINGS_CHANGED.signal(());
+}
+
+/// The paired sensors of the settings, for the BLE task.
+fn paired(s: &settings::Settings) -> ble::Paired {
+    ble::Paired {
+        hr: s.hr,
+        speed_cadence: s.speed_cadence,
+        power: s.power,
+    }
+}
+
+#[allow(
+    clippy::large_stack_frames,
+    reason = "the file read in a 512-byte buffer, once at boot from main"
 )]
 fn load_settings(fs: &Fs<'_>) -> settings::Settings {
     let path = littlefs2::path::PathBuf::try_from(SETTINGS_FILE).unwrap();
@@ -1035,8 +1361,33 @@ fn store_route(fs: &Fs<'_>, data: Option<Vec<u8>>) -> Option<Vec<u8>> {
     }
 }
 
-/// The map page drawn on the route, at each zoom (the test hook's `bench map`).
-fn bench_map(fb: &mut FrameBuffer, r: &route::Route<'_>, view: &ui::View) {
+/// The background map built in (feature `bench-map`), if it was made for this route.
+fn map_for(route_file: Option<&[u8]>) -> Option<route::map::Map<'static>> {
+    #[cfg(feature = "bench-map")]
+    const FILE: &[u8] = include_bytes!("../../../dump/bench.map");
+    #[cfg(not(feature = "bench-map"))]
+    const FILE: &[u8] = &[];
+    let route_crc = route::crc16(route_file?);
+    match route::map::Map::parse(FILE) {
+        Ok(m) if m.route_crc == route_crc => {
+            info!("map: built-in, {} bytes", FILE.len());
+            Some(m)
+        }
+        Ok(_) => {
+            warn!("map: built-in one made for another route");
+            None
+        }
+        Err(_) => None,
+    }
+}
+
+/// The map page drawn on the route, at each zoom, with the background map and without (the test hook's
+/// `bench map`).
+#[allow(
+    clippy::large_stack_frames,
+    reason = "a view and a Ui copy, from main, on request of the test hook"
+)]
+fn bench_map(fb: &mut FrameBuffer, r: &route::Route<'_>, m: Option<&route::map::Map<'_>>, view: &ui::View) {
     let p = r.points().nth(r.info.count as usize / 3).unwrap();
     let mut ui = ui::Ui::new();
     ui.set_context(true, false);
@@ -1050,10 +1401,13 @@ fn bench_map(fb: &mut FrameBuffer, r: &route::Route<'_>, view: &ui::View) {
         progress: Some(r.locate(p.x, p.y, None)),
     });
     ui.key(ui::Key::BottomRight, ui::Press::Click, 0, &v);
-    for _ in ui::ZOOMS_M {
+    for _ in 0..ui::ZOOM_STEPS {
         let t = Instant::now();
-        ui::draw(fb, &ui, &v, Some(r), &theme()).unwrap();
+        ui::draw(fb, &ui, &v, Some(r), None, &theme()).unwrap();
         let draw = t.elapsed().as_millis();
+        let t = Instant::now();
+        ui::draw(fb, &ui, &v, Some(r), m, &theme()).unwrap();
+        let with_map = t.elapsed().as_millis();
         let t = Instant::now();
         let fix = Some(ui::nav::Fix {
             lat_e7: r.info.lat0_e7,
@@ -1064,18 +1418,18 @@ fn bench_map(fb: &mut FrameBuffer, r: &route::Route<'_>, view: &ui::View) {
         let _ = ui::nav::Nav::default().update(r, fix);
         let locate = t.elapsed().as_millis();
         info!(
-            "bench: map at {} m drawn in {draw} ms, located in {locate} ms",
+            "bench: map at {:?} m drawn in {draw} ms, {with_map} ms with the background, located in {locate} ms",
             ui.zoom_m()
         );
         ui.key(ui::Key::TopLeft, ui::Press::Click, 0, &v);
     }
     // what the rest costs: the map without the route, the Essential page, a clear
     let t = Instant::now();
-    ui::draw(fb, &ui, &v, None, &theme()).unwrap();
+    ui::draw(fb, &ui, &v, None, None, &theme()).unwrap();
     let no_route = t.elapsed().as_millis();
     ui.key(ui::Key::BottomLeft, ui::Press::Click, 0, &v);
     let t = Instant::now();
-    ui::draw(fb, &ui, &v, Some(r), &theme()).unwrap();
+    ui::draw(fb, &ui, &v, Some(r), None, &theme()).unwrap();
     let essential = t.elapsed().as_millis();
     let t = Instant::now();
     fb.clear(Rgb565::WHITE).unwrap();
@@ -1133,9 +1487,13 @@ struct TripLog {
     lines: u32,
 }
 
+/// What the trip log writes a second (measured: 3.3 MB for a 5 h session).
+const TRIP_LOG_BYTES_PER_S: u32 = 190;
+
 const TRIP_LOG_HEADER: &str = "unix,gnss_unix,rtc_unix,uptime_s,fix,quality,sats_used,sats_in_view,hdop_c,lat_e7,\
 lon_e7,gnss_alt_dm,speed_mm_s,course_cdeg,baro_c_celsius,pressures_cpa,altitude_dm,battery_mv,battery_pct,charger,\
-light,ride,gnss_bytes,gnss_silences,gnss_setups,gnss_restarts,gnss_aiding_requests,gnss_time_aids,gnss_ttff_ms\n";
+light,ride,gnss_bytes,gnss_silences,gnss_setups,gnss_restarts,gnss_aiding_requests,gnss_time_aids,gnss_ttff_ms,\
+keys,ble_links,ble_listening,ant_links\n";
 
 impl TripLog {
     #[allow(
@@ -1191,7 +1549,7 @@ impl TripLog {
             p.push_str(&format!("{v}"));
         }
         let line = format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
             opt(now_unix(s).map(i64::from)),
             opt(gnss_unix(s).map(i64::from)),
             opt(rtc_unix(s).map(i64::from)),
@@ -1225,6 +1583,10 @@ impl TripLog {
             s.gnss_link.aiding_requests,
             s.gnss_link.time_aids,
             opt(s.gnss_link.ttff_ms.map(i64::from)),
+            KEY_LOG.lock(|l| core::mem::take(&mut *l.borrow_mut())),
+            ble::links(),
+            ble::listening() as u8,
+            ant::links(),
         );
         self.buf.push_str(&line);
         self.lines += 1;
@@ -1369,6 +1731,7 @@ impl Ride {
         self.last_timestamp = timestamp;
         let speed = fix.valid.then_some(fix.speed_mm_s).flatten();
         let distance_cm = self.odometer.update(timestamp, speed);
+        let sensors = sensor_values();
         let record = fit::Record {
             timestamp,
             lat_e7: fix.lat_e7,
@@ -1382,7 +1745,9 @@ impl Ride {
             distance_cm: Some(distance_cm),
             temperature_c: s.baro.map(|(c, _)| (c / 100) as i8),
             pressure_pa: s.baro.map(|(_, p)| (p + 50) / 100),
-            ..Default::default()
+            heart_rate: sensors.heart_rate,
+            cadence: sensors.cadence_rpm,
+            power_w: sensors.power_w,
         };
         if let Err(e) = self.recorder.record(fs, &record) {
             warn!("ride: record failed, littlefs error {}", e.code());
@@ -1434,9 +1799,20 @@ fn serial() -> u32 {
 const SOUND_BEEP: u8 = 0x00;
 /// Buzzer on; `sound off` on the USB test hook mutes it (tests next to people).
 static SOUND_ON: AtomicBool = AtomicBool::new(true);
-/// The screen shown, for the test hook.
-static SCREEN: Mutex<CriticalSectionRawMutex, Cell<ui::Screen>> =
-    Mutex::new(Cell::new(ui::Screen::Home));
+/// Test hook (`power off dry`, until the next boot): a power off restarts the ESP32 instead of asking the nRF to cut
+/// it, which would stop the nRF's sensor stream (time, barometer) until a long press of the power key.
+static DRY_POWER_OFF: AtomicBool = AtomicBool::new(false);
+/// Test hook (`battery fake N`, `battery real`): the battery level shown, not the one measured (the charging screen's
+/// animation at full charge).
+static FAKE_BATTERY: AtomicU8 = AtomicU8::new(FAKE_NONE);
+const FAKE_NONE: u8 = u8::MAX;
+/// Test hook (`gnss off N`): the receiver power-ons to drop.
+static GNSS_POWER_LOST: AtomicU8 = AtomicU8::new(0);
+/// The screen shown, for the test hook, with what is selected on it: the menu entry, the sensor role, the entry
+/// of the scan screen, the ride page.
+type Shown = (ui::Screen, Option<ui::Item>, ui::Role, u8, Option<ui::Page>);
+static SCREEN: Mutex<CriticalSectionRawMutex, Cell<Shown>> =
+    Mutex::new(Cell::new((ui::Screen::Home, None, ui::Role::HeartRate, 0, None)));
 
 fn sound(id: u8) {
     if SOUND_ON.load(Ordering::Relaxed) {
@@ -1483,12 +1859,18 @@ fn unix_of(t: &RtcTime) -> Option<u32> {
 fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
     let fix = s.fix;
     let altitude_dm = s.altimeter.altitude_dm();
+    let sensors = sensor_values();
     ui::View {
         clock: now_unix(s).map(|unix| {
             let day_s = (unix as i64 + utc_offset(Some(unix)) as i64).rem_euclid(86_400) as u32;
             ((day_s / 3600) as u8, (day_s / 60 % 60) as u8)
         }),
-        battery_pct: s.battery.map(|(_, pct)| pct),
+        battery_pct: match FAKE_BATTERY.load(Ordering::Relaxed) {
+            FAKE_NONE => s.battery.map(|(_, pct)| pct),
+            pct => Some(pct),
+        },
+        plugged: s.charger == Some(nrf_link::USB_POWERED),
+        stream_lost: stream_lost(),
         gnss: match fix {
             None => ui::Gnss::Off,
             Some(f) if f.valid => ui::Gnss::Fix { used: f.sats_used },
@@ -1505,7 +1887,11 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
             .map(|v| if v < recorder::MOVING_MM_S { 0 } else { v }),
         altitude_dm,
         grade_pct: altitude_dm.and_then(|a| ride.history.grade_pct(ride.distance_cm, a)),
-        heart_rate: None,
+        heart_rate: sensors.heart_rate,
+        cadence_rpm: sensors.cadence_rpm,
+        power_w: sensors.power_w,
+        wheel_speed_mm_s: sensors.speed_mm_s,
+        sensors: sensors_view(),
         ride: ui::RideView {
             timer_s: ride.timer_s,
             elapsed_s: ride.elapsed_s,
@@ -1517,8 +1903,14 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
         recent: ride.history.recent(),
         whole: ride.history.whole(),
         rides_stored: s.storage.and_then(|r| r.ok()).map(|(rides, _, _)| rides),
+        saving: false,
+        record_hours: s.storage.and_then(|r| r.ok()).map(|(_, free, _)| {
+            let log = if settings().trip_log { TRIP_LOG_BYTES_PER_S } else { 0 };
+            recorder::hours_left(free as u64 * storage::BLOCK as u64, log)
+        }),
         resumable,
         route: None,
+        route_set_aside: false,
     }
 }
 
@@ -1567,6 +1959,7 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                     Some(UsbCommand::Key(key, actions)) => {
                         info!("usb: key {key} {actions:?}");
                         for &action in actions {
+                            log_key(key, action, true);
                             NRF_KEYS.send((key, action)).await;
                         }
                     }
@@ -1575,7 +1968,42 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                         SOUND_ON.store(on, Ordering::Relaxed);
                     }
                     Some(UsbCommand::Gnss(request)) => GNSS_REQUESTS.send(request).await,
-                    Some(UsbCommand::Screen) => info!("screen {:?}", SCREEN.lock(Cell::get)),
+                    Some(UsbCommand::Screen) => match SCREEN.lock(Cell::get) {
+                        (s @ (ui::Screen::Menu | ui::Screen::PauseMenu), Some(item), ..) => {
+                            info!("screen {s:?} {item:?}")
+                        }
+                        (s @ ui::Screen::Sensors, _, role, ..) => info!("screen {s:?} {role:?}"),
+                        (s @ ui::Screen::SensorScan, _, role, i, _) => info!("screen {s:?} {role:?} {i}"),
+                        (s @ ui::Screen::Ride, .., Some(page)) => info!("screen {s:?} {page:?}"),
+                        (s, ..) => info!("screen {s:?}"),
+                    },
+                    Some(UsbCommand::BleScan(seconds)) => ble::SCAN.signal(seconds),
+                    Some(UsbCommand::NrfE2(grp, id, val)) => {
+                        info!("usb: nrf E2 {grp:02X} {id:02X} 00 00 {val:02X} 00 00");
+                        NRF_COMMANDS.send(command::e2(grp, id, val)).await;
+                    }
+                    Some(UsbCommand::NrfRaw(kind, cmd, payload)) => {
+                        info!("usb: nrf {kind} {cmd:02X} {payload:02X?}");
+                        NRF_COMMANDS.send(command::raw(kind, cmd, payload)).await;
+                    }
+                    Some(UsbCommand::AntScan(seconds)) => {
+                        info!("usb: ant scan {seconds} s");
+                        NRF_COMMANDS.send(ant::search(seconds, seconds > 0)).await;
+                    }
+                    Some(UsbCommand::FakeBattery(pct)) => {
+                        info!("usb: battery shown {}", if pct == FAKE_NONE { String::from("real") } else { format!("{pct} %") });
+                        FAKE_BATTERY.store(pct, Ordering::Relaxed);
+                        STATUS_CHANGED.signal(());
+                    }
+                    Some(UsbCommand::DryPowerOff) => {
+                        info!("usb: power off dry");
+                        DRY_POWER_OFF.store(true, Ordering::Relaxed);
+                    }
+                    Some(UsbCommand::GnssOff(lost)) => {
+                        info!("usb: gnss off, {lost} power-ons lost");
+                        GNSS_POWER_LOST.store(lost, Ordering::Relaxed);
+                        NRF_COMMANDS.send(command::gps_power(0)).await;
+                    }
                     Some(UsbCommand::Set(key, value)) => {
                         let mut s = settings();
                         match s.set(key, value) {
@@ -1699,6 +2127,21 @@ enum UsbCommand<'a> {
     Key(u8, &'static [KeyAction]),
     Sound(bool),
     Gnss(GnssRequest),
+    /// `ble scan <seconds>`: logs the BLE cycling sensors around (`ble: found ble:r:… "name"`), for `set hr …`.
+    BleScan(u16),
+    /// `nrf e2 GRP ID VAL`: sends `E2 GRP ID 00 00 VAL 00 00` to the nRF (exploring its commands).
+    NrfE2(u8, u8, u8),
+    /// `nrf raw KIND CMD B0 .. B7` (hex): any frame with an 8-byte payload.
+    NrfRaw(u8, u8, [u8; 8]),
+    /// `ant scan <seconds>`: an ANT+ search by the nRF (0 stops), the sensors logged (`ant: found ant:120:…`).
+    AntScan(u16),
+    /// `battery fake N` / `battery real`: see [`FAKE_BATTERY`].
+    FakeBattery(u8),
+    /// `power off dry`: see [`DRY_POWER_OFF`].
+    DryPowerOff,
+    /// `gnss off [N]`: switches the receiver off through the nRF, as it was found at a boot, and drops the firmware's
+    /// next N power-ons (lost, as that day): the firmware must keep powering it on.
+    GnssOff(u8),
     /// Moves the nRF RTC by this many seconds, to check that a fix sets it right again.
     RtcShift(i32),
     /// Logs the screen shown (`screen Home`), for the HIL tests.
@@ -1732,6 +2175,25 @@ fn usb_command(line: &str) -> Option<UsbCommand<'_>> {
         ("gnss", "time", Some(on @ ("on" | "off"))) => {
             Some(UsbCommand::Gnss(GnssRequest::TimeAiding(on == "on")))
         }
+        ("power", "off", Some("dry")) => Some(UsbCommand::DryPowerOff),
+        ("battery", "real", None) => Some(UsbCommand::FakeBattery(FAKE_NONE)),
+        ("battery", "fake", Some(p)) => Some(UsbCommand::FakeBattery(p.parse().ok().filter(|&p| p <= 100)?)),
+        ("nrf", "e2", Some(grp)) => {
+            let id = words.next()?.parse().ok()?;
+            let val = words.next()?.parse().ok()?;
+            Some(UsbCommand::NrfE2(grp.parse().ok()?, id, val))
+        }
+        ("nrf", "raw", Some(kind)) => {
+            let hex = |w: &str| u8::from_str_radix(w, 16).ok();
+            let cmd = hex(words.next()?)?;
+            let mut payload = [0; 8];
+            for b in &mut payload {
+                *b = hex(words.next()?)?;
+            }
+            Some(UsbCommand::NrfRaw(hex(kind)?, cmd, payload))
+        }
+        ("ant", "scan", Some(s)) => Some(UsbCommand::AntScan(s.parse().ok()?)),
+        ("gnss", "off", lost) => Some(UsbCommand::GnssOff(lost.map(str::parse).transpose().ok()?.unwrap_or(0))),
         ("gnss", start, None) => {
             let start = match start {
                 "hot" => gnss::Start::Hot,
@@ -1752,6 +2214,7 @@ fn usb_command(line: &str) -> Option<UsbCommand<'_>> {
         ("route", "end", None) => Some(UsbCommand::RouteEnd),
         ("route", "clear", None) => Some(UsbCommand::RouteClear),
         ("bench", "map", None) => Some(UsbCommand::BenchMap),
+        ("ble", "scan", Some(s)) => Some(UsbCommand::BleScan(s.parse().ok().filter(|&s| s > 0)?)),
         ("fix", "off", None) => Some(UsbCommand::SimFix(None)),
         ("fix", lat, Some(lon)) => {
             let speed = words.next().map(str::parse).transpose().ok()?;

@@ -11,6 +11,7 @@ use core::convert::Infallible;
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::pixelcolor::raw::RawU16;
 use embedded_graphics::prelude::*;
+use embedded_graphics::primitives::Rectangle;
 use esp_hal::Blocking;
 use esp_hal::delay::Delay;
 use esp_hal::dma::DmaTxBuf;
@@ -219,6 +220,18 @@ impl DrawTarget for FrameBuffer {
 
     fn clear(&mut self, color: Rgb565) -> Result<(), Infallible> {
         self.px.fill(RawU16::from(color).into_inner());
+        Ok(())
+    }
+
+    /// Row by row (the map's areas are filled in spans).
+    fn fill_solid(&mut self, area: &Rectangle, color: Rgb565) -> Result<(), Infallible> {
+        let area = area.intersection(&self.bounding_box());
+        let Some(br) = area.bottom_right() else { return Ok(()) };
+        let raw = RawU16::from(color).into_inner();
+        let (x0, x1) = (area.top_left.x as usize, br.x as usize);
+        for y in area.top_left.y as usize..=br.y as usize {
+            self.px[y * WIDTH + x0..=y * WIDTH + x1].fill(raw);
+        }
         Ok(())
     }
 }
