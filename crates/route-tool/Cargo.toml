@@ -7,8 +7,8 @@ rust-version.workspace = true
 version.workspace      = true
 
 [dependencies]
-route = { path = "../route", features = ["build"] }
-settings          = { path = "../settings" }
+route = { workspace = true, features = ["build"] }
+settings          = { workspace = true }
 ui                = { path = "../ui" }
 embedded-graphics = "0.8.2"
 png               = "0.18.1"

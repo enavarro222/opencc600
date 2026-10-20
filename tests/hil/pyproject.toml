@@ -3,7 +3,7 @@ name = "opencc600-hil"
 version = "0.1.0"
 description = "Hardware-in-the-loop tests on a CC600 plugged in over USB"
 requires-python = ">=3.11"
-dependencies = ["pytest>=8", "pyserial>=3.5", "littlefs-python>=0.12", "garmin-fit-sdk>=21.0"]
+dependencies = ["pytest>=8", "pyserial>=3.5", "littlefs-python>=0.12", "garmin-fit-sdk>=21.0", "bleak>=0.22"]
 
 [tool.pytest.ini_options]
 addopts = "-v"

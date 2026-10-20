@@ -48,6 +48,7 @@ use littlefs2::fs::{Allocation, Filesystem};
 use log::{debug, info, warn};
 use nrf_link::{Decoder, KeyAction, Message, RtcTime, command};
 use opencc600_firmware::{ant, ble};
+use protocol_cc600::transfer::Kind;
 use opencc600_firmware::gnss_uart::{self, GnssUart};
 #[cfg(feature = "hil-storage")]
 use opencc600_firmware::hil_storage;
@@ -277,6 +278,30 @@ async fn main(spawner: Spawner) -> ! {
             // a route sent is the one to follow
             if route_data.is_some() && !settings().follow_route {
                 follow_route(true);
+            }
+        }
+        // what the companion app did, said on the screen
+        if let Some(e) = ble::APP.try_take() {
+            let now = Instant::now().as_millis();
+            match e {
+                companion::Event::Receiving { kind, received, size } => {
+                    let what = if kind == Kind::Route { "Réception de la trace" } else { "Réception de la carte" };
+                    let pct = u64::from(received) * 100 / u64::from(size.max(1));
+                    ui.inform(what, ui::fonts::Line::new(format_args!("{pct} %")), now);
+                }
+                companion::Event::Received(Kind::Route) => {
+                    let name = route_data
+                        .as_deref()
+                        .and_then(|d| route::Route::parse(d).ok())
+                        .map_or_else(String::new, |r| String::from(r.name()));
+                    ui.inform("Trace reçue", ui::fonts::Line::new(format_args!("{name}")), now);
+                }
+                companion::Event::Received(Kind::Map) => {
+                    ui.inform("Carte reçue", ui::fonts::Line::new(format_args!("")), now)
+                }
+                companion::Event::SettingsChanged => {
+                    ui.inform("Réglages reçus", ui::fonts::Line::new(format_args!("Depuis l'appli")), now)
+                }
             }
         }
         if SETTINGS_CHANGED.signaled() {
@@ -648,7 +673,7 @@ async fn nrf_link(uart: UART2<'static>, tx_pin: GPIO42<'static>, rx_pin: GPIO41<
     then kept on the heap"
 )]
 async fn ble_task(bt: esp_hal::peripherals::BT<'static>) {
-    Box::pin(ble::run(bt)).await;
+    Box::pin(ble::run(bt, App)).await;
 }
 
 #[embassy_executor::task]
@@ -1251,6 +1276,39 @@ fn save_settings(fs: &Fs<'_>, s: &settings::Settings) {
     match fs.write(&path, text.as_bytes()) {
         Ok(()) => info!("settings: saved"),
         Err(e) => warn!("settings: save failed, littlefs error {}", e.code()),
+    }
+}
+
+/// What the companion app (BLE, [`ble::run`]) reads and changes: the settings, the route.
+struct App;
+
+impl companion::Device for App {
+    fn settings(&self) -> settings::Settings {
+        settings()
+    }
+
+    fn set_settings(&mut self, s: settings::Settings) {
+        SETTINGS.lock(|c| c.set(Some(s)));
+        SETTINGS_CHANGED.signal(());
+    }
+
+    fn max_file(&self, kind: Kind) -> Result<u32, protocol_cc600::ErrorCode> {
+        match kind {
+            Kind::Route => Ok(ROUTE_MAX as u32),
+            // not stored yet (`bench-map` only)
+            Kind::Map => Err(protocol_cc600::ErrorCode::BadRequest),
+        }
+    }
+
+    /// Stored by the main loop, like a route sent over USB.
+    fn file_received(&mut self, kind: Kind, data: Vec<u8>) -> Result<(), protocol_cc600::ErrorCode> {
+        match kind {
+            Kind::Route => {
+                ROUTE_RECEIVED.signal(Some(data));
+                Ok(())
+            }
+            Kind::Map => Err(protocol_cc600::ErrorCode::BadRequest),
+        }
     }
 }
 

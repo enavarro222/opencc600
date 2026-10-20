@@ -219,6 +219,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "companion"
+version = "0.1.0"
+dependencies = [
+ "protocol-cc600",
+ "route-cc600",
+ "settings-cc600",
+]
+
+[[package]]
 name = "const-default"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1776,6 +1785,7 @@ version = "0.1.0"
 dependencies = [
  "altitude",
  "bt-hci",
+ "companion",
  "critical-section",
  "embassy-executor",
  "embassy-futures",
@@ -1797,11 +1807,12 @@ dependencies = [
  "littlefs2",
  "log",
  "nrf-link",
+ "protocol-cc600",
  "recorder",
  "ride-store",
- "route",
+ "route-cc600",
  "sensors",
- "settings",
+ "settings-cc600",
  "static_cell",
  "trouble-host",
  "ui",
@@ -1872,6 +1883,11 @@ checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "protocol-cc600"
+version = "0.1.0"
+source = "git+https://github.com/enavarro222/musette?rev=8fe1d38a0a23598fa3d2eb984eba78f194c53e02#8fe1d38a0a23598fa3d2eb984eba78f194c53e02"
 
 [[package]]
 name = "quote"
@@ -2017,8 +2033,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "route"
+name = "route-cc600"
 version = "0.1.0"
+source = "git+https://github.com/enavarro222/musette?rev=8fe1d38a0a23598fa3d2eb984eba78f194c53e02#8fe1d38a0a23598fa3d2eb984eba78f194c53e02"
 
 [[package]]
 name = "rustc-hash"
@@ -2116,8 +2133,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "settings"
+name = "settings-cc600"
 version = "0.1.0"
+source = "git+https://github.com/enavarro222/musette?rev=8fe1d38a0a23598fa3d2eb984eba78f194c53e02#8fe1d38a0a23598fa3d2eb984eba78f194c53e02"
 
 [[package]]
 name = "sha2"
@@ -2433,7 +2451,7 @@ version = "0.1.0"
 dependencies = [
  "embedded-graphics",
  "libm",
- "route",
+ "route-cc600",
 ]
 
 [[package]]

@@ -1,4 +1,5 @@
-//! BLE on the ESP32 (the nRF only does ANT+): the `esp-radio` controller and the `trouble-host` host, central role.
+//! BLE on the ESP32 (the nRF only does ANT+): the `esp-radio` controller and the `trouble-host` host, central role for
+//! the sensors, peripheral role for the companion app (Musette, [`app`]).
 //!
 //! The paired sensors ([`PAIRED`], from the settings) are connected and kept connected, one connection per device
 //! (a device can be several sensors), their measurements decoded by the `sensors` crate into [`current`]. A scan
@@ -6,7 +7,7 @@
 
 use core::cell::{Cell, RefCell};
 
-use embassy_futures::join::{join, join3};
+use embassy_futures::join::join3;
 use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
@@ -19,21 +20,24 @@ use heapless::Vec;
 use log::{info, warn};
 use sensors::Revs;
 use static_cell::StaticCell;
+use companion::Session;
 use sensors::ble as gatt;
 use settings::Sensor;
 use trouble_host::prelude::*;
 
 type Ctrl = ExternalController<BleConnector<'static>, 20>;
 type Pool = DefaultPacketPool;
-/// Our GATT table: only the GAP service (name, appearance), so that a peer reading it gets answers (BlueZ waits
-/// 30 s for them, then drops the link).
-type Server<'a> = AttributeServer<'a, NoopRawMutex, Pool, 8, CONNECTIONS_MAX>;
+/// Our GATT table: the GAP service (name, appearance; a sensor reading it gets answers, BlueZ waits 30 s for them,
+/// then drops the link) and the companion app's service.
+type Server<'a> = AttributeServer<'a, NoopRawMutex, Pool, 16, LINKS>;
 type HostError = BleHostError<esp_radio::ble::controller::BleConnectorError>;
 
 /// Devices connected at once: a heart rate strap, a speed / cadence sensor, a power meter.
 const CONNECTIONS_MAX: usize = 3;
+/// The sensors and the companion app.
+const LINKS: usize = CONNECTIONS_MAX + 1;
 /// Per connection: the signalling and ATT channels.
-const L2CAP_CHANNELS_MAX: usize = CONNECTIONS_MAX * 2;
+const L2CAP_CHANNELS_MAX: usize = LINKS * 2;
 /// Wheel circumference until it is a setting (700×25C).
 const WHEEL_MM: u16 = 2105;
 /// A value older than this is gone (the sensor lost, or it stopped sending).
@@ -140,8 +144,9 @@ fn targets(p: &Paired) -> Vec<Target, CONNECTIONS_MAX> {
     out
 }
 
-/// Runs the BLE stack: waits for the paired sensors, connects them, scans on request.
-pub async fn run(bt: BT<'static>) {
+/// Runs the BLE stack: waits for the paired sensors, connects them, scans on request; waits for the companion app,
+/// which asks `device`.
+pub async fn run(bt: BT<'static>, mut device: impl companion::Device) {
     let connector = match BleConnector::new(bt, Default::default()) {
         Ok(c) => c,
         Err(e) => {
@@ -154,23 +159,24 @@ pub async fn run(bt: BT<'static>) {
     // a static random address (top two bits set), fixed for now
     let address = Address::random([0x6f, 0xcc, 0x60, 0x00, 0x5c, 0xc6]);
     // ~18 KB: static, not in the task's future
-    static RESOURCES: StaticCell<HostResources<Ctrl, Pool, CONNECTIONS_MAX, L2CAP_CHANNELS_MAX>> = StaticCell::new();
+    static RESOURCES: StaticCell<HostResources<Ctrl, Pool, LINKS, L2CAP_CHANNELS_MAX>> = StaticCell::new();
     let stack = trouble_host::new(controller, RESOURCES.init(HostResources::new()))
         .set_random_address(address)
         .build();
     let mut runner = stack.runner();
     let central = Mutex::<NoopRawMutex, _>::new(Some(stack.central()));
     let mut table = AttributeTable::new();
-    let gap = GapConfig::Central(CentralConfig {
-        name: "OpenCC600",
+    let gap = GapConfig::Peripheral(PeripheralConfig {
+        name: NAME,
         appearance: &appearance::cycling::CYCLING_COMPUTER,
     });
     if let Err(e) = gap.build(&mut table) {
         warn!("ble: GAP service: {e}");
     }
+    let (rx, tx) = app_service(&mut table);
     let server: Server<'_> = AttributeServer::new(table);
     let seen = Seen::default();
-    let _ = join(runner.run_with_handler(&seen), async {
+    let _ = join3(runner.run_with_handler(&seen), app(&stack, &server, &rx, &tx, &mut device), async {
         let mut paired = Paired::default();
         loop {
             let t = targets(&paired);
@@ -585,4 +591,176 @@ impl EventHandler for Seen {
             });
         }
     }
+}
+
+/// Our name: the app looks for devices whose name starts with `protocol_cc600::ble::NAME_PREFIX`.
+const NAME: &str = "CC600 OpenCC600";
+/// Largest write of the app (an ATT MTU of 517, as Chrome asks) and largest notification.
+const ATT_VALUE_MAX: usize = 512;
+/// Advertising interval while waiting for the app: slow, the radio is shared with the sensors (and may disturb the
+/// GNSS); the app finds the device within a few seconds.
+const ADVERTISE: Duration = Duration::from_millis(1000);
+
+/// What the companion app did: a file arriving or received, settings changed (for the screen).
+pub static APP: Signal<CriticalSectionRawMutex, companion::Event> = Signal::new();
+/// The companion app is connected.
+static APP_LINKED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+pub fn app_linked() -> bool {
+    APP_LINKED.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+type Value = heapless::Vec<u8, ATT_VALUE_MAX>;
+
+/// The companion app's service (`protocol-cc600`): the app writes frames on RX, the answers are notified on TX.
+fn app_service(
+    table: &mut AttributeTable<'static, NoopRawMutex, 16>,
+) -> (Characteristic<Value>, Characteristic<Value>) {
+    static STORES: StaticCell<[[u8; ATT_VALUE_MAX]; 2]> = StaticCell::new();
+    let [rx_store, tx_store] = STORES.init([[0; ATT_VALUE_MAX]; 2]);
+    let mut service = table.add_service(Service::new(Uuid::new_long(SERVICE)));
+    let rx = service
+        .add_characteristic(
+            Uuid::new_long(RX),
+            [CharacteristicProp::Write, CharacteristicProp::WriteWithoutResponse],
+            Value::new(),
+            rx_store,
+        )
+        .build();
+    let tx = service
+        .add_characteristic(Uuid::new_long(TX), [CharacteristicProp::Notify], Value::new(), tx_store)
+        .build();
+    service.build();
+    (rx, tx)
+}
+
+/// Advertises, serves the app while it is connected, again; never returns. The session outlives the connections: a
+/// file resumes after a dropped link.
+async fn app(
+    stack: &Stack<'_, Ctrl, Pool>,
+    server: &Server<'_>,
+    rx: &Characteristic<Value>,
+    tx: &Characteristic<Value>,
+    device: &mut impl companion::Device,
+) {
+    let mut session = Session::new();
+    let mut peripheral = stack.peripheral();
+    let mut adv = [0; 31];
+    let len = AdStructure::encode_slice(
+        &[
+            AdStructure::Flags(LE_GENERAL_DISCOVERABLE | BR_EDR_NOT_SUPPORTED),
+            AdStructure::CompleteServiceUuids128(&[SERVICE]),
+            AdStructure::ShortenedLocalName(protocol_cc600::ble::NAME_PREFIX.as_bytes()),
+        ],
+        &mut adv,
+    )
+    .unwrap_or(0);
+    let mut scan_data = [0; 31];
+    let scan_len =
+        AdStructure::encode_slice(&[AdStructure::CompleteLocalName(NAME.as_bytes())], &mut scan_data).unwrap_or(0);
+    let params = AdvertisementParameters { interval_min: ADVERTISE, interval_max: ADVERTISE, ..Default::default() };
+    loop {
+        let advertised = peripheral
+            .advertise(
+                &params,
+                Advertisement::ConnectableScannableUndirected {
+                    adv_data: &adv[..len],
+                    scan_data: &scan_data[..scan_len],
+                },
+            )
+            .await;
+        let conn = match advertised {
+            Ok(advertiser) => advertiser.accept().await,
+            Err(e) => {
+                warn!("ble: advertising: {e:?}");
+                Timer::after(Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+        let conn = match conn.map(|c| c.with_attribute_server(server)) {
+            Ok(Ok(c)) => c,
+            Ok(Err(e)) => {
+                warn!("ble: app: {e:?}");
+                continue;
+            }
+            Err(e) => {
+                warn!("ble: app connection: {e:?}");
+                continue;
+            }
+        };
+        info!("ble: app connected");
+        APP_LINKED.store(true, core::sync::atomic::Ordering::Relaxed);
+        serve_app(&conn, rx, tx, device, &mut session).await;
+        APP_LINKED.store(false, core::sync::atomic::Ordering::Relaxed);
+        session.disconnected();
+        info!("ble: app disconnected");
+    }
+}
+
+/// Feeds the app's writes to the session and notifies its answers, until the app leaves.
+async fn serve_app(
+    conn: &GattConnection<'_, '_, Pool>,
+    rx: &Characteristic<Value>,
+    tx: &Characteristic<Value>,
+    device: &mut impl companion::Device,
+    session: &mut Session,
+) {
+    loop {
+        let GattConnectionEvent::Gatt { event } = (match conn.next().await {
+            GattConnectionEvent::Disconnected { .. } => return,
+            other => other,
+        }) else {
+            continue;
+        };
+        let events = match &event {
+            GattEvent::Write(w) if w.handle() == rx.handle => w.with_data(|_, data| session.on_write(data, device)),
+            _ => alloc::vec::Vec::new(),
+        };
+        if let Ok(reply) = event.accept() {
+            reply.send().await;
+        }
+        for e in events {
+            APP.signal(e);
+        }
+        let out = session.take_output();
+        // a notification carries the ATT MTU less its 3-byte header; the app reassembles the frames
+        let piece = (conn.raw().att_mtu() as usize).saturating_sub(3).clamp(20, ATT_VALUE_MAX);
+        for p in out.chunks(piece) {
+            if let Err(e) = tx.notify_raw(conn, p, false).await {
+                warn!("ble: app notify: {e:?}");
+                break;
+            }
+        }
+    }
+}
+
+/// The UUIDs of `protocol-cc600`, as the 16 bytes on the air.
+const SERVICE: [u8; 16] = uuid(protocol_cc600::ble::SERVICE_UUID);
+const RX: [u8; 16] = uuid(protocol_cc600::ble::RX_CHAR_UUID);
+const TX: [u8; 16] = uuid(protocol_cc600::ble::TX_CHAR_UUID);
+
+/// `18fbbd9a-adda-...` to bytes, least significant first.
+const fn uuid(text: &str) -> [u8; 16] {
+    const fn hex(c: u8) -> u8 {
+        match c {
+            b'0'..=b'9' => c - b'0',
+            b'a'..=b'f' => c - b'a' + 10,
+            b'A'..=b'F' => c - b'A' + 10,
+            _ => panic!("not a UUID"),
+        }
+    }
+    let b = text.as_bytes();
+    let mut out = [0; 16];
+    let (mut i, mut n) = (0, 0);
+    while i < b.len() {
+        if b[i] == b'-' {
+            i += 1;
+            continue;
+        }
+        out[15 - n] = hex(b[i]) * 16 + hex(b[i + 1]);
+        n += 1;
+        i += 2;
+    }
+    assert!(n == 16, "not a UUID");
+    out
 }

@@ -1,0 +1,15 @@
+[package]
+name         = "companion"
+description  = "The link with the companion app (Musette): protocol-cc600 frames in, answers out, files and settings received; sans-IO, no_std"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dependencies]
+protocol-cc600 = { workspace = true }
+route          = { workspace = true }
+settings       = { workspace = true }
+
+[dev-dependencies]
+route = { workspace = true, features = ["build"] }
