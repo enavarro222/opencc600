@@ -419,7 +419,7 @@ button{font-family:inherit}
             <sc-if value="{{is.pauseMenu}}" hint-placeholder-val="{{ false }}">
               <div style="display: flex; flex-direction: column">
                 <div style="padding: 8px 12px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Sortie en pause</div>
-                <sc-for list="{{pmRows}}" as="m" hint-placeholder-count="2">
+                <sc-for list="{{pmRows}}" as="m" hint-placeholder-count="3">
                   <div style="height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 21px; font-weight: 600; border-bottom: 1px solid {{c.rule}}; background: {{m.bg}}; color: {{m.fg}}">
                     <span>{{m.label}}</span><span>›</span>
                   </div>
@@ -502,7 +502,7 @@ class Component extends DCLogic {
   }
   initial() {
     return {
-      scr: 'home', page: 0, ride: false, climb: 'none', gps: 'search', toast: '', pending: 2, pmI: 0, pmBack: 'pause', lost: false, moving: false, off: false, zoomI: 0, scrollOn: false,
+      scr: 'home', page: 0, ride: false, climb: 'none', gps: 'search', toast: '', pending: 2, pmI: 0, pmBack: 'pause', lost: false, moving: false, off: false, zoomI: 0, scrollOn: false, free: false,
       opt: { usage: 'balade', pwr: true, hr: true, cad: true, trace: true, autoPause: true, startPrompt: true, offBeep: true, autoScroll: true, nightAuto: true, turns: false, strava: false },
       menuI: 0, sensI: 0, scanI: 0, traceI: 0, trace: 0, confirmFrom: 'pause',
       sensors: [
@@ -524,9 +524,10 @@ class Component extends DCLogic {
   }
   compose(o) {
     const effort = o.pwr || o.hr;
+    const route = o.trace && !this.state.free;
     let p;
-    if (o.usage === 'balade') p = o.trace ? ['map', 'ess', 'climbs'] : ['ess', 'alt', effort ? 'effort' : null];
-    else p = o.trace ? [effort ? 'effort' : null, 'ess', 'map', 'climbs'] : [effort ? 'effort' : null, 'ess', 'alt'];
+    if (o.usage === 'balade') p = route ? ['map', 'ess', 'climbs'] : ['ess', 'alt', effort ? 'effort' : null];
+    else p = route ? [effort ? 'effort' : null, 'ess', 'map', 'climbs'] : [effort ? 'effort' : null, 'ess', 'alt'];
     return p.filter(Boolean);
   }
   beep(why) {
@@ -549,7 +550,18 @@ class Component extends DCLogic {
       { name: 'Sortie VTT Sidobre', info: '38 km · 950 m D+' }
     ];
   }
-  menuItems() { return (this.state.last === 'kept' ? ['↺ Reprendre la dernière sortie'] : []).concat(['Synchro Wi-Fi', 'Capteurs']); }
+  menuItems() { return (this.state.last === 'kept' ? ['↺ Reprendre la dernière sortie'] : []).concat(this.routeItem() ? [this.routeItem()] : []).concat(['Synchro Wi-Fi', 'Capteurs']); }
+  routeItem() { return this.state.opt.trace ? (this.state.free ? 'Suivre la trace' : 'Rouler sans trace') : null; }
+  pmItems() { return ['Capteurs'].concat(this.routeItem() ? [this.routeItem()] : []).concat(['Éteindre (sortie gardée)']); }
+  toggleRoute(back) {
+    const free = !this.state.free;
+    const tr = this.traces()[this.state.trace];
+    this.state.free = free;
+    const patch = { free, scr: back, menuI: 0, pmI: 0 };
+    if (this.state.ride) Object.assign(patch, { pages: this.compose(this.state.opt), page: 0, off: false, climb: 'none' });
+    this.setState(patch);
+    this.say(free ? 'Parcours libre · trace gardée' : 'Trace suivie · ' + tr.name);
+  }
   resumeLast() {
     if (this.state.last !== 'kept') { this.say('Déjà envoyée · elle ne peut plus être reprise'); return; }
     this.setState({ scr: 'ride', ride: true, page: 0, moving: true, last: null, pending: Math.max(0, this.state.pending - 1), pages: this.state.pages && this.state.pages.length ? this.state.pages : this.compose(this.state.opt) });
@@ -601,9 +613,11 @@ class Component extends DCLogic {
       case 'saved': return { hg: none, bg: { l: 'Reprendre', f: () => this.resumeLast() }, bd: { l: 'OK', k: 'sel', f: set({ scr: 'home' }) } };
       case 'pauseMenu': return {
         hg: { l: '◀ Retour', f: set({ scr: s.pmBack }) },
-        bg: { l: 'Suivant ▼', f: set({ pmI: (s.pmI + 1) % 2 }) },
+        bg: { l: 'Suivant ▼', f: set({ pmI: (s.pmI + 1) % this.pmItems().length }) },
         bd: { l: 'Ouvrir ›', k: 'sel', f: () => {
-          if (s.pmI === 0) this.setState({ scr: 'sensors', sensI: 0 });
+          const it = this.pmItems()[s.pmI];
+          if (it === 'Capteurs') this.setState({ scr: 'sensors', sensI: 0 });
+          else if (it === this.routeItem()) this.toggleRoute(s.pmBack);
           else { this.stopScroll(); this.setState({ scr: 'off' }); }
         } } };
       case 'off': return { hg: { l: '', hold: true, f: set({ scr: s.ride ? 'resume' : 'home', gps: 'search' }) }, bg: { l: '', f: () => {} }, bd: { l: '', f: () => {} } };
@@ -613,6 +627,7 @@ class Component extends DCLogic {
         bd: { l: 'Ouvrir ›', k: 'sel', f: () => {
           const it = this.menuItems()[s.menuI];
           if (it === 'Synchro Wi-Fi') this.setState({ scr: 'sync' });
+          else if (it === this.routeItem()) this.toggleRoute('home');
           else if (it === 'Capteurs') this.setState({ scr: 'sensors', sensI: 0 });
           else this.resumeLast();
         } } };
@@ -722,7 +737,7 @@ class Component extends DCLogic {
       },
       hasBeep: !!s.beepWhy, beepWhy: s.beepWhy || '', beepAnim: (s.beepN || 0) % 2 ? 'beepA' : 'beepB',
       offHint: s.scr === 'off' ? 'Compteur éteint : maintiens le bouton haut gauche pour le rallumer.' : '',
-      pmRows: ['Capteurs', 'Éteindre (sortie gardée)'].map((label, i) => ({ label, ...sel(i === s.pmI) })),
+      pmRows: this.pmItems().map((label, i) => ({ label, ...sel(i === s.pmI) })),
       showLost: ride && s.lost,
       clock: ride ? '10:29' : '08:47',
       hgLabel: k.hg.l, bgLabel: k.bg.l, bdLabel: k.bd.l,
@@ -765,20 +780,21 @@ class Component extends DCLogic {
       simOff: () => {
         if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
         if (s.off) { this.setState({ off: false }); this.say('De retour sur la trace · guidage repris'); }
-        else if (!s.opt.trace) { this.setState({ simMsg: 'Pas de trace chargée : pas d’alerte hors trace.' }); }
+        else if (!s.opt.trace || s.free) { this.setState({ simMsg: s.free ? 'Parcours libre : pas d’alerte hors trace.' : 'Pas de trace chargée : pas d’alerte hors trace.' }); }
         else { const mi = pages.indexOf('map'); this.setState(mi >= 0 ? { off: true, page: mi } : { off: true }); if (s.opt.offBeep) this.beep('hors trace'); }
       },
       simClimbStep: () => {
         if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
-        if (!s.opt.trace) { this.setState({ simMsg: 'Sans trace, pas de montées connues à l’avance.' }); return; }
+        if (!s.opt.trace || s.free) { this.setState({ simMsg: 'Sans trace suivie, pas de montées connues à l’avance.' }); return; }
         if (s.climb === 'none') { this.setState({ climb: 'approach' }); this.beep('montée à 400 m'); }
         else if (s.climb === 'approach') { const ci = pages.indexOf('climbs'); this.setState(ci >= 0 ? { climb: 'in', page: ci } : { climb: 'in' }); }
         else { this.setState({ climb: 'none' }); this.say('Sommet atteint · 34:12 · 6,9 % de moyenne'); }
       },
       climbDist: s.climb === 'approach' ? '0,4 km' : '1,2 km',
       showBanner: false,
-      traceName: s.opt.trace ? tr[s.trace].name : 'Aucune trace', traceInfo: s.opt.trace ? tr[s.trace].info : 'Envoie-en une depuis l’app (facultatif)',
-      traceChip: s.opt.trace ? c.route : c.rule,
+      traceName: s.opt.trace ? (s.free ? 'Parcours libre' : tr[s.trace].name) : 'Aucune trace',
+      traceInfo: s.opt.trace ? (s.free ? 'Trace gardée · ≡ Menu pour la suivre' : tr[s.trace].info) : 'Envoie-en une depuis l’app (facultatif)',
+      traceChip: s.opt.trace && !s.free ? c.route : c.rule,
       presentSummary: (() => { const l = [s.opt.pwr && 'Puiss.', s.opt.hr && 'FC', s.opt.cad && 'Cad.'].filter(Boolean); return l.length ? '● ' + l.join(' · ') : 'aucun (GPS seul)'; })(),
       pagesPreview: this.compose(s.opt).map((v) => ({ map: 'Carte', ess: 'Essentiel', climbs: 'Montées', effort: 'Effort', alt: 'Altitude' })[v]).join(' · '),
       ess4: (s.opt.hr && !(ride && s.lost)) ? { label: 'FC bpm · Z3', value: '142', bg: c.zone, fg: c.zoneText }
@@ -812,7 +828,7 @@ class Component extends DCLogic {
       ...(() => {
         let notif = null;
         const autoPaused = ride && !s.moving && s.opt.autoPause;
-        if (ride && s.off) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'Hors trace · 120 m', detail: 'Rejoins le pointillé sur la carte' };
+        if (ride && s.off) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'Hors trace · 120 m', detail: 'Pas cette trace ? Pause › Menu' };
         else if (ride && s.gps === 'search') notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'GPS en recherche', detail: 'Distance et carte au premier fix' };
         else if (ride && s.gps === 'lost') notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'GPS perdu', detail: s.sensors.some((x) => x.key === 'spd' && x.paired) ? 'Distance par le capteur de vitesse' : 'Distance en attente du GPS' };
         else if (ride && s.lost) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'FC perdue', detail: 'Reconnexion automatique…' };
@@ -837,7 +853,8 @@ class Component extends DCLogic {
       },
       simTrace: () => {
         const nx = (s.trace + 1) % 3;
-        this.setState({ trace: nx });
+        this.state.free = false;
+        this.setState(s.ride ? { trace: nx, free: false, pages: this.compose(s.opt), page: 0 } : { trace: nx, free: false });
         if (s.scr !== 'off') this.say('Trace remplacée · ' + tr[nx].name + ' (depuis l’app)', 3000);
       },
       reset: () => { clearTimeout(this.gpsT); this.gpsT = null; clearTimeout(this.timer); clearTimeout(this.lostT); clearInterval(this.scrollT); this.setState(this.initial()); }

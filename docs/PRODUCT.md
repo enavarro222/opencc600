@@ -109,9 +109,13 @@ Prototype: https://enavarro222.github.io/opencc600/prototype/ — source in [pro
   true: off route, sensor lost), climb ahead, auto-pause. One at a time, by priority.
 - One route on the device, sent from the app at any time (even mid-ride). Rides are uploaded as soon as possible
   (home Wi-Fi or app) and deleted only after the upload is confirmed.
-- The loaded route can be **set aside from the device** to ride free (no route): the route pages and the off-route
-  alerts go away, the route itself stays stored and can be followed again later from the same menu. Deleting it
-  from the device is possible too, but as a separate, confirmed action.
+- **Free ride without the loaded route**: no question when starting (most of the time the loaded route is the one
+  to follow). The home screen always shows the state: route name and distance, or "Parcours libre". The menu (home,
+  and pause menu during a ride) has "Rouler sans trace" / "Suivre la trace": the route pages and off-route alerts go
+  away (pages recomposed at once, even mid-ride), the route stays stored and can be followed again. A route sent
+  from the app is followed. Started by mistake with the wrong route: the off-route banner (amber) says
+  "Pas cette trace ? Pause › Menu"; the device never drops the route on its own. Deleting the route from the
+  device is possible too, but as a separate, confirmed action.
 - GPS: the home screen shows acquisition (state + progress bar); a ride can start before the fix (distance and
   map start at the fix). While riding, "GPS ◌" appears in the top bar only while searching or lost, with a banner.
 - Pause screen: bottom-right resume, bottom-left "Finish…" (then confirmation), top "≡ Menu" (sensors, switch off).
