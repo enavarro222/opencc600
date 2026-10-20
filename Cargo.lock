@@ -702,7 +702,7 @@ dependencies = [
 [[package]]
 name = "protocol-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=8fe1d38a0a23598fa3d2eb984eba78f194c53e02#8fe1d38a0a23598fa3d2eb984eba78f194c53e02"
+source = "git+https://github.com/enavarro222/musette?rev=2d9940f7567dbb740046313be77c2ad8266baa71#2d9940f7567dbb740046313be77c2ad8266baa71"
 
 [[package]]
 name = "quick-error"
@@ -800,7 +800,7 @@ dependencies = [
 [[package]]
 name = "route-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=8fe1d38a0a23598fa3d2eb984eba78f194c53e02#8fe1d38a0a23598fa3d2eb984eba78f194c53e02"
+source = "git+https://github.com/enavarro222/musette?rev=2d9940f7567dbb740046313be77c2ad8266baa71#2d9940f7567dbb740046313be77c2ad8266baa71"
 dependencies = [
  "libm",
 ]
@@ -904,7 +904,7 @@ dependencies = [
 [[package]]
 name = "settings-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=8fe1d38a0a23598fa3d2eb984eba78f194c53e02#8fe1d38a0a23598fa3d2eb984eba78f194c53e02"
+source = "git+https://github.com/enavarro222/musette?rev=2d9940f7567dbb740046313be77c2ad8266baa71#2d9940f7567dbb740046313be77c2ad8266baa71"
 
 [[package]]
 name = "shlex"
