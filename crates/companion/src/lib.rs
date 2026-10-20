@@ -16,8 +16,9 @@ use alloc::vec::Vec;
 use protocol_cc600::transfer::{self, Begin, Chunk, Kind, Partial, Receiver};
 use protocol_cc600::{ErrorCode, Frame, HEADER_LEN, MAX_FRAME, MAX_PAYLOAD, Op, TRAILER_LEN};
 
-/// File bytes the app may send before an acknowledgement: chunks are kept in RAM, so as much as the link can carry.
-pub const WINDOW: u16 = 4096;
+/// File bytes the app may send before an acknowledgement. Each chunk takes a packet of the BLE host's pool (16 of
+/// 251 bytes in `trouble-host`, shared with the sensors): 4 KB in flight ran it out (`OutOfMemory`, the write lost).
+pub const WINDOW: u16 = 1024;
 
 /// What the device does for the link.
 pub trait Device {

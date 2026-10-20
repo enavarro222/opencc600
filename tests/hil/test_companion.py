@@ -16,7 +16,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
 import send_route  # noqa: E402
 from test_ble_sensors import adapter  # noqa: E402
-from test_route import synthetic_gpx  # noqa: E402
 
 bleak = pytest.importorskip("bleak")
 
@@ -60,6 +59,7 @@ class App:
         await client.connect()
         app = cls(client)
         await client.start_notify(TX, app._notified)
+        print(f"ATT MTU {client.mtu_size}")
         return app
 
     async def close(self):
@@ -80,16 +80,22 @@ class App:
             else:
                 self.events.put_nowait((op, payload))
 
+    async def write(self, data: bytes):
+        """A frame in writes of the link's size, as the app does (the device reassembles)."""
+        piece = max(20, self.client.mtu_size - 3)
+        for i in range(0, len(data), piece):
+            await self.client.write_gatt_char(RX, data[i : i + piece], response=False)
+
     async def send(self, op: int, payload: bytes = b"") -> int:
         self.seq = (self.seq + 1) & 0xFF
-        await self.client.write_gatt_char(RX, frame(op, self.seq, payload), response=False)
+        await self.write(frame(op, self.seq, payload))
         return self.seq
 
     async def request(self, op: int, payload: bytes = b"", timeout=5.0):
         fut = asyncio.get_running_loop().create_future()
         self.seq = (self.seq + 1) & 0xFF
         self.waiting[self.seq] = fut
-        await self.client.write_gatt_char(RX, frame(op, self.seq, payload), response=False)
+        await self.write(frame(op, self.seq, payload))
         return await asyncio.wait_for(fut, timeout)
 
     async def send_file(self, kind: int, data: bytes, stop_after: int | None = None) -> tuple[int, int]:
@@ -117,6 +123,15 @@ class App:
         op, p = await self.request(END)
         assert op == OK, f"route refused: {p.hex()}"
         return start, total
+
+
+def zigzag_gpx(path: Path, points: int = 1500):
+    """A route that keeps every point (a zigzag), tens of KB, from a made-up place (no real position in the tests)."""
+    trk = "".join(
+        f'<trkpt lat="{45 + i * 0.0001:.6f}" lon="{3 + (i % 2) * 0.0003:.6f}"><ele>{300 + i % 50}</ele></trkpt>'
+        for i in range(points)
+    )
+    path.write_text(f"<gpx><trk><name>Test HIL</name><trkseg>{trk}</trkseg></trk></gpx>")
 
 
 def run(coro):
@@ -178,8 +193,9 @@ def test_hello_and_settings(dut, ble, kept):
 def test_a_route_resumed_after_a_dropped_link(dut, ble, kept):
     with tempfile.TemporaryDirectory() as d:
         gpx = Path(d) / "test.gpx"
-        synthetic_gpx(gpx)
+        zigzag_gpx(gpx)
         data = send_route.route_bytes(gpx)
+    assert len(data) > 10_000, len(data)
 
     async def go():
         app = await App.connect()

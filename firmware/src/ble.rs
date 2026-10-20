@@ -720,6 +720,11 @@ async fn serve_app(
             reply.send().await;
         }
         for e in events {
+            match e {
+                companion::Event::Receiving { kind, received, size } => info!("ble: app {kind:?} {received}/{size}"),
+                companion::Event::Received(kind) => info!("ble: app {kind:?} received"),
+                companion::Event::SettingsChanged => info!("ble: app changed settings"),
+            }
             APP.signal(e);
         }
         let out = session.take_output();
