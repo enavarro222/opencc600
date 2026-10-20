@@ -46,11 +46,16 @@ fn view() -> View {
     View {
         clock: Some((10, 29)),
         battery_pct: Some(81),
+        plugged: false,
         gnss: Gnss::Fix { used: 9 },
         speed_mm_s: Some(9_000),
         altitude_dm: Some(6_120),
         grade_pct: Some(4),
         heart_rate: None,
+        cadence_rpm: None,
+        power_w: None,
+        wheel_speed_mm_s: None,
+        sensors: Default::default(),
         ride: RideView {
             timer_s: 6128,
             elapsed_s: 6128 + 12 * 60,
@@ -64,8 +69,12 @@ fn view() -> View {
             4_000 + ((i as f32 / 5.0).sin() * 900.0) as i16 + i as i16 * 20
         }),
         rides_stored: Some(2),
+        record_hours: Some(58),
+        saving: false,
         resumable: true,
         route: None,
+        route_set_aside: false,
+        stream_lost: false,
     }
 }
 
@@ -73,7 +82,7 @@ fn save(name: &str, ui: &Ui, v: &View, theme: &Theme) {
     let mut fb = Fb(vec![Rgb565::BLACK; 240 * 320]);
     let file = test_route();
     let r = route::Route::parse(&file).unwrap();
-    ui::draw(&mut fb, ui, v, v.route.map(|_| &r), theme).unwrap();
+    ui::draw(&mut fb, ui, v, v.route.map(|_| &r), None, theme).unwrap();
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("screens");
     std::fs::create_dir_all(&dir).unwrap();
     let file = std::fs::File::create(dir.join(format!("{name}.png"))).unwrap();
@@ -157,6 +166,7 @@ fn every_screen() {
         };
         shot(&ui, &searching, "home-search");
         shot(&ui, &home, "home");
+        shot(&ui, &View { rides_stored: Some(14), record_hours: Some(3), ..home }, "home-storage-low");
         key(&mut ui, BottomLeft);
         shot(&ui, &home, "menu");
         key(&mut ui, TopLeft);
@@ -187,6 +197,7 @@ fn every_screen() {
         shot(&ui, &home, "confirm-stop");
         key(&mut ui, BottomRight);
         shot(&ui, &home, "saved");
+        shot(&ui, &View { saving: true, ..home }, "saving");
         let mut resume = Ui::new();
         resume.found_paused_ride();
         shot(&resume, &home, "resume");
@@ -211,7 +222,7 @@ fn every_screen() {
     ui.key(Key::BottomRight, Press::Click, 0, &home);
     let riding = with_route(view(), true);
     ui.tick(0, Some(true), &riding);
-    for z in ["route-map-1km", "route-map-2km", "route-map-500m"] {
+    for z in ["route-map-1km", "route-map-2km", "route-map-whole", "route-map-250m", "route-map-500m"] {
         save(z, &ui, &riding, &ui::DAY);
         ui.key(Key::TopLeft, Press::Click, 0, &riding);
     }
@@ -227,8 +238,57 @@ fn every_screen() {
     }
     ui.tick(1, Some(true), &off);
     save("route-off", &ui, &off, &ui::DAY);
+    ui.tick(ui::OFF_ROUTE_HINT_MS, Some(true), &off);
+    save("route-off-hint", &ui, &off, &ui::DAY);
+    ui.tick(2 * ui::OFF_ROUTE_HINT_MS, Some(true), &off);
     ui.key(Key::BottomLeft, Press::Click, 0, &riding);
     save("route-essential", &ui, &riding, &ui::DAY);
+    // the automatic power off announced, a ride still for a while
+    let mut ui = Ui::new();
+    ui.set_auto_off_min(10);
+    let still = View { speed_mm_s: Some(0), ..view() };
+    ui.key(Key::BottomRight, Press::Click, 0, &still);
+    ui.tick(0, Some(true), &still);
+    ui.tick(9 * 60_000 + 15_000, Some(true), &still);
+    save("auto-off", &ui, &still, &ui::DAY);
+    // the logo at power-on
+    let mut ui = Ui::new();
+    ui.show_splash();
+    save("splash", &ui, &view(), &ui::DAY);
+    save("splash-night", &ui, &view(), &ui::NIGHT);
+    ui.end_splash();
+    assert_eq!(ui.screen(), ui::Screen::Home);
+    // started by the charger: the charging screen, its animation, full, unplugged; night
+    for (name, pct, plugged, at) in [
+        ("charging", 64, true, 0),
+        ("charging-step", 64, true, 2 * ui::CHARGE_STEP_MS),
+        ("charging-low", 9, true, 0),
+        ("charging-full", 100, true, 0),
+        ("charging-unplugged", 64, false, 0),
+    ] {
+        let mut ui = Ui::new();
+        ui.show_charging();
+        let v = View { battery_pct: Some(pct), plugged, stream_lost: true, ..view() };
+        ui.tick(at, None, &v);
+        save(name, &ui, &v, &ui::DAY);
+        if name == "charging" {
+            save("charging-night", &ui, &v, &ui::NIGHT);
+            assert_eq!(ui.key(Key::TopLeft, Press::Long, at, &v), Some(ui::Command::WakeUp));
+            assert_eq!(ui.screen(), ui::Screen::Home);
+        }
+    }
+    // a free ride: the route set aside from the menu, kept
+    let mut ui = Ui::new();
+    let home = with_route(view(), false);
+    ui.key(Key::BottomLeft, Press::Click, 0, &home);
+    save("menu-route", &ui, &home, &ui::DAY);
+    ui.key(Key::BottomLeft, Press::Click, 0, &home);
+    assert_eq!(ui.key(Key::BottomRight, Press::Click, 0, &home), Some(ui::Command::FollowRoute(false)));
+    let free = View { route: None, route_set_aside: true, ..home };
+    save("home-free-ride", &ui, &free, &ui::DAY);
+    ui.key(Key::BottomLeft, Press::Click, 0, &free);
+    ui.key(Key::BottomLeft, Press::Click, 0, &free);
+    save("menu-follow-route", &ui, &free, &ui::DAY);
     // unknown values, a slow speed (its comma where 32,4 has it), a low battery
     let empty = View::default();
     let mut ui = Ui::new();
@@ -242,4 +302,59 @@ fn every_screen() {
         ..view()
     };
     save("ride-slow-hr", &ui, &slow, &ui::DAY);
+    let charging = View {
+        battery_pct: Some(64),
+        plugged: true,
+        ..view()
+    };
+    save("ride-charging", &ui, &charging, &ui::DAY);
+    save("ride-charging-night", &ui, &charging, &ui::NIGHT);
+}
+
+/// The sensors screens: the roles with a sensor connected, one searching, one unpaired; then a scan.
+#[test]
+fn sensor_screens() {
+    use Key::*;
+    use ui::{Found, Link, SensorRow, Sensors};
+    let name = |n: &str| Some(Line::new(format_args!("{n}")));
+    let found = |n: &str, rssi_dbm: i8, paired: bool| {
+        Some(Found {
+            name: Line::new(format_args!("{n}")),
+            rssi_dbm,
+            paired,
+        })
+    };
+    let v = View {
+        heart_rate: Some(142),
+        cadence_rpm: Some(91),
+        wheel_speed_mm_s: Some(8_330),
+        sensors: Sensors {
+            roles: [
+                SensorRow { link: Link::Connected, name: name("HRM-Pro") },
+                SensorRow { link: Link::Searching, name: name("Wahoo CADENCE") },
+                SensorRow::default(),
+            ],
+            found: [found("HRM-Pro", -48, true), found("Polar H10", -71, false), None, None],
+        },
+        ..view()
+    };
+    for (theme, suffix) in [(ui::DAY, ""), (ui::NIGHT, "-night")] {
+        let mut ui = Ui::new();
+        let shot = |ui: &Ui, v: &View, n: &str| save(&format!("{n}{suffix}"), ui, v, &theme);
+        ui.key(BottomLeft, Press::Click, 0, &v); // menu
+        ui.key(BottomLeft, Press::Click, 0, &v); // to the sensors
+        shot(&ui, &v, "menu-sensors");
+        ui.key(BottomRight, Press::Click, 0, &v);
+        shot(&ui, &v, "sensors");
+        assert_eq!(ui.key(BottomRight, Press::Click, 0, &v), Some(ui::Command::Scan(ui::Role::HeartRate)));
+        ui.key(BottomLeft, Press::Click, 0, &v);
+        shot(&ui, &v, "sensor-scan");
+        // nothing found yet, for an unpaired role
+        let empty = View { sensors: Sensors { found: [None; 4], ..v.sensors }, ..v };
+        ui.key(TopLeft, Press::Click, 0, &v);
+        ui.key(BottomLeft, Press::Click, 0, &v);
+        ui.key(BottomLeft, Press::Click, 0, &v);
+        ui.key(BottomRight, Press::Click, 0, &empty);
+        shot(&ui, &empty, "sensor-scan-empty");
+    }
 }

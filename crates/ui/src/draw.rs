@@ -7,10 +7,10 @@
 
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle};
+use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle, Triangle};
 
 use crate::fonts::{self, Align, Font, Line as Fmt, Style, icon};
-use crate::{BannerKind, Gnss, Hint, Kind, Page, Screen, Ui, View};
+use crate::{BannerKind, Gnss, Hint, Kind, Link, Page, Role, Screen, Ui, View};
 
 pub(crate) const W: i32 = 240;
 const H: i32 = 320;
@@ -59,6 +59,8 @@ pub struct Theme {
     /// The route on the map, ahead and done.
     pub route: Rgb565,
     pub done: Rgb565,
+    /// The background map, by class ([`route::map::class`]).
+    pub map: [Rgb565; route::map::class::COUNT],
     /// Background and text of the key labels by [`Kind`] (Go, Pause, Danger, Select).
     pub kinds: [(Rgb565, Rgb565); 4],
 }
@@ -101,6 +103,11 @@ pub const DAY: Theme = Theme {
     me: rgb(0x1D4ED8),
     route: rgb(0xD9480F),
     done: rgb(0x9A9A9A),
+    // forest, water, residential, contour, major contour, stream, river, path, track, service, minor, major
+    map: [
+        rgb(0xDDEBD3), rgb(0xC6DDF2), rgb(0xEEEDEA), rgb(0xE3CDB8), rgb(0xC9A585), rgb(0x9CC3E6),
+        rgb(0x7FB0DE), rgb(0x9E9E9E), rgb(0x8F8676), rgb(0xBDBDBD), rgb(0x9C9C9C), rgb(0x7A7A7A),
+    ],
     kinds: KINDS,
 };
 
@@ -123,6 +130,10 @@ pub const NIGHT: Theme = Theme {
     me: rgb(0x6EA8FF),
     route: rgb(0xFF7A45),
     done: rgb(0x5A5A5E),
+    map: [
+        rgb(0x14261A), rgb(0x13283F), rgb(0x1C1C1E), rgb(0x3A2F25), rgb(0x5A4636), rgb(0x285A8A),
+        rgb(0x2F6DA8), rgb(0x666666), rgb(0x7D735F), rgb(0x4A4A4A), rgb(0x727272), rgb(0x9A9A9A),
+    ],
     kinds: KINDS,
 };
 
@@ -169,17 +180,27 @@ pub fn draw<D: DrawTarget<Color = Rgb565>>(
     ui: &Ui,
     v: &View,
     route: Option<&route::Route<'_>>,
+    map: Option<&route::map::Map<'_>>,
     t: &Theme,
 ) -> Result<(), D::Error> {
     d.clear(t.bg)?;
+    // the charging screen and the splash are all custom: no bars, no banner
+    match ui.screen() {
+        Screen::Charging => return charging(d, ui, v, t),
+        Screen::Splash => return splash(d, t),
+        _ => {}
+    }
     match ui.screen() {
         Screen::Home => home(d, ui, v, t)?,
         Screen::Menu => menu(d, ui, v, t, None, MENU_NOTE)?,
         Screen::PauseMenu => menu(d, ui, v, t, Some("SORTIE EN PAUSE"), PAUSE_MENU_NOTE)?,
         Screen::Status => {}
+        Screen::Sensors => sensors(d, ui, v, t)?,
+        Screen::Charging | Screen::Splash => {}
+        Screen::SensorScan => sensor_scan(d, ui, v, t)?,
         Screen::Ride => match ui.page() {
             Some(Page::Altitude) => ride_altitude(d, v, t)?,
-            Some(Page::Map) => crate::map::draw(d, ui.zoom_m(), v, route, t)?,
+            Some(Page::Map) => crate::map::draw(d, ui.zoom_m(), v, route, map, t)?,
             Some(Page::Essential) | None => ride_essential(d, v, t)?,
         },
         Screen::Paused => paused(d, v, t, "En pause", "chrono arrêté", PAUSED_NOTE)?,
@@ -467,9 +488,12 @@ fn row<D: DrawTarget<Color = Rgb565>>(
     Ok(())
 }
 
+/// Fewer hours of riding left than this: shown in red on the home screen.
+const LOW_RECORD_HOURS: u32 = 5;
+
 fn home<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) -> Result<(), D::Error> {
     fonts::text(d, &t.label(&fonts::LABEL), "TRACE", MARGIN, 47, Align::Left)?;
-    // the route's colour mark, grey without a route
+    // the route's colour mark, grey without a route followed
     let mark = if v.route.is_some() { t.route } else { t.rule };
     rounded(d, rect(MARGIN, 65, 30, 68), 2, mark, t.bg)?;
     let heading = t.style(&fonts::HEADING_SMALL);
@@ -479,6 +503,11 @@ fn home<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) 
             fonts::text(d, &heading, name.as_str(), 38, 66, Align::Left)?;
             let info = Fmt::new(format_args!("{} km · {} m D+", km(r.length_dm * 10).as_str(), r.ascent_m));
             fonts::text(d, &t.mute(&fonts::NOTE_LARGE), info.as_str(), MARGIN, 111, Align::Left)?;
+        }
+        None if v.route_set_aside => {
+            fonts::text(d, &heading, "Parcours libre", 38, 66, Align::Left)?;
+            let note = Fmt::new(format_args!("Trace gardée · {} Menu pour la suivre", icon::MENU));
+            fonts::text(d, &t.mute(&fonts::NOTE_LARGE), note.as_str(), MARGIN, 111, Align::Left)?;
         }
         None => {
             fonts::text(d, &heading, "Aucune trace", 38, 66, Align::Left)?;
@@ -520,10 +549,33 @@ fn home<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) 
             )?;
         }
     }
+    let roles = v.sensors.roles.iter().zip(Role::ALL);
+    let connected = roles.clone().filter(|(r, _)| r.link == Link::Connected).count();
+    let searching = roles.clone().filter(|(r, _)| r.link == Link::Searching).count();
+    let sensors = match (connected, searching) {
+        (0, 0) => (t.ok, Fmt::new(format_args!("aucun (GPS seul)"))),
+        (c, 0) => {
+            let mut names = Fmt::new(format_args!(""));
+            for (i, (_, role)) in roles.filter(|(r, _)| r.link == Link::Connected).enumerate() {
+                let _ = core::fmt::Write::write_fmt(
+                    &mut names,
+                    format_args!("{}{}", if i > 0 { ", " } else { "" }, role.label()),
+                );
+            }
+            // the names when they fit, else how many
+            if fonts::ROW.width(names.as_str(), 0) <= W - MARGIN - 104 {
+                (t.ok, names)
+            } else {
+                (t.ok, Fmt::new(format_args!("{c} connectés")))
+            }
+        }
+        (0, s) => (t.warn, Fmt::new(format_args!("{s} en recherche"))),
+        (c, s) => (t.warn, Fmt::new(format_args!("{c} OK, {s} en recherche"))),
+    };
     row(
         d,
         (&label, "Capteurs"),
-        (&value.colored(t.ok), "aucun (GPS seul)"),
+        (&value.colored(sensors.0), sensors.1.as_str()),
         176,
         MARGIN,
     )?;
@@ -534,12 +586,19 @@ fn home<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) 
         203,
         MARGIN,
     )?;
-    let pending = match v.rides_stored {
+    let mut pending = match v.rides_stored {
         Some(0) => (t.fg, Fmt::new(format_args!("aucune"))),
         Some(1) => (t.warn, Fmt::new(format_args!("1 sortie"))),
         Some(n) => (t.warn, Fmt::new(format_args!("{n} sorties"))),
         None => (t.mute, Fmt::new(format_args!("{NONE}"))),
     };
+    // and the room left, in hours of riding: short, in red
+    if let Some(h) = v.record_hours {
+        let _ = core::fmt::Write::write_fmt(&mut pending.1, format_args!(" · {h} h libres"));
+        if h < LOW_RECORD_HOURS {
+            pending.0 = t.danger;
+        }
+    }
     row(
         d,
         (&label, "À envoyer"),
@@ -573,7 +632,7 @@ fn menu<D: DrawTarget<Color = Rgb565>>(
         fonts::text(d, &t.label(&fonts::LABEL), title, MARGIN, 47, Align::Left)?;
         y = 62;
     }
-    let (items, sel) = ui.menu(v.resumable);
+    let (items, sel) = ui.menu(v);
     let mut buf = [0; 4];
     let chevron = char_str(icon::CHEVRON, &mut buf);
     for (i, item) in items.iter().flatten().enumerate() {
@@ -591,6 +650,10 @@ fn menu<D: DrawTarget<Color = Rgb565>>(
         y += ROW;
     }
     let mut cy = y + 20;
+    // four entries leave no room for the note
+    if y > 200 {
+        return Ok(());
+    }
     if !note_title.is_empty() {
         fonts::text(
             d,
@@ -603,6 +666,267 @@ fn menu<D: DrawTarget<Color = Rgb565>>(
         cy += 21;
     }
     note_lines(d, &t.mute(&fonts::NOTE), note, MARGIN, cy, 19)
+}
+
+/// The logo at power-on: a freewheel sprocket in the route colour ("rouler en liberté"), the name, the motto, the
+/// version.
+fn splash<D: DrawTarget<Color = Rgb565>>(d: &mut D, t: &Theme) -> Result<(), D::Error> {
+    let (cx, cy) = ((W / 2) as f32, 116.0);
+    let c = t.route;
+    // the teeth, cut out of a full disc like a real freewheel: pointed teeth between wide round seats for the
+    // chain's rollers, the flanks opening outwards
+    const TEETH: i32 = 20;
+    let (root, tip) = (47.0, 56.0);
+    let step = core::f32::consts::TAU / TEETH as f32;
+    let at = |r: f32, a: f32| Point::new((cx + r * libm::cosf(a)) as i32, (cy + r * libm::sinf(a)) as i32);
+    let cut = PrimitiveStyle::with_fill(t.bg);
+    disc(d, cx, cy, tip, c, t.bg)?;
+    let (seat_r, seat) = (root + 1.5, 4.2);
+    // the seats first: the flanks drawn over them clear the outer half of their smoothed edge
+    for k in 0..TEETH {
+        let a = (k as f32 + 0.5) * step;
+        disc(d, cx + seat_r * libm::cosf(a), cy + seat_r * libm::sinf(a), seat, t.bg, c)?;
+    }
+    for k in 0..TEETH {
+        let a = (k as f32 + 0.5) * step;
+        let (h0, h1) = (seat / seat_r, 9.4 / (tip + 4.0));
+        let (p0, p1) = (at(seat_r, a - h0), at(seat_r, a + h0));
+        let (p2, p3) = (at(tip + 4.0, a + h1), at(tip + 4.0, a - h1));
+        Triangle::new(p0, p1, p2).into_styled(cut).draw(d)?;
+        Triangle::new(p0, p2, p3).into_styled(cut).draw(d)?;
+    }
+    // the freewheel body: a raised ring (a shade apart, a fine groove around it), its two holes, the bore
+    let body = mix(c, t.fg);
+    disc(d, cx, cy, 38.0, t.bg, c)?;
+    disc(d, cx, cy, 36.8, body, t.bg)?;
+    disc(d, cx, cy, 27.5, c, body)?;
+    disc(d, cx, cy, 24.0, t.bg, c)?;
+    for side in [-1.0, 1.0] {
+        disc(d, cx + side * 32.2, cy, 2.3, t.bg, body)?;
+    }
+    // a route through the bore: an S from a ringed start, bottom left, to the arrival in the route colour, top right
+    let path = |u: f32| {
+        let x = -13.0 + 26.0 * u + 5.0 * libm::sinf(core::f32::consts::TAU * u);
+        let y = 11.0 * libm::cosf(core::f32::consts::PI * u);
+        (cx + x, cy + y)
+    };
+    const SAMPLES: i32 = 24;
+    let line = PrimitiveStyle::with_stroke(t.fg, 3);
+    let mut last = path(0.0);
+    for k in 1..=SAMPLES {
+        let p = path(k as f32 / SAMPLES as f32);
+        Line::new(Point::new(last.0 as i32, last.1 as i32), Point::new(p.0 as i32, p.1 as i32))
+            .into_styled(line)
+            .draw(d)?;
+        last = p;
+    }
+    let (sx, sy) = path(0.0);
+    disc(d, sx, sy, 4.0, t.fg, t.bg)?;
+    disc(d, sx, sy, 2.0, t.bg, t.fg)?;
+    let (ex, ey) = path(1.0);
+    disc(d, ex, ey, 4.2, c, t.bg)?;
+    // the name: Open in the mute colour, CC600 strong, as one word
+    let (open, cc) = ("Open", "CC600");
+    let (wo, wc) = (fonts::TITLE.width(open, 0), fonts::TITLE.width(cc, 0));
+    let x0 = (W - wo - wc) / 2;
+    fonts::text(d, &t.mute(&fonts::TITLE), open, x0, 214, Align::Left)?;
+    fonts::text(d, &t.style(&fonts::TITLE), cc, x0 + wo, 214, Align::Left)?;
+    fonts::text(d, &t.mute(&fonts::BODY), "Rouler en liberté", W / 2, 246, Align::Center)?;
+    let version = Fmt::new(format_args!("v{}", crate::VERSION));
+    fonts::text(d, &t.mute(&fonts::NOTE), version.as_str(), W / 2, 300, Align::Center)?;
+    Ok(())
+}
+
+/// A battery's colour, the same in the top bar and on the charging screen: red when low, light blue (the device's key
+/// marks) while charging, green when full on the charger; the top bar keeps the mute colour on battery.
+fn battery_color(pct: u8, plugged: bool, t: &Theme) -> Rgb565 {
+    match (pct, plugged) {
+        (0..=15, _) => t.danger,
+        (100.., true) => t.ok,
+        _ => t.key_mark,
+    }
+}
+
+/// Halfway between two colours.
+fn mix(a: Rgb565, b: Rgb565) -> Rgb565 {
+    Rgb565::new(
+        ((a.r() as u16 + b.r() as u16) / 2) as u8,
+        ((a.g() as u16 + b.g() as u16) / 2) as u8,
+        ((a.b() as u16 + b.b() as u16) / 2) as u8,
+    )
+}
+
+/// The charging screen, all of it (no top or key bar): which key switches on, marked on the side of the key, then
+/// the level and a big battery filling up and, while charging, the current flowing up into it from the USB port (the
+/// bottom edge); centred when there is no current to show.
+fn charging<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) -> Result<(), D::Error> {
+    let pct = v.battery_pct.unwrap_or(0).min(100) as i32;
+    let full = v.battery_pct == Some(100);
+    let charging = v.plugged && !full;
+    let color = battery_color(pct as u8, v.plugged, t);
+    // the key: its mark on the edge next to it, what to do
+    fill(d, rect(0, 0, TOP_KEY - 1, KEY_MARK - 1), t.key_mark)?;
+    let hint = Fmt::new(format_args!("{} Maintenir pour allumer", icon::POWER));
+    fonts::text(d, &t.style(&fonts::KEY), hint.as_str(), KEY_PAD, (KEY_MARK + TOP) / 2, Align::Left)?;
+    // the block: the level (top at y0), the state, the battery; the cable under it down to the edge
+    const BLOCK: i32 = 206;
+    // one place whatever the state, room for the current under the battery: nothing moves at full charge
+    let y0 = TOP + (H - TOP - BLOCK) / 2 - 10;
+    let digits = Fmt::new(format_args!("{pct}"));
+    let (dw, pw) = (fonts::HUGE.width(digits.as_str(), 0), fonts::VALUE.width("%", 0));
+    let x0 = (W - dw - 6 - pw) / 2;
+    let cy = y0 + fonts::HUGE.cap as i32 / 2;
+    fonts::text(d, &t.style(&fonts::HUGE), digits.as_str(), x0, cy, Align::Left)?;
+    let base = y0 + fonts::HUGE.cap as i32;
+    fonts::text(d, &t.style(&fonts::VALUE), "%", x0 + dw + 6, base - fonts::VALUE.cap as i32 / 2, Align::Left)?;
+    let (state, c) = match (v.plugged, full) {
+        (true, true) => ("Chargé", t.fg),
+        (true, false) => ("En charge", t.fg),
+        (false, _) => ("Débranché", t.warn),
+    };
+    fonts::text(d, &t.style(&fonts::BODY_BOLD).colored(c), state, W / 2, y0 + 82, Align::Center)?;
+    // the battery: its cap, the body, the inside
+    let (left, right, top, bottom) = (90, 150, y0 + BLOCK - 90, y0 + BLOCK);
+    rounded(d, rect(left + 18, top - 7, right - 18, top + 4), 3, t.fg, t.bg)?;
+    rounded(d, rect(left, top, right, bottom), 11, t.fg, t.bg)?;
+    rounded(d, rect(left + 5, top + 5, right - 5, bottom - 5), 7, t.bg, t.fg)?;
+    let (il, ir, it, ib) = (left + 9, right - 9, top + 9, bottom - 9);
+    let h = ib - it + 1;
+    let level = h * pct / 100;
+    let step = ui.charge_step() as i32;
+    let steps = crate::CHARGE_STEPS as i32;
+    // charging: a lighter band climbs from the level to the top
+    if charging {
+        let band = (h - level) * (step + 1) / steps;
+        if band > 0 {
+            rounded(d, rect(il, ib - level - band + 1, ir, ib - level), 4, mix(color, t.bg), t.bg)?;
+        }
+    }
+    if level > 0 {
+        rounded(d, rect(il, ib - level + 1, ir, ib), 4, color, t.bg)?;
+    }
+    // the bolt in the middle, outlined in the background colour: it shows on the fill and on the empty part
+    let (bx, by) = ((left + right) / 2, (top + bottom) / 2);
+    let bolt = |d: &mut D, dx: i32, dy: i32, c: Rgb565| -> Result<(), D::Error> {
+        let p = |x: i32, y: i32| Point::new(bx + x * 2 + dx, by + y * 2 + dy);
+        let s = PrimitiveStyle::with_fill(c);
+        Triangle::new(p(4, -13), p(-7, 2), p(1, 2)).into_styled(s).draw(d)?;
+        Triangle::new(p(-1, -2), p(7, -2), p(-4, 13)).into_styled(s).draw(d)
+    };
+    for (dx, dy) in [(-2, 0), (2, 0), (0, -2), (0, 2)] {
+        bolt(d, dx, dy, t.bg)?;
+    }
+    bolt(d, 0, 0, if v.plugged { t.fg } else { t.mute })?;
+    // the current from the USB port (the bottom edge): dots rising into the battery
+    if charging {
+        let (from, to) = (H, bottom + 1);
+        let gap = 14;
+        let mut y = from - 6 - step * gap / steps;
+        while y >= to + 6 {
+            // brighter near the battery
+            let near = (from - y) * 2 >= from - to;
+            disc(d, (W / 2) as f32 - 0.5, y as f32, 3.5, if near { color } else { mix(color, t.bg) }, t.bg)?;
+            y -= gap;
+        }
+    }
+    Ok(())
+}
+
+/// A selectable row: its background and text colour.
+fn row_colors(t: &Theme, selected: bool) -> (Rgb565, Rgb565) {
+    if selected { (t.sel, t.kinds[3].1) } else { (t.bg, t.fg) }
+}
+
+/// What a connected sensor reads now, for its row.
+fn sensor_value(role: Role, v: &View) -> Option<Fmt> {
+    match role {
+        Role::HeartRate => v.heart_rate.map(|b| Fmt::new(format_args!("{b} bpm"))),
+        Role::SpeedCadence => match (v.cadence_rpm, v.wheel_speed_mm_s) {
+            (Some(c), Some(s)) => Some(Fmt::new(format_args!("{c} tr/min, {} km/h", kmh(Some(s)).as_str()))),
+            (Some(c), None) => Some(Fmt::new(format_args!("{c} tr/min"))),
+            (None, Some(s)) => Some(Fmt::new(format_args!("{} km/h", kmh(Some(s)).as_str()))),
+            (None, None) => None,
+        },
+        Role::Power => v.power_w.map(|w| Fmt::new(format_args!("{w} W"))),
+    }
+}
+
+const SENSORS_NOTE: &str = "Ouvrir : chercher autour. Réveille le\ncapteur (roue, pédale, ceinture).";
+
+/// The sensor roles, each with its sensor, its link and its value; the selected one in blue.
+fn sensors<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) -> Result<(), D::Error> {
+    const ROW: i32 = 54;
+    fonts::text(d, &t.label(&fonts::LABEL), "CAPTEURS", MARGIN, 47, Align::Left)?;
+    let mut buf = [0; 4];
+    let chevron = char_str(icon::CHEVRON, &mut buf);
+    let mut y = 62;
+    for (i, role) in Role::ALL.into_iter().enumerate() {
+        let selected = role == ui.role();
+        let (bg, fg) = row_colors(t, selected);
+        fill(d, rect(0, y, W - 1, y + ROW - 2), bg)?;
+        hline(d, y + ROW - 1, t)?;
+        let s = Style::new(&fonts::MENU, fg, bg);
+        fonts::text(d, &s, role.label(), MARGIN, y + 17, Align::Left)?;
+        fonts::text(d, &s, chevron, W - MARGIN, y + ROW / 2 - 1, Align::Right)?;
+        let r = &v.sensors.roles[i];
+        let name = r.name.as_ref().map_or("capteur", |n| n.as_str());
+        let (state, color) = match r.link {
+            Link::Unpaired => (Fmt::new(format_args!("Aucun capteur")), t.mute),
+            Link::Searching => (Fmt::new(format_args!("{name} : recherche…")), t.warn),
+            Link::Connected => match sensor_value(role, v) {
+                Some(value) => (Fmt::new(format_args!("{name} · {}", value.as_str())), t.ok),
+                None => (Fmt::new(format_args!("{name} : connecté")), t.ok),
+            },
+        };
+        let s = Style::new(&fonts::NOTE, if selected { fg } else { color }, bg);
+        fonts::text(d, &s, state.as_str(), MARGIN, y + 38, Align::Left)?;
+        y += ROW;
+    }
+    note_lines(d, &t.mute(&fonts::NOTE), SENSORS_NOTE, MARGIN, y + 16, 19)
+}
+
+const SCAN_NOTE: &str = "Recherche en cours…\nRéveille le capteur : tourne la roue,\npédale ou mets la ceinture.";
+
+/// The sensors found around for the role being paired, closest first, then "none" if it has one.
+fn sensor_scan<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) -> Result<(), D::Error> {
+    const ROW: i32 = 42;
+    let role = ui.role();
+    let title = Fmt::new(format_args!("RECHERCHE · {}", role.title()));
+    fonts::text(d, &t.label(&fonts::LABEL), title.as_str(), MARGIN, 47, Align::Left)?;
+    let mut buf = [0; 4];
+    let check = char_str(icon::CHECK, &mut buf);
+    let mut y = 62;
+    let mut i = 0u8;
+    for f in v.sensors.found.iter().flatten() {
+        let (bg, fg) = row_colors(t, i == ui.scan_item());
+        fill(d, rect(0, y, W - 1, y + ROW - 2), bg)?;
+        hline(d, y + ROW - 1, t)?;
+        let cy = y + ROW / 2 - 1;
+        let s = Style::new(&fonts::MENU, fg, bg);
+        let mut left = MARGIN;
+        if f.paired {
+            fonts::text(d, &s, check, left, cy, Align::Left)?;
+            left += fonts::MENU.width(check, 0) + 6;
+        }
+        let signal = Fmt::new(format_args!("{} dBm", f.rssi_dbm));
+        let n = Style::new(&fonts::NOTE, if i == ui.scan_item() { fg } else { t.mute }, bg);
+        fonts::text(d, &n, signal.as_str(), W - MARGIN, cy, Align::Right)?;
+        fonts::text(d, &s, f.name.as_str(), left, cy, Align::Left)?;
+        y += ROW;
+        i += 1;
+    }
+    if v.sensors.roles[role as usize].link != Link::Unpaired {
+        let (bg, fg) = row_colors(t, i == ui.scan_item());
+        fill(d, rect(0, y, W - 1, y + ROW - 2), bg)?;
+        hline(d, y + ROW - 1, t)?;
+        let s = Style::new(&fonts::MENU, fg, bg);
+        fonts::text(d, &s, "Aucun (oublier)", MARGIN, y + ROW / 2 - 1, Align::Left)?;
+        y += ROW;
+    }
+    if i == 0 {
+        note_lines(d, &t.mute(&fonts::NOTE), SCAN_NOTE, MARGIN, y + 20, 19)?;
+    }
+    Ok(())
 }
 
 /// Height of the coloured band under the top bar.
@@ -765,10 +1089,15 @@ fn confirm_stop<D: DrawTarget<Color = Rgb565>>(
 }
 
 fn saved<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result<(), D::Error> {
-    let title = Fmt::new(format_args!("{} Sortie enregistrée", icon::CHECK));
+    // saving takes a few seconds: said, not left to guess
+    let (title, color) = if v.saving {
+        (Fmt::new(format_args!("Enregistrement…")), t.mute)
+    } else {
+        (Fmt::new(format_args!("{} Sortie enregistrée", icon::CHECK)), t.ok)
+    };
     fonts::text(
         d,
-        &t.style(&fonts::HEADING).colored(t.ok),
+        &t.style(&fonts::HEADING).colored(color),
         title.as_str(),
         W / 2,
         58,
@@ -906,7 +1235,11 @@ fn top_bar<D: DrawTarget<Color = Rgb565>>(
         let pct = Fmt::new(format_args!("{p} %"));
         fonts::value(d, &bar, pct.as_str(), "", W - KEY_PAD, cy, Align::Right)?;
         // the icon stays where "100 %" would start
-        battery(d, W - KEY_PAD - fonts::BAR.width("100 %", 0) - 5, cy, p, t)?;
+        let right = W - KEY_PAD - fonts::BAR.width("100 %", 0) - 5;
+        battery(d, right, cy, p, v.plugged, t)?;
+        if v.plugged {
+            bolt(d, right - BATTERY_W - 9, cy, battery_color(p, true, t))?;
+        }
     }
     hline(d, TOP, t)
 }
@@ -919,6 +1252,7 @@ fn battery<D: DrawTarget<Color = Rgb565>>(
     right: i32,
     cy: i32,
     pct: u8,
+    plugged: bool,
     t: &Theme,
 ) -> Result<(), D::Error> {
     let (w, h) = (BATTERY_W - 3, 10);
@@ -934,7 +1268,7 @@ fn battery<D: DrawTarget<Color = Rgb565>>(
     )?;
     // at least a pixel while there is charge left
     let level = ((w - 4) * pct.min(100) as i32 / 100).max((pct > 0) as i32);
-    let c = if pct <= 15 { t.danger } else { t.mute };
+    let c = if plugged || pct <= 15 { battery_color(pct, plugged, t) } else { t.mute };
     if level > 0 {
         fill(
             d,
@@ -946,6 +1280,14 @@ fn battery<D: DrawTarget<Color = Rgb565>>(
         )?;
     }
     Ok(())
+}
+
+/// The charging bolt, 7 × 12 px, left edge at `left`, centred on `cy`.
+fn bolt<D: DrawTarget<Color = Rgb565>>(d: &mut D, left: i32, cy: i32, c: Rgb565) -> Result<(), D::Error> {
+    let p = |x, y| Point::new(left + x, cy - 6 + y);
+    let style = PrimitiveStyle::with_fill(c);
+    Triangle::new(p(5, 0), p(0, 7), p(4, 7)).into_styled(style).draw(d)?;
+    Triangle::new(p(2, 5), p(7, 5), p(1, 12)).into_styled(style).draw(d)
 }
 
 /// A key label, checked to fit in its box (`width`).

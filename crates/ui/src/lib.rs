@@ -48,7 +48,8 @@ impl Key {
     }
 }
 
-/// The nRF repeats `Long` while the key is held: a long press does nothing more on the screen it opens.
+/// The nRF repeats `Long` while the key is held (every ~200 ms): a hold acts once ([`Ui::key`] drops the repeats),
+/// so a long press does nothing more on the screen it opens.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Press {
     Click,
@@ -61,6 +62,15 @@ pub enum Screen {
     Menu,
     /// Bring-up values (sensors, links, storage), drawn by the firmware in [`CONTENT`].
     Status,
+    /// At power-on, until the firmware knows what to show (the nRF's sensor stream there or not): the logo.
+    Splash,
+    /// Started by the charger (switched off and plugged in, like the vendor's "off, charging"), or without the nRF's
+    /// sensor stream: the battery charging; a long press of the power key switches on.
+    Charging,
+    /// The sensor roles (heart rate, speed / cadence, power) and their sensor.
+    Sensors,
+    /// The sensors found around for a role ([`Ui::role`]), to pick one ([`View::sensors`]).
+    SensorScan,
     Ride,
     Paused,
     PauseMenu,
@@ -104,8 +114,11 @@ pub fn pages(route: bool, train: bool) -> Pages {
     Pages { list }
 }
 
-/// Map zooms: metres for the scale bar (60 pixels).
-pub const ZOOMS_M: [u32; 3] = [500, 1000, 2000];
+/// Map zooms around the rider: metres for the scale bar (60 pixels). The top left key goes through them, then the
+/// whole route.
+pub const ZOOMS_M: [u32; 4] = [250, 500, 1000, 2000];
+/// Zoom steps of the map: [`ZOOMS_M`], then the whole route.
+pub const ZOOM_STEPS: u8 = ZOOMS_M.len() as u8 + 1;
 /// Off the route farther than this, decimetres: the banner.
 pub const OFF_ROUTE_DM: u32 = 500;
 
@@ -150,6 +163,83 @@ pub enum Command {
     ResumeLast,
     /// Switch off; a paused ride is kept and offered again at power-on.
     PowerOff,
+    /// Look for the sensors of a role around, until [`Command::StopScan`]: found ones go in [`Sensors::found`].
+    Scan(Role),
+    StopScan,
+    /// Pair the role with this entry of [`Sensors::found`].
+    Pair(Role, u8),
+    /// No sensor for the role any more.
+    Forget(Role),
+    /// Follow the loaded route (`true`), or set it aside for a free ride: it stays stored.
+    FollowRoute(bool),
+    /// Switched on from the charging screen (the long press starts the nRF's sensor stream).
+    WakeUp,
+}
+
+/// What a sensor is paired for, in the order of the sensors screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    HeartRate,
+    SpeedCadence,
+    Power,
+}
+
+impl Role {
+    pub const ALL: [Role; 3] = [Role::HeartRate, Role::SpeedCadence, Role::Power];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Role::HeartRate => "Cardio",
+            Role::SpeedCadence => "Vitesse / cadence",
+            Role::Power => "Puissance",
+        }
+    }
+
+    /// Upper case, for the screen titles.
+    pub fn title(self) -> &'static str {
+        match self {
+            Role::HeartRate => "CARDIO",
+            Role::SpeedCadence => "VITESSE / CADENCE",
+            Role::Power => "PUISSANCE",
+        }
+    }
+}
+
+/// The sensors screens' content, filled by the firmware.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Sensors {
+    /// Each role's sensor, in [`Role::ALL`] order.
+    pub roles: [SensorRow; 3],
+    /// What the scan found for the role being paired, closest first.
+    pub found: [Option<Found>; FOUND],
+}
+
+/// Sensors listed by a scan at most.
+pub const FOUND: usize = 4;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Link {
+    #[default]
+    Unpaired,
+    /// Paired, not connected (asleep, away, out of battery).
+    Searching,
+    Connected,
+}
+
+/// A role's sensor: its link and what names it (its advertised name, else the end of its address).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SensorRow {
+    pub link: Link,
+    pub name: Option<Line>,
+}
+
+/// A sensor found by a scan.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Found {
+    pub name: Line,
+    pub rssi_dbm: i8,
+    /// Already the role's sensor.
+    pub paired: bool,
 }
 
 /// Colour of a key label: the main actions have their own.
@@ -207,10 +297,34 @@ pub enum BannerKind {
     Attention,
 }
 
+/// The software version, on the splash screen.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// A `Long` this soon after the last one of the same key is its repeat (the nRF sends one every ~200 ms).
+pub const LONG_REPEAT_MS: u64 = 600;
+
+/// The charging screen's animation: steps, and how long each.
+pub const CHARGE_STEPS: u8 = 4;
+pub const CHARGE_STEP_MS: u64 = 300;
+
+/// The automatic power off's banner title.
+pub const AUTO_OFF: &str = "Extinction automatique";
+
+/// The off-route banner's line alternates between the distance and how to set the route aside.
+pub const OFF_ROUTE_HINT_MS: u64 = 4_000;
+
+/// Entries of a menu at most.
+pub const MENU: usize = 4;
+
 /// Entries of the menus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Item {
     ResumeLast,
+    /// The loaded route is followed: set it aside.
+    FreeRide,
+    /// The loaded route is set aside: follow it again.
+    FollowRoute,
+    Sensors,
     Status,
     PowerOff,
 }
@@ -220,6 +334,9 @@ impl Item {
         match self {
             Item::ResumeLast => "\u{e00d} Reprendre la sortie",
             Item::Status => "État du compteur",
+            Item::Sensors => "Capteurs",
+            Item::FreeRide => "Rouler sans trace",
+            Item::FollowRoute => "Suivre la trace",
             Item::PowerOff => "Éteindre (sortie gardée)",
         }
     }
@@ -231,6 +348,8 @@ pub struct View {
     /// Local time, hours and minutes.
     pub clock: Option<(u8, u8)>,
     pub battery_pct: Option<u8>,
+    /// On USB power: charging, or charged.
+    pub plugged: bool,
     pub gnss: Gnss,
     /// Current speed, 0 when stopped.
     pub speed_mm_s: Option<u32>,
@@ -238,6 +357,11 @@ pub struct View {
     /// Gradient over the last 100 m, percent.
     pub grade_pct: Option<i8>,
     pub heart_rate: Option<u8>,
+    pub cadence_rpm: Option<u8>,
+    pub power_w: Option<u16>,
+    /// The speed from a wheel sensor.
+    pub wheel_speed_mm_s: Option<u32>,
+    pub sensors: Sensors,
     /// The ride in progress, or the last one finished (for [`Screen::Saved`]).
     pub ride: RideView,
     /// Altitude (dm) of the last 5 km, every 100 m, oldest first.
@@ -246,10 +370,18 @@ pub struct View {
     pub whole: Profile,
     /// Finished rides on the device (all still to upload).
     pub rides_stored: Option<u16>,
+    /// The ride is being saved ([`Screen::Saved`] says so until it is done).
+    pub saving: bool,
+    /// Hours of riding the free storage still holds (`recorder::hours_left`).
+    pub record_hours: Option<u32>,
     /// The last finished ride can be resumed.
     pub resumable: bool,
-    /// The route loaded, and where the rider is on it.
+    /// The route followed, and where the rider is on it.
     pub route: Option<RouteView>,
+    /// A route is stored but set aside (a free ride).
+    pub route_set_aside: bool,
+    /// The nRF's sensor stream (barometer, clock) is missing: it only starts on the nRF's power-on gesture.
+    pub stream_lost: bool,
 }
 
 /// The route loaded: what the home screen tells, where the map is drawn from.
@@ -326,11 +458,20 @@ pub struct Ui {
     pages: Pages,
     page: u8,
     item: u8,
+    /// The role selected on the sensors screen, and paired on the scan screen.
+    role: u8,
+    /// The charging screen's animation step.
+    charge_step: u8,
+    /// Automatic power off after this long without moving during a ride (0: never), and since when it is still.
+    auto_off_ms: u64,
+    still_since: Option<u64>,
+    /// The key held long, and when its last `Long` came: the repeats are dropped.
+    held: Option<(Key, u64)>,
     scroll: bool,
     scroll_ms: u64,
     scrolled_at: u64,
     banner: Option<Banner>,
-    /// Map zoom, index in [`ZOOMS_M`].
+    /// Map zoom, index in [`ZOOMS_M`], or the whole route after them.
     zoom: u8,
     /// What picks the pages: a route is loaded, the usage is training.
     route: bool,
@@ -356,11 +497,16 @@ impl Ui {
             },
             page: 0,
             item: 0,
+            role: 0,
+            charge_step: 0,
+            auto_off_ms: 0,
+            still_since: None,
+            held: None,
             scroll: false,
             scroll_ms: SCROLL_MS,
             scrolled_at: 0,
             banner: None,
-            zoom: 1,
+            zoom: 2,
             route: false,
             train: false,
             had_fix: false,
@@ -368,15 +514,42 @@ impl Ui {
         }
     }
 
+    /// Automatic power off during a ride after `min` minutes without moving (the `auto_off_min` setting; 0: never).
+    pub fn set_auto_off_min(&mut self, min: u8) {
+        self.auto_off_ms = min as u64 * 60_000;
+    }
+
+    /// How long before the automatic power off its banner shows: a minute, half the delay when it is short.
+    fn auto_off_warning_ms(&self) -> u64 {
+        (self.auto_off_ms / 2).min(60_000)
+    }
+
+    /// The automatic power off is announced: what is left of its delay, ms.
+    fn auto_off_left(&self, now_ms: u64) -> Option<u64> {
+        let still = now_ms.saturating_sub(self.still_since?);
+        let left = self.auto_off_ms.checked_sub(still)?;
+        (self.auto_off_ms > 0 && left <= self.auto_off_warning_ms()).then_some(left)
+    }
+
     /// Auto-scroll interval (the `scroll_s` setting).
     pub fn set_scroll_s(&mut self, s: u8) {
         self.scroll_ms = s as u64 * 1000;
     }
 
-    /// What picks the ride pages (at the next start): a route is loaded, the usage setting is training.
+    /// What picks the ride pages (at the next start): a route is loaded, the usage setting is training. The pages of
+    /// a ride follow a route sent or removed during it (and a ride resumed at power-on, before the route was read),
+    /// the page shown kept.
     pub fn set_context(&mut self, route: bool, train: bool) {
+        let route_changed = route != self.route;
         self.route = route;
         self.train = train;
+        if route_changed && !self.pages.is_empty() {
+            let shown = self.page();
+            self.pages = self.next_pages();
+            self.page = (0..self.pages.len())
+                .find(|&i| self.pages.get(i) == shown)
+                .unwrap_or(0) as u8;
+        }
     }
 
     /// The pages a ride would have now.
@@ -385,14 +558,60 @@ impl Ui {
     }
 
     /// The map's scale bar, metres.
-    pub fn zoom_m(&self) -> u32 {
-        ZOOMS_M[self.zoom as usize]
+    /// `None`: the whole route.
+    pub fn zoom_m(&self) -> Option<u32> {
+        ZOOMS_M.get(self.zoom as usize).copied()
+    }
+
+    /// The logo at power-on, until [`Ui::end_splash`]; then the screen shown now (home, or the paused ride found).
+    pub fn show_splash(&mut self) {
+        if self.screen != Screen::Splash {
+            self.back = self.screen;
+            self.screen = Screen::Splash;
+        }
+    }
+
+    pub fn end_splash(&mut self) {
+        if self.screen == Screen::Splash {
+            self.screen = self.back;
+        }
+    }
+
+    /// The charging screen, until a long press of the power key; then back to the screen shown now (home, or the
+    /// paused ride found at power-on).
+    pub fn show_charging(&mut self) {
+        if self.screen != Screen::Charging {
+            self.back = self.screen;
+            self.screen = Screen::Charging;
+        }
+    }
+
+    /// The charging screen's animation step, 0..[`CHARGE_STEPS`].
+    pub fn charge_step(&self) -> u8 {
+        self.charge_step
     }
 
     /// At power-on with a paused ride: the screen that offers to resume or finish it.
     pub fn found_paused_ride(&mut self) {
         self.screen = Screen::Resume;
         self.pages = self.next_pages();
+    }
+
+    /// The role selected on [`Screen::Sensors`] or paired on [`Screen::SensorScan`].
+    pub fn role(&self) -> Role {
+        Role::ALL[self.role as usize]
+    }
+
+    /// On [`Screen::SensorScan`]: the entry selected, in the found sensors then "none" when the role is paired.
+    pub fn scan_item(&self) -> u8 {
+        self.item
+    }
+
+    /// The entries of the scan screen: the sensors found, then "none" (forget) if the role has a sensor.
+    fn scan_entries(&self, view: &View) -> (u8, bool) {
+        let found = view.sensors.found.iter().flatten().count() as u8;
+        let forget = view.sensors.roles[self.role as usize].link != Link::Unpaired;
+        (found, forget)
     }
 
     pub fn screen(&self) -> Screen {
@@ -430,24 +649,64 @@ impl Ui {
     }
 
     /// The entries of the menu shown, and the selected one.
-    pub fn menu(&self, resumable: bool) -> ([Option<Item>; 3], u8) {
-        match self.screen {
-            Screen::Menu if resumable => (
-                [Some(Item::ResumeLast), Some(Item::Status), None],
-                self.item,
-            ),
-            Screen::Menu => ([Some(Item::Status), None, None], self.item),
-            Screen::PauseMenu => ([Some(Item::PowerOff), Some(Item::Status), None], self.item),
-            _ => ([None; 3], 0),
+    pub fn menu(&self, view: &View) -> ([Option<Item>; MENU], u8) {
+        // follow the route or set it aside, when one is stored
+        let route = match (view.route.is_some(), view.route_set_aside) {
+            (true, _) => Some(Item::FreeRide),
+            (false, true) => Some(Item::FollowRoute),
+            _ => None,
+        };
+        let items: &[Option<Item>] = match self.screen {
+            Screen::Menu => &[
+                view.resumable.then_some(Item::ResumeLast),
+                route,
+                Some(Item::Sensors),
+                Some(Item::Status),
+            ],
+            // a strap that drops during a ride is paired again from the pause, the route set aside there too
+            Screen::PauseMenu => &[Some(Item::Sensors), route, Some(Item::PowerOff), Some(Item::Status)],
+            _ => &[],
+        };
+        let mut out = [None; MENU];
+        for (o, item) in out.iter_mut().zip(items.iter().flatten()) {
+            *o = Some(*item);
         }
+        (out, self.item)
     }
 
     pub fn key(&mut self, key: Key, press: Press, now_ms: u64, view: &View) -> Option<Command> {
         use Key::*;
         use Press::*;
         use Screen::*;
+        // a key while the automatic power off is announced only cancels it; any key restarts its delay
+        let announced = self.auto_off_left(now_ms).is_some();
+        if self.still_since.is_some() {
+            self.still_since = Some(now_ms);
+        }
+        // still held: the charging screen's wake up must not become the home screen's power off
+        if press == Long {
+            let repeat = self.held.is_some_and(|(k, at)| k == key && now_ms.saturating_sub(at) < LONG_REPEAT_MS);
+            self.held = Some((key, now_ms));
+            if repeat {
+                return None;
+            }
+        } else {
+            self.held = None;
+        }
+        if announced {
+            if self.banner.is_some_and(|b| b.title == AUTO_OFF) {
+                self.banner = None;
+            }
+            return None;
+        }
         let (screen, command) = match (self.screen, key, press) {
+            // without the nRF's sensor stream, the long press starts it (the nRF does on this gesture): not a power off
+            (Home, TopLeft, Long) if view.stream_lost => {
+                self.inform("Capteurs relancés", Line::new(format_args!("Baromètre et horloge")), now_ms);
+                (Home, None)
+            }
             (Home, TopLeft, Long) => (Home, Some(Command::PowerOff)),
+            (Charging, TopLeft, Long) => (self.back, Some(Command::WakeUp)),
             (Home, BottomLeft, Click) => {
                 self.item = 0;
                 self.back = Home;
@@ -459,26 +718,49 @@ impl Ui {
             }
             (Menu | PauseMenu, TopLeft, Click) => (self.back, None),
             (Menu | PauseMenu, BottomLeft, Click) => {
-                let n = self.menu(view.resumable).0.iter().flatten().count() as u8;
+                let n = self.menu(view).0.iter().flatten().count() as u8;
                 self.item = (self.item + 1) % n.max(1);
                 (self.screen, None)
             }
             (Menu | PauseMenu, BottomRight, Click) => {
-                match self.menu(view.resumable).0[self.item as usize] {
+                match self.menu(view).0[self.item as usize] {
                     Some(Item::ResumeLast) => {
                         self.start_ride();
                         (Ride, Some(Command::ResumeLast))
                     }
                     // the status goes back to its menu, the menu to where it was opened from
                     Some(Item::Status) => (Status, None),
+                    Some(Item::Sensors) => (Sensors, None),
+                    // back where the menu was opened from: the change shows there
+                    Some(Item::FreeRide) => (self.back, Some(Command::FollowRoute(false))),
+                    Some(Item::FollowRoute) => (self.back, Some(Command::FollowRoute(true))),
                     Some(Item::PowerOff) => (self.screen, Some(Command::PowerOff)),
                     None => (self.screen, None),
                 }
             }
-            (Status, TopLeft, Click) => (if self.back == Home { Menu } else { PauseMenu }, None),
+            (Status | Sensors, TopLeft, Click) => (if self.back == Home { Menu } else { PauseMenu }, None),
+            (Sensors, BottomLeft, Click) => {
+                self.role = (self.role + 1) % Role::ALL.len() as u8;
+                (Sensors, None)
+            }
+            (Sensors, BottomRight, Click) => {
+                self.item = 0;
+                (SensorScan, Some(Command::Scan(self.role())))
+            }
+            (SensorScan, TopLeft, Click) => (Sensors, Some(Command::StopScan)),
+            (SensorScan, BottomLeft, Click) => {
+                let (found, forget) = self.scan_entries(view);
+                self.item = (self.item + 1) % (found + forget as u8).max(1);
+                (SensorScan, None)
+            }
+            (SensorScan, BottomRight, Click) => match self.scan_entries(view) {
+                (found, _) if self.item < found => (Sensors, Some(Command::Pair(self.role(), self.item))),
+                (found, true) if self.item == found => (Sensors, Some(Command::Forget(self.role()))),
+                _ => (SensorScan, None),
+            },
             // a page changed or zoomed by hand stays a full interval before the next scroll
             (Ride, TopLeft, Click) if self.page() == Some(Page::Map) => {
-                self.zoom = (self.zoom + 1) % ZOOMS_M.len() as u8;
+                self.zoom = (self.zoom + 1) % ZOOM_STEPS;
                 self.scrolled_at = now_ms;
                 (Ride, None)
             }
@@ -530,9 +812,28 @@ impl Ui {
     }
 
     /// Follows the ride the firmware has (`None` without a ride, else whether its timer runs) and the GNSS fix;
-    /// scrolls the pages, sets and clears the banners.
-    pub fn tick(&mut self, now_ms: u64, ride: Option<bool>, view: &View) {
+    /// scrolls the pages, sets and clears the banners. [`Command::PowerOff`] when the device stayed still during a
+    /// ride for the automatic power off's delay (the firmware pauses and keeps the ride).
+    pub fn tick(&mut self, now_ms: u64, ride: Option<bool>, view: &View) -> Option<Command> {
         use Screen::*;
+        if self.screen == Charging {
+            self.charge_step = ((now_ms / CHARGE_STEP_MS) % CHARGE_STEPS as u64) as u8;
+        }
+        // still: no speed (GNSS or wheel), no pedalling; without a fix (indoors, a café) it is still too
+        let moving = view.speed_mm_s.is_some_and(|v| v > 0)
+            || view.wheel_speed_mm_s.is_some_and(|v| v > 0)
+            || view.cadence_rpm.is_some_and(|c| c > 0)
+            || view.power_w.is_some_and(|w| w > 0);
+        self.still_since = match (ride.is_some() && self.auto_off_ms > 0, moving, self.still_since) {
+            (false, _, _) | (true, true, _) => None,
+            (true, false, since) => Some(since.unwrap_or(now_ms)),
+        };
+        let power_off = self
+            .still_since
+            .is_some_and(|since| now_ms.saturating_sub(since) >= self.auto_off_ms);
+        if power_off {
+            self.still_since = None;
+        }
         self.screen = match (self.screen, ride) {
             (Ride | Paused | PauseMenu | ConfirmStop | Resume, None) => Home,
             (Home | Saved | Paused | ConfirmStop | Resume, Some(true)) => Ride,
@@ -555,8 +856,17 @@ impl Ui {
             .and_then(|r| r.progress)
             .filter(|p| p.off_dm > OFF_ROUTE_DM);
         let attention = match (riding, fix, off_route) {
+            _ if self.auto_off_left(now_ms).is_some() => {
+                let left_s = self.auto_off_left(now_ms).unwrap_or(0).div_ceil(1000);
+                Some((AUTO_OFF, Line::new(format_args!("Dans {left_s} s, une touche annule"))))
+            }
             (true, false, _) if self.had_fix => Some(("GPS perdu", Line::new(format_args!("Distance en attente du GPS")))),
             (true, false, _) => Some(("Recherche du GPS", Line::new(format_args!("La distance part au fix")))),
+            // every other [`OFF_ROUTE_HINT_MS`]: the wrong route followed by mistake is set aside from the pause menu
+            // (the device never drops it)
+            (true, true, Some(_)) if (now_ms / OFF_ROUTE_HINT_MS) % 2 == 1 => {
+                Some(("Hors de la trace", Line::new(format_args!("Pas cette trace ? Pause › Menu"))))
+            }
             // in metres up to 2 km, then in km
             (true, true, Some(p)) if p.off_dm < 20_000 => {
                 Some(("Hors de la trace", Line::new(format_args!("à {} m", p.off_dm / 10))))
@@ -600,6 +910,7 @@ impl Ui {
                 b.left_tenths = (10 - age * 10 / INFO_MS) as u8;
             }
         }
+        power_off.then_some(Command::PowerOff)
     }
 
     /// Labels of the top left, bottom left and bottom right keys.
@@ -617,12 +928,23 @@ impl Ui {
             ],
             Menu | PauseMenu => [BACK, NEXT, OPEN],
             Status => [BACK, NOTHING, NOTHING],
+            Charging | Splash => [NOTHING, NOTHING, NOTHING],
+            Sensors => [BACK, NEXT, OPEN],
+            SensorScan => match self.scan_entries(view) {
+                (0, false) => [BACK, NOTHING, NOTHING],
+                (found, forget) => [
+                    BACK,
+                    if found + forget as u8 > 1 { NEXT } else { NOTHING },
+                    Hint::new("Choisir \u{e00b}").kind(Kind::Select),
+                ],
+            },
             // the map's top left key is its scale: the length of the bar drawn next to it ([`Ui::map_scale`]);
             // without a position the whole route is shown, at no fixed scale
             Ride if self.page() == Some(Page::Map) => [
-                match self.map_scale(view) {
-                    Some(_) => Hint::new(["250 m", "500 m", "1 km"][self.zoom as usize]),
-                    None => Hint::new("\u{e00f} Zoom"),
+                match (self.map_scale(view), self.zoom_m()) {
+                    (Some(_), Some(_)) => Hint::new(["125 m", "250 m", "500 m", "1 km"][self.zoom as usize]),
+                    (_, None) => Hint::new("\u{e00f} Trace"),
+                    (None, Some(_)) => Hint::new("\u{e00f} Zoom"),
                 },
                 Hint::new("Page \u{e004}"),
                 Hint::new("Pause \u{e001}").kind(Kind::Pause),
@@ -646,6 +968,8 @@ impl Ui {
                 Hint::new("Annuler"),
                 Hint::new("Terminer \u{e002}").kind(Kind::Select),
             ],
+            // no key acts while the ride is being saved
+            Saved if view.saving => [NOTHING, NOTHING, NOTHING],
             Saved => [
                 NOTHING,
                 if view.resumable {
@@ -663,6 +987,7 @@ impl Ui {
     pub fn map_scale(&self, view: &View) -> Option<i32> {
         (self.screen == Screen::Ride
             && self.page() == Some(Page::Map)
+            && self.zoom_m().is_some()
             && view.route.is_some_and(|r| r.me.is_some()))
         .then_some(map::SCALE_PX as i32 / 2)
     }
@@ -688,6 +1013,30 @@ mod tests {
 
     fn press(ui: &mut Ui, key: Key) -> Option<Command> {
         ui.key(key, Click, 0, &view())
+    }
+
+    #[test]
+    fn a_long_press_held_on_the_charging_screen_only_wakes_up() {
+        // seen on 2026-10-20: held, the nRF repeats Long every 200 ms; the stream comes back meanwhile, and a
+        // repeat on the home screen switched the device off
+        let mut ui = Ui::new();
+        ui.show_charging();
+        let (mut wake_ups, mut others) = (0, 0);
+        for t in (0..3_000).step_by(200) {
+            let v = View { stream_lost: t < 1_000, plugged: true, ..view() };
+            match ui.key(TopLeft, Long, t, &v) {
+                Some(Command::WakeUp) => wake_ups += 1,
+                Some(_) => others += 1,
+                None => {}
+            }
+        }
+        assert_eq!((wake_ups, others), (1, 0));
+        assert_eq!(ui.screen(), Screen::Home);
+        // released, pressed long again: switched off
+        assert_eq!(ui.key(TopLeft, Long, 4_000, &view()), Some(Command::PowerOff));
+        // a click in between ends the hold too
+        assert_eq!(ui.key(BottomLeft, Click, 4_100, &view()), None);
+        assert_eq!(ui.screen(), Screen::Menu);
     }
 
     #[test]
@@ -732,7 +1081,7 @@ mod tests {
         let mut ui = Ui::new();
         press(&mut ui, BottomLeft);
         assert_eq!(ui.screen(), Screen::Menu);
-        assert_eq!(ui.menu(true).0[0], Some(Item::ResumeLast));
+        assert_eq!(ui.menu(&View { resumable: true, ..view() }).0[0], Some(Item::ResumeLast));
         assert_eq!(
             ui.key(BottomRight, Click, 0, &resumable),
             Some(Command::ResumeLast)
@@ -796,6 +1145,22 @@ mod tests {
             ui.banner().map(|b| Line::new(format_args!("{}", b.detail.as_str())))
         };
         assert_eq!(off(12_340).unwrap().as_str(), "à 1234 m");
+        // then how to set the route aside, every other 4 s
+        let mut ui = Ui::new();
+        press(&mut ui, BottomRight);
+        let mut v = view();
+        v.route = Some(RouteView {
+            name: Line::new(format_args!("x")),
+            length_dm: 0,
+            ascent_m: 0,
+            me: Some((0, 0)),
+            heading_cdeg: None,
+            progress: Some(route::Progress { along_dm: 0, off_dm: 12_340, segment: 0 }),
+        });
+        ui.tick(OFF_ROUTE_HINT_MS, Some(true), &v);
+        assert_eq!(ui.banner().unwrap().detail.as_str(), "Pas cette trace ? Pause › Menu");
+        ui.tick(2 * OFF_ROUTE_HINT_MS, Some(true), &v);
+        assert_eq!(ui.banner().unwrap().detail.as_str(), "à 1234 m");
         assert_eq!(off(23_456).unwrap().as_str(), "à 2,3 km");
         assert!(off(400).is_none());
     }
@@ -826,7 +1191,9 @@ mod tests {
         press(&mut ui, BottomRight);
         press(&mut ui, TopLeft);
         assert_eq!(ui.screen(), Screen::PauseMenu);
-        assert_eq!(ui.menu(false).0[0], Some(Item::PowerOff));
+        // no route: sensors, power off, status
+        assert_eq!(ui.menu(&view()).0[1], Some(Item::PowerOff));
+        press(&mut ui, BottomLeft);
         assert_eq!(press(&mut ui, BottomRight), Some(Command::PowerOff));
         // the status from the pause menu goes back to it, then to the pause
         press(&mut ui, BottomLeft);
@@ -836,6 +1203,125 @@ mod tests {
         assert_eq!(ui.screen(), Screen::PauseMenu);
         press(&mut ui, TopLeft);
         assert_eq!(ui.screen(), Screen::Paused);
+    }
+
+    #[test]
+    fn a_route_read_after_the_ride_has_its_map() {
+        // a ride resumed at power-on: its pages are picked before the route file is read
+        let mut ui = Ui::new();
+        ui.found_paused_ride();
+        assert_eq!(ui.page(), Some(Page::Essential));
+        ui.set_context(true, false);
+        assert_eq!(ui.page(), Some(Page::Essential), "the page shown stays");
+        press(&mut ui, BottomRight); // resume
+        let mut pages = [None; 3];
+        for p in pages.iter_mut() {
+            *p = ui.page();
+            press(&mut ui, BottomLeft);
+        }
+        assert!(pages.contains(&Some(Page::Map)), "{pages:?}");
+        // the route removed during the ride: no map page any more
+        ui.set_context(false, false);
+        assert!((0..4).all(|_| {
+            press(&mut ui, BottomLeft);
+            ui.page() != Some(Page::Map)
+        }));
+    }
+
+    #[test]
+    fn switched_off_after_a_while_still_during_a_ride() {
+        let mut ui = Ui::new();
+        ui.set_auto_off_min(10);
+        let still = View { speed_mm_s: Some(0), ..view() };
+        // not without a ride
+        assert_eq!(ui.tick(0, None, &still), None);
+        assert_eq!(ui.tick(20 * 60_000, None, &still), None);
+        press(&mut ui, BottomRight);
+        let t0 = 30 * 60_000;
+        assert_eq!(ui.tick(t0, Some(true), &still), None);
+        // a minute before: announced
+        assert_eq!(ui.tick(t0 + 8 * 60_000, Some(true), &still), None);
+        assert!(ui.banner().is_none());
+        assert_eq!(ui.tick(t0 + 9 * 60_000 + 15_000, Some(true), &still), None);
+        let b = ui.banner().unwrap();
+        assert_eq!((b.title, b.detail.as_str()), (AUTO_OFF, "Dans 45 s, une touche annule"));
+        assert_eq!(ui.tick(t0 + 10 * 60_000, Some(true), &still), Some(Command::PowerOff));
+        // paused still counts: the power off pauses the ride and keeps it
+        let mut ui = Ui::new();
+        ui.set_auto_off_min(10);
+        press(&mut ui, BottomRight);
+        ui.tick(0, Some(false), &still);
+        assert_eq!(ui.tick(10 * 60_000, Some(false), &still), Some(Command::PowerOff));
+    }
+
+    #[test]
+    fn moving_or_a_key_restarts_the_delay() {
+        let mut ui = Ui::new();
+        ui.set_auto_off_min(10);
+        let still = View { speed_mm_s: None, ..view() };
+        press(&mut ui, BottomRight);
+        ui.tick(0, Some(true), &still);
+        // moving at 9 min: the delay starts again when it stops
+        ui.tick(9 * 60_000, Some(true), &View { speed_mm_s: Some(5_000), ..still });
+        ui.tick(9 * 60_000 + 1_000, Some(true), &still);
+        assert_eq!(ui.tick(18 * 60_000, Some(true), &still), None);
+        // pedalling on a home trainer, without a GNSS speed, is moving
+        ui.tick(18 * 60_000 + 1, Some(true), &View { cadence_rpm: Some(85), ..still });
+        ui.tick(18 * 60_000 + 2, Some(true), &still);
+        assert!(ui.banner().is_none_or(|b| b.title != AUTO_OFF));
+        // announced, a key cancels it and does nothing else
+        let t = 18 * 60_000 + 2 + 9 * 60_000 + 30_000;
+        ui.tick(t, Some(true), &still);
+        assert_eq!(ui.banner().unwrap().title, AUTO_OFF);
+        assert_eq!(ui.key(BottomRight, Click, t + 1, &still), None, "not a pause");
+        assert_eq!(ui.screen(), Screen::Ride);
+        assert!(ui.banner().is_none_or(|b| b.title != AUTO_OFF));
+        assert_eq!(ui.tick(t + 2, Some(true), &still), None);
+        assert_eq!(ui.tick(t + 1 + 10 * 60_000, Some(true), &still), Some(Command::PowerOff));
+        // off: never
+        let mut ui = Ui::new();
+        press(&mut ui, BottomRight);
+        assert_eq!(ui.tick(0, Some(true), &still), None);
+        assert_eq!(ui.tick(24 * 3_600_000, Some(true), &still), None);
+    }
+
+    #[test]
+    fn pairing_and_forgetting_a_sensor() {
+        let found = |n| {
+            Some(Found {
+                name: Line::new(format_args!("{n}")),
+                rssi_dbm: -60,
+                paired: false,
+            })
+        };
+        let mut v = view();
+        v.sensors.found = [found("Polar H10"), found("HRM-Pro"), None, None];
+        let mut ui = Ui::new();
+        press(&mut ui, BottomLeft); // menu: the sensors first without a ride to resume
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), None);
+        assert_eq!(ui.screen(), Screen::Sensors);
+        // the power meter
+        ui.key(BottomLeft, Click, 0, &v);
+        ui.key(BottomLeft, Click, 0, &v);
+        assert_eq!(ui.role(), Role::Power);
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::Scan(Role::Power)));
+        // two found, the role unpaired: no "none" entry, the selection wraps over the two
+        ui.key(BottomLeft, Click, 0, &v);
+        ui.key(BottomLeft, Click, 0, &v);
+        ui.key(BottomLeft, Click, 0, &v);
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::Pair(Role::Power, 1)));
+        assert_eq!(ui.screen(), Screen::Sensors);
+        // paired: "none" after the two found
+        v.sensors.roles[2].link = Link::Connected;
+        ui.key(BottomRight, Click, 0, &v);
+        ui.key(BottomLeft, Click, 0, &v);
+        ui.key(BottomLeft, Click, 0, &v);
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::Forget(Role::Power)));
+        // back: the scan stops
+        ui.key(BottomRight, Click, 0, &v);
+        assert_eq!(ui.key(TopLeft, Click, 0, &v), Some(Command::StopScan));
+        assert_eq!(ui.key(TopLeft, Click, 0, &v), None);
+        assert_eq!(ui.screen(), Screen::Menu);
     }
 
     #[test]
