@@ -1,6 +1,6 @@
 //! UART link between the CC600 ESP32-S3 and its nRF co-processor (UART2, 115200 8N1).
 //!
-//! The nRF owns the keys, power, charging, RTC, the pressure / IMU sensors and ANT+. Reference:
+//! The nRF owns the keys, power, charging, RTC, the pressure / light sensors and ANT+. Reference:
 //! c606-oss `docs/HARDWARE.md` ("nRF co-processor link") and `main/nrf_link.c`.
 //!
 //! Frame: `A5 N 6F DIR TYPE CMD payload[N-4] CRClo CRChi`, total `N + 4` bytes, CRC-16/XMODEM over everything
@@ -260,6 +260,11 @@ fn civil_from_days(z: i64) -> (u16, u8, u8) {
     (y as u16, m, d)
 }
 
+/// [`Message::Status`] values, read in the ride logs (`charger` column): 0 plugged in, charging or charged (the
+/// voltage rising, or steady at 100 %), 1 on battery (falling).
+pub const USB_POWERED: u8 = 0;
+pub const ON_BATTERY: u8 = 1;
+
 /// nRF → ESP32 messages known so far.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Message {
@@ -273,7 +278,7 @@ pub enum Message {
         millivolts: u16,
         percent: u8,
     },
-    /// Every 300 ms; 0 on battery, probably the charger state.
+    /// Every 300 ms: the power source, [`USB_POWERED`] or [`ON_BATTERY`].
     Status(u8),
     Rtc(RtcTime),
     /// Reply to a power-on query: 4 = manual power-on, 5/6 = charger.
@@ -286,6 +291,7 @@ pub enum Message {
         patch: u8,
     },
     /// Sensor stream (5 Hz, only after a long press of the power key): raw accelerometer, ±8 g full scale.
+    /// Sent by the C606 nRF only, never seen on the CC600 (same for `Gyro`).
     Accel([i16; 3]),
     /// Raw gyro, ±2000 dps full scale.
     Gyro([i16; 3]),
@@ -302,12 +308,53 @@ pub enum Message {
         level: u16,
         param: u32,
     },
+    /// An ANT+ channel's state (`17 <type> <number low byte> 00 <transmission> <state> 00 00`, type 4 cmd 0x01): one
+    /// of [`ant::CONNECTED`], [`ant::NOT_CONNECTED`], [`ant::SEARCH_TIMEOUT`]. Sent on changes and, for each
+    /// channel the nRF knows, every 5 s (c606-oss `docs/HARDWARE.md`; the CC600's seen during a search, type 0).
+    AntChannel {
+        device_type: u8,
+        number_low: u8,
+        transmission: u8,
+        state: u8,
+    },
+    /// A sensor heard by an ANT+ search (`F3 03 <type> <number LE> <transmission> <rssi> <flag>`, type 4 cmd 0x10);
+    /// `end` (flag 0, zeros otherwise, seen on the CC600): the search is over.
+    AntFound {
+        device_type: u8,
+        number: u16,
+        transmission: u8,
+        rssi_dbm: i8,
+        end: bool,
+    },
+    /// An ANT+ data page from an open channel (type 4, the device type as the cmd byte), ~4 a second.
+    AntPage {
+        device_type: u8,
+        page: [u8; 8],
+    },
     /// Other sensor stream subtype, not understood yet (CC600: `0A`, 3.3 Hz, tracks the barometer temperature).
     Stream {
         sub: u8,
         data: [u8; 6],
     },
     Unknown,
+}
+
+/// ANT+ through the nRF: it is only the radio, the ESP32 opens the channels and decodes the pages (c606-oss
+/// `main/ant.c`, reverse engineered from the vendor's `AntSendCmd` / `AntPageEventHandler`).
+pub mod ant {
+    /// [`super::Message::AntChannel`] states.
+    pub const CONNECTED: u8 = 3;
+    /// Also the periodic report of a channel the nRF knows: not a reason to reopen it (that drops a live one).
+    pub const NOT_CONNECTED: u8 = 4;
+    /// The search of an open channel gave up ([`super::command::ant_open`]'s timeout): open it again.
+    pub const SEARCH_TIMEOUT: u8 = 5;
+    /// The device types the nRF sends pages for (as the frame's cmd byte): power, fitness equipment, shifting,
+    /// light, radar, heart rate, speed and cadence, cadence, speed, Shimano Di2.
+    pub const DEVICE_TYPES: [u8; 10] = [11, 17, 34, 35, 40, 120, 121, 122, 123, 128];
+    /// Sub-command of the channel commands and states (cmd 0x01).
+    pub const CHANNEL: u8 = 0x17;
+    /// Search result (cmd 0x10).
+    pub const FOUND: u8 = 0xF3;
 }
 
 fn u16_at(p: &[u8], i: usize) -> Option<u16> {
@@ -356,7 +403,25 @@ impl Message {
                     v => KeyAction::Other(v),
                 },
             },
-            (CMD_SYS, 0xE2) if frame.kind() == 5 => Message::Ack,
+            // the nRF acknowledges every command with its first bytes (`E2 02 01`, `E1 02 01`, `00 00` for ANT)
+            _ if frame.kind() == 5 => Message::Ack,
+            (0x01, ant::CHANNEL) => Message::AntChannel {
+                device_type: *p.get(1)?,
+                number_low: *p.get(2)?,
+                transmission: *p.get(4)?,
+                state: *p.get(5)?,
+            },
+            (CMD_SYS, ant::FOUND) if p.get(1) == Some(&3) => Message::AntFound {
+                device_type: *p.get(2)?,
+                number: u16_at(p, 3)?,
+                transmission: *p.get(5)?,
+                rssi_dbm: *p.get(6)? as i8,
+                end: *p.get(7)? == 0,
+            },
+            (t, _) if frame.kind() == 4 && ant::DEVICE_TYPES.contains(&t) => Message::AntPage {
+                device_type: t,
+                page: p.get(..8)?.try_into().ok()?,
+            },
             (CMD_SYS, 0xE2) if p.get(1) == Some(&2) => Message::PowerOnReason(*p.get(5)?),
             (CMD_SYS, 0xF0) if p.get(1) == Some(&2) => Message::Status(*p.get(2)?),
             (CMD_SYS, 0xF1) => match *p.get(1)? {
@@ -386,6 +451,43 @@ pub mod command {
 
     /// Length of a control frame: 8-byte payload `E2 grp id 00 00 val 00 00`.
     pub const CTRL_FRAME: usize = 16;
+
+    /// Any `E2 grp id 00 00 val 00 00` set command (type 2), for exploring the nRF from the test hook.
+    pub fn e2(grp: u8, id: u8, val: u8) -> [u8; CTRL_FRAME] {
+        ctrl(TYPE_SET, grp, id, val)
+    }
+
+    /// Any frame with an 8-byte payload, for exploring the nRF from the test hook.
+    pub fn raw(kind: u8, cmd: u8, payload: [u8; 8]) -> [u8; CTRL_FRAME] {
+        let mut out = [0; CTRL_FRAME];
+        encode(kind, cmd, &payload, &mut out).unwrap();
+        out
+    }
+
+    /// ANT+ search for `seconds` (0 stops), vendor `StartAntScanDrive` (c606-oss `ant_scan`): the nRF answers
+    /// with `F3 03 xx <type> <num LE> <trans> <rssi> <flag>` frames (type 4, cmd 0x10), flag 0 at the end.
+    pub fn ant_scan(seconds: u16) -> [u8; CTRL_FRAME] {
+        let [lo, hi] = seconds.to_le_bytes();
+        raw(TYPE_SET, CMD_SYS, [0xE1, 0x02, 0x00, lo, hi, 0xFF, 0x00, 0x00])
+    }
+
+    /// Opens an ANT+ channel to a sensor (vendor `AntSnd:2,1,P=17 …`): the nRF searches for it up to
+    /// [`ANT_SEARCH_S`], then answers [`ant::CONNECTED`] or [`ant::SEARCH_TIMEOUT`]. Number 0: any sensor of the type.
+    /// Not within ~6 s of a [`power_on`] command at boot: the nRF kills it at its next 5 s report, and doing so
+    /// again and again left its ANT stack silent until the three-key reset (c606-oss).
+    pub fn ant_open(device_type: u8, number: u16, transmission: u8) -> [u8; CTRL_FRAME] {
+        let [lo, hi] = number.to_le_bytes();
+        raw(TYPE_SET, 0x01, [ant::CHANNEL, device_type, lo, hi, transmission, 0x00, ANT_SEARCH_S, 0x00])
+    }
+
+    /// The vendor's search timeout, seconds.
+    pub const ANT_SEARCH_S: u8 = 25;
+
+    /// Closes the channel of a device type (vendor `StartAntDisConnectDrive`): only to pair another sensor. Sent at
+    /// boot it left the nRF's ANT stack silent on a C606 (c606-oss).
+    pub fn ant_close(device_type: u8) -> [u8; CTRL_FRAME] {
+        raw(TYPE_SET, 0x01, [ant::CHANNEL, device_type, 0, 0, 0, 0x01, 0, 0])
+    }
 
     fn ctrl(kind: u8, grp: u8, id: u8, val: u8) -> [u8; CTRL_FRAME] {
         let mut out = [0; CTRL_FRAME];

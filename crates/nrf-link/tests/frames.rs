@@ -363,3 +363,70 @@ fn rtc_time_from_unix() {
     let leap = RtcTime::from_unix(951_782_400);
     assert_eq!((leap.year, leap.month, leap.day), (2000, 2, 29));
 }
+
+#[test]
+fn ant_commands() {
+    // c606-oss `ant_connect` / `ant_disconnect` / `ant_scan`
+    assert_eq!(
+        &command::ant_open(121, 0x3039, 1)[4..14],
+        &[0x02, 0x01, 0x17, 121, 0x39, 0x30, 0x01, 0x00, 25, 0x00]
+    );
+    assert_eq!(&command::ant_close(120)[4..14], &[0x02, 0x01, 0x17, 120, 0, 0, 0, 1, 0, 0]);
+    assert_eq!(&command::ant_scan(30)[4..14], &[0x02, 0x10, 0xE1, 0x02, 0x00, 30, 0, 0xFF, 0, 0]);
+    for f in [command::ant_open(11, 1, 5), command::ant_close(11), command::ant_scan(0)] {
+        assert_eq!(frames(&f).len(), 1);
+    }
+}
+
+#[test]
+fn ant_frames_seen_on_the_cc600() {
+    // an ANT+ search for 15 s (2026-10-20, no sensor around), with their CRC
+    let log = [
+        "A5 0C 6F F1 05 10 E1 02 01 00 00 00 00 00 D7 8B",
+        "A5 0C 6F F1 04 01 17 00 00 00 1E 05 00 00 47 E6",
+        "A5 0C 6F F1 04 01 17 00 E7 00 20 04 00 00 BD 1C",
+        "A5 0C 6F F1 04 10 F3 03 00 00 00 00 00 00 41 AB",
+    ];
+    let msgs: Vec<Message> = log
+        .iter()
+        .map(|l| {
+            let bytes: Vec<u8> = l.split(' ').map(|b| u8::from_str_radix(b, 16).unwrap()).collect();
+            let got = frames(&bytes);
+            assert_eq!(got.len(), 1, "{l}");
+            Message::parse(&got[0])
+        })
+        .collect();
+    assert_eq!(msgs[0], Message::Ack);
+    assert_eq!(
+        msgs[1],
+        Message::AntChannel { device_type: 0, number_low: 0, transmission: 0x1E, state: 5 }
+    );
+    assert_eq!(
+        msgs[2],
+        Message::AntChannel { device_type: 0, number_low: 0xE7, transmission: 0x20, state: 4 }
+    );
+    assert_eq!(
+        msgs[3],
+        Message::AntFound { device_type: 0, number: 0, transmission: 0, rssi_dbm: 0, end: true }
+    );
+}
+
+#[test]
+fn ant_found_and_pages() {
+    // c606-oss `ant_handle_frame`: a heart rate strap 12345-1 at -52 dBm
+    let found = parse_one(&[0xA5, 0x0C, 0x6F, 0xF1, 0x04, 0x10, 0xF3, 0x03, 120, 0x39, 0x30, 0x01, 0xCC, 0x01]);
+    assert_eq!(
+        found,
+        Message::AntFound { device_type: 120, number: 12345, transmission: 1, rssi_dbm: -52, end: false }
+    );
+    // its page 4 (c606-oss `docs/HARDWARE.md`): 72 bpm
+    let page = [0x84, 0x00, 0x10, 0x20, 0x00, 0x24, 0x05, 72];
+    let mut f = vec![0xA5, 0x0C, 0x6F, 0xF1, 0x04, 120];
+    f.extend_from_slice(&page);
+    assert_eq!(parse_one(&f), Message::AntPage { device_type: 120, page });
+    let ack = parse_one(&[0xA5, 0x0C, 0x6F, 0xF1, 0x05, 0x01, 0x00, 0x00, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(ack, Message::Ack);
+    // a device type the nRF does not send pages for
+    let other = parse_one(&[0xA5, 0x0C, 0x6F, 0xF1, 0x04, 0x7F, 0, 0, 0, 0, 0, 0, 0, 0]);
+    assert_eq!(other, Message::Unknown);
+}
