@@ -73,7 +73,7 @@ C606 hardware according to c606-oss:
   temperature int16 @2 in 0.01 °C, pressure u32 @4 in 0.01 Pa (so ~0.1 m resolution). The vendor uses
   `44330 * (1 - (p/1013.25)^0.19)`. The stream only starts after a **long press of the power key**: after an
   ESP-only reset it stays off, and no known ESP32 command starts it. The same stream carries accelerometer (`F1 01`),
-  gyro (`F1 02`) and magnetometer calibration (`F1 00`) → there is an IMU behind the nRF.
+  gyro (`F1 02`) and magnetometer calibration (`F1 00`) → an IMU behind the C606 nRF (the CC600 sends none of these frames, see the nRF link section).
   *(To check on the CC600: same frames, actual rate.)*
 - **Buzzer**: the CC600 beeps, but nothing is known yet about how. c606-oss documents no buzzer and no beep command.
   The live pinout (JTAG snapshot taken while not beeping) shows no PWM on the ESP32 except the backlight (GPIO45),
@@ -175,8 +175,8 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   again from cold, power-on reason 4 (manual).
 - Keys: **0 top left, 1 bottom left, 2 bottom right** (screen facing you). Indexes 0..2, `1` click on release, `4` long press repeated while held, `5` release after a long press
   (all three keys checked). A long press on key 0 also makes the nRF send its power-on reason and version again.
-- Rates (host timestamps, 30 s): RTC and barometer **5 Hz**; battery, status (`F0`, 0 with USB plugged in at
-  100 %) and the stream subtypes `04` / `0A` **3.3 Hz** (300 ms).
+- Rates (host timestamps, 30 s): RTC and barometer **5 Hz**; battery, status (`F0`, 0 with USB plugged in,
+  charging or at 100 %, 1 on battery: read in the ride logs) and the stream subtypes `04` / `0A` **3.3 Hz** (300 ms).
 - The RTC keeps UTC set by the vendor firmware (checked against the host clock).
 - **Barometer**: as on the C606, the stream starts only after a long press of key 0. Resolution 0.01 Pa,
   **noise 0.8 Pa standard deviation at rest (≈ 7 cm of altitude)**, range 2.8 Pa over 30 s.
@@ -241,6 +241,35 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   appends) the nRF FIFO overflowed 6 times in ~3 min. Rides write far less often, but the GNSS at 921600 baud
   will lose bytes on every sector erase: its reader needs UART DMA (UHCI) or an IRAM interrupt handler that keeps
   draining the FIFO.
+
+## The nRF's sensor stream and the vendor's power-on (2026-10-20)
+
+- **The stream (`F1` barometer / light / IMU and the `00 53` RTC frames, 5 Hz) only starts on the nRF's own
+  power-on gesture**, a long press of key 0, whatever the ESP32 is doing then (checked: a long press on a screen
+  where our UI ignores it starts it, the ESP32 keeps running). It survives ESP32-only resets (esptool, RTS, a
+  flash, `software_reset`) and stops on a real power cut of the ESP32: `SendPowerOffCmd` then the charger starting
+  it again, unplugging, an empty battery. Without it the nRF still sends the battery, the `F0` status, the keys,
+  its version and the replies: the device runs without clock (until a GNSS fix) and without barometer.
+- **The vendor never starts it either**: its 17 functions that send to the nRF (callers of the frame builder
+  `FUN_4203b1e4`, Ghidra on ota_1) send only `24 01 FF FF 00 FF FF FF` (type 2, cmd 1: `SendQuerySlaveModeCmd`) and
+  `E2` commands:
+
+  | `E2 grp id 00 00 val 00 00` | vendor |
+  |---|---|
+  | `E2 02 00 .. 01` / `.. 00` | `SendPowerOnCmd` / `SendPowerOffCmd` (`SendCheckPowerOnReasonCmd`: the same as type 1) |
+  | `E2 02 01 .. 02` | `SendPowerRstCmd`, 2 s after a firmware upgrade: the nRF power-cycles the ESP32 (USB port gone, back at once); **the stream does not start** (tried) |
+  | `E2 02 07 .. 0/1/2` | GPS power |
+  | `E2 02 08 .. 00` | `SendForbidChargeCmd` (c606-oss read it as "factory init") |
+  | `E2 01 XX` | the buzzer sounds (see above); the factory test toggles 12 / 13 (long beep on, short beep) |
+
+  `E2 02 03` (LCD) and `E2 02 09` (display module) are sent from other paths (c606-oss); ids 2, 4, 5, 6 never seen.
+- **How the vendor lives with it**: `ArmSendPowerOnSysEvent` maps the power-on reason 4 (manual) to the power-on,
+  5 / 6 (the charger) to `BOOTUP_POWER_OFF_CHARGE`: the ESP32 runs a charging page only (`PagePowerOffChargeInit`)
+  and the user's long press is the real power-on, which starts the stream. Our firmware does the same: the charging
+  screen whenever the stream is missing on USB power (`Screen::Charging`), the long press of the home screen not a
+  power off without the stream.
+- `dump/vendor_files/APP/…/N51_V1.602_A.bin` (70 KB, from the vendor's `/littlefs/APP`) is encrypted or scrambled
+  (no strings, no plain Cortex-M vector table): maybe a slave MCU image, not read further.
 
 ## GNSS on the CC600 (`crates/gnss`, `firmware/src/gnss_uart.rs`, 2026-10-19)
 

@@ -4,6 +4,14 @@ Hardware and reverse engineering background: [REVERSE_NOTES.md](REVERSE_NOTES.md
 
 ## Decisions
 
+### 2026-10-20: no action without feedback (rule)
+- **Every action gets a visible answer, at once.** A key press changes the screen, shows a banner, or says why
+  nothing happens. Anything that takes longer than a moment (saving a ride, a search, a transfer, a power off)
+  **says what is going on while it runs** ("Enregistrement…", a progress, a spinner) and then how it ended; the
+  rider must never wonder whether the device hung. Keys that do nothing meanwhile are hidden, and presses made
+  then are dropped, not acted on later. Applies to every new screen and command; checked in review.
+  First case: the end of a ride was silent for a few seconds after "Terminer" (fixed: "Enregistrement…").
+
 ### 2026-10-19, evening (replaces the morning's software stack)
 - **Language and stack**: **Rust, `no_std`**, on [`esp-hal`](https://github.com/esp-rs/esp-hal) + Embassy (async).
   No ESP-IDF, no LVGL. The `no_std` core compiles unchanged on a PC, which is what makes most of the testing
@@ -27,7 +35,7 @@ Hardware and reverse engineering background: [REVERSE_NOTES.md](REVERSE_NOTES.md
 |---|---|---|---|
 | ST7789 panel, 16-bit i80 bus, backlight | `main/lcd.c`, `main/backlight.c`, `main/board_c606.h`, `main/board.h` | OK | `cc600-board` (esp-hal LCD_CAM i8080 + LEDC) + `embedded-graphics` |
 | nRF link (UART2, CRC16 frames, handshake, keys, battery, temperature/pressure, RTC) | `main/nrf_link.c` | OK | `nrf-link`: pure protocol (`no_std`, host tested) + UART glue |
-| ANT+ sensors via the nRF | `main/ant.c`, `main/sensor_list.c` | not tested yet | `nrf-link` (ANT+ messages) |
+| ANT+ sensors via the nRF | `main/ant.c`, `main/sensor_list.c` | search answered (no sensor to try yet) | `nrf-link` (ANT+ messages), `sensors::ant` |
 | Airoha AG3352Q GNSS (UART0 921600, NMEA, `$PAIR`) | `main/gps.c` | OK, fix in ~6 s, output trimmed (`$PAIR062`) | `gnss`: own NMEA reader + `$PAIR` commands |
 | FIT writer | `main/fit.c` | OK, rides recorded on littlefs | `fit` (writer, checked with `fitparser` and the Garmin SDK) + `recorder` |
 | UTC / RTC handling | `main/utc.c` | RTC set from the GNSS on a valid fix (to check with a real fix) | `nrf-link` (`RtcTime`), `recorder` (`EpochClock`) |
@@ -53,11 +61,13 @@ Not ported: `sdcard.c` / `usb_msc.c` (eMMC), `touch.c`, `ui_port.c` (LVGL), Maps
   valid fix (the GNSS time without a fix was ~22 s off).
 - Barometric pressure + temperature come **from the nRF over UART2** (no direct sensor access from the ESP32).
   Their resolution and rate set the floor for altitude/D+ quality. See [REVERSE_NOTES.md](REVERSE_NOTES.md).
-- **The nRF sensor stream (pressure, IMU) only starts after a long press of the power key.** After an ESP-only
+- **The nRF sensor stream (pressure, light) only starts after a long press of the power key.** After an ESP-only
   reset (crash, watchdog, flashing) it stays off and no known command restarts it → a ride resumed after a crash
   would have no altitude/D+. To find: a command that starts the stream; otherwise detect it, fall back to GNSS
   altitude for that segment and tell the rider.
-- **IMU behind the nRF** (accelerometer, gyro, magnetometer) — unused for now, see later ideas.
+- **IMU: on the C606 only.** The C606 nRF streams accelerometer / gyro frames (`F1 01` / `F1 02`, parsed by
+  `nrf-link`), so a C606 port gets an IMU. The CC600 one never sent any (see [REVERSE_NOTES.md](REVERSE_NOTES.md));
+  whether a chip sits on its board is unknown.
 - **Buzzer**: present, how it is driven is unknown (nRF command or ESP32 GPIO). See [REVERSE_NOTES.md](REVERSE_NOTES.md).
 
 ## Altitude and elevation gain (D+)
@@ -86,7 +96,7 @@ core a rider checks after every ride.
    - a **corridor map around the loaded route** (see below);
    - a lean, fast 3-key UX;
    - easy ride sync (see 5).
-   Later ideas: crash / long-stop detection with the IMU, fully configurable screens, BLE remotes, structured workouts (big later project: interval sessions programmed in the app, followed on the device), FTMS home trainer control,
+   Later ideas: long-stop detection (GNSS speed on the CC600; crash detection with the IMU on the C606), fully configurable screens, BLE remotes, structured workouts (big later project: interval sessions programmed in the app, followed on the device), FTMS home trainer control,
    integration with home_trainer_game.
 5. **Ride sync**: over **Wi-Fi when back home**, to the phone or a **configurable cloud**
    (Strava, self-hosted server…). Wi-Fi stays off during the ride.
@@ -171,7 +181,15 @@ The "no maps" limit only applies to a global map. A map restricted to the loaded
   (roads, tracks, water, maybe coarse contours) should be in the range of a few hundred KB to 1–2 MB,
   which fits in littlefs next to the vendor FIT files. *(to measure on real routes)*
 - **Prepared off the device**: the OSM extract is clipped to the corridor and pre-projected on the phone or
-  a server, then pushed over Wi-Fi. The CC600 only draws polylines on its 240x320 framebuffer (`embedded-graphics`).
+  a server, then sent over **Bluetooth** with the route (Web Bluetooth: about 5–20 KB/s, so a few hundred KB at
+  most). The CC600 only draws polylines and filled areas on its 240x320 framebuffer (`embedded-graphics`).
+- **Two views, both essential**: the overview of the whole ride on its background, and the few km around the
+  rider (the 3 zooms of the map page: 2, 4 and 8 km wide). Nothing in between is needed. Measured on a 42 km test
+  route (2026-10-20, ±1 km): 67 KB at full detail (roads, tracks, paths, water, forests; buildings +57 KB), the
+  overview level 13 KB.
+- **Two levels of detail, in cells**: the detail for the zooms around the rider, the overview simplified for its
+  scale (to half a pixel, features under a few pixels and thin layers dropped), each cut in a grid of the route's
+  plane (cells of 500 m for the detail, larger for the overview); the device looks up only the cells in view.
 
 ### MVP
 Status on 2026-10-20 (updated by the bring-up work; altitude is worked on in parallel, see
@@ -200,7 +218,10 @@ Status on 2026-10-20 (updated by the bring-up work; altitude is worked on in par
       in grey, zooms 250 m / 500 m / 1 km on the top key (its scale bar), remaining distance and speed; home
       with the route; off-route banner beyond 50 m. Drawn in 28–47 ms on the device (`bench map`). Tested on the
       device with positions sent over USB (`tools/replay_gpx.py`, `tests/hil/test_route.py`).
-- [ ] **Switch to a free ride without the route** (route kept, see UI rules).
+- [x] **Switch to a free ride without the route** (route kept, see UI rules): menu and pause menu "Rouler sans
+      trace" / "Suivre la trace", the ride's pages recomposed at once, home "Parcours libre", the off-route banner
+      alternating with "Pas cette trace ? Pause › Menu"; kept in the settings (`follow_route`), a new route is
+      followed. Tested on the device (`tests/hil/test_route.py`). Deleting the route from the device: not yet.
 - [x] **Settings kept in flash** (`crates/settings`, `/settings`, one `key=value` line each, written in one
       commit): sound, time zone as a POSIX rule with summer time (default `CET-1CEST,M3.5.0,M10.5.0/3`, used
       for the clock and the FIT `local_timestamp`), theme day / night, backlight, usage (explore / train, for the
@@ -215,11 +236,17 @@ Status on 2026-10-20 (updated by the bring-up work; altitude is worked on in par
 - [ ] **Battery life** ([POWER.md](POWER.md)): battery-run log (`/power/<run>.csv`, one line a minute), clean power
       off at low battery, a reference run against the vendor firmware, then the first levers (automatic backlight
       from the ambient light sensor, CPU sleep, GNSS settings).
-- [ ] **Automatic power off during a ride**: after a while without moving (delay set in the app), the device
+- [x] **Automatic power off during a ride**: after a while without moving (delay set in the app), the device
       pauses the ride if needed and switches off on its own, keeping the ride to resume after power-on. Going
       through the menu to switch off mid-ride is not good enough. A banner warns before it happens, any key
-      cancels it.
-- [ ] **Sensors over BLE and ANT+**: heart rate, cadence, power (the FIT record already has the fields).
+      cancels it. Done: `auto_off_min` (20 by default, 0 never); still = no GNSS speed, wheel speed, cadence or
+      power (no fix counts as still: a café indoors); announced a minute before (half the delay when shorter); a
+      key only cancels. Tested on the device (`tests/hil/test_auto_off.py`).
+- [ ] **Sensors over BLE and ANT+**: heart rate, cadence, power (the FIT record already has the fields). BLE done
+      (`crates/sensors`, `firmware/src/ble.rs`, menu "Capteurs", tested against a fake sensor on the PC:
+      `tools/fake_sensor.py`, `tests/hil/test_ble_sensors.py`). ANT+ through the nRF written (`sensors::ant`,
+      `firmware/src/ant.rs`, same menu, `ant:TYPE:NUMBER:TRANS` settings), tested on the PC; on the device only
+      without a sensor (`tests/hil/test_ant_sensors.py`): to try with a real one.
 - [ ] **Open questions understood** (list below): each one explained, or its impact known and accepted.
 
 After the MVP: upload FIT files over Wi-Fi to a configurable URL, then the corridor background map.
