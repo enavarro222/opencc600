@@ -51,6 +51,7 @@ fn view() -> View {
         speed_mm_s: Some(9_000),
         altitude_dm: Some(6_120),
         grade_pct: Some(4),
+        vam_m_h: Some(640),
         heart_rate: None,
         cadence_rpm: None,
         power_w: None,
@@ -539,6 +540,7 @@ fn climbs_page() {
             progress: ride.then_some(route::Progress { along_dm, off_dm: 0, segment: 0 }),
         }),
         grade_pct: Some(8),
+        vam_m_h: Some(940),
         ..view()
     };
     for (theme, suffix) in [(ui::DAY, ""), (ui::NIGHT, "-night")] {

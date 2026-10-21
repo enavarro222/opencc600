@@ -438,7 +438,7 @@ fn ride_effort<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) ->
     big_and_four(d, t, ("PUISSANCE 3 S · W", int(v.power_3s_w).as_str(), "000"), &cells)
 }
 
-/// Page Altitude: altitude, then gradient, D+ and D-, then the last 5 km.
+/// Page Altitude: altitude, then gradient, D+ and climbing speed, then the last 5 km.
 fn ride_altitude<D: DrawTarget<Color = Rgb565>>(
     d: &mut D,
     v: &View,
@@ -467,7 +467,7 @@ fn ride_altitude<D: DrawTarget<Color = Rgb565>>(
         &[
             grade(v, t),
             ("D+ M", int(Some(v.ride.ascent_m)), value, "000"),
-            ("D- M", int(Some(v.ride.descent_m)), value, "000"),
+            vam(v, t),
         ],
     )?;
     fonts::text(
@@ -492,6 +492,11 @@ fn grade(v: &View, t: &Theme) -> Third {
         None => Fmt::new(format_args!("{NONE}")),
     };
     ("PENTE", text, value.colored(v.grade_pct.map_or(t.fg, |g| t.grade(g))), "0 %")
+}
+
+/// The climbing speed of the last minute.
+fn vam(v: &View, t: &Theme) -> Third {
+    ("VAM M/H", int(v.vam_m_h), t.style(&fonts::VALUE), "000")
 }
 
 /// Three cells side by side from `y0` to `y1`, rules between them.
@@ -749,9 +754,15 @@ fn climb_live<D: DrawTarget<Color = Rgb565>>(
     let avg_pm = gain_dm as u64 * 1_000 / left_dm.max(1) as u64;
     let avg_pct = ((avg_pm + 5) / 10) as i8;
     let value = t.style(&fonts::VALUE);
-    let small_label = t.label(&fonts::LABEL_SMALL);
-    let (measured_label, measured, measured_style, _) = grade(v, t);
-    let cells = [
+    // at the climbing speed of the last minute, when it climbs
+    let to_top = match v.vam_m_h {
+        Some(vam) if vam >= 100 => {
+            let min = (gain_dm as u32 * 6 / vam as u32).max(1);
+            Fmt::new(format_args!("{}:{:02}", min / 60, min % 60))
+        }
+        _ => Fmt::new(format_args!("{NONE}")),
+    };
+    let top = [
         // in metres under 1 km (docs/PRODUCT.md)
         if left_dm < 10_000 {
             ("RESTE M", Fmt::new(format_args!("{}", left_dm / 100 * 10)), value, "000")
@@ -759,17 +770,12 @@ fn climb_live<D: DrawTarget<Color = Rgb565>>(
             ("RESTE KM", Fmt::new(format_args!("{},{}", left_dm / 10_000, left_dm / 1_000 % 10)), value, "0,0")
         },
         ("RESTE D+ M", int(Some(gain_dm / 10)), value, "000"),
-        ("PENTE MOY. RESTE", Fmt::new(format_args!("{avg_pct} %")), value.colored(t.grade(avg_pct)), "0 %"),
-        (measured_label, measured, measured_style, "0 %"),
+        ("MOY. RESTE", Fmt::new(format_args!("{avg_pct} %")), value.colored(t.grade(avg_pct)), "0 %"),
     ];
+    let bottom = [grade(v, t), vam(v, t), ("AU SOMMET", to_top, value, "0:00")];
+    thirds(d, t, (LOW + 1, MID - 1), &top)?;
     hline(d, MID, t)?;
-    vline(d, W / 2 - 1, LOW + 1, BOTTOM - 1, t)?;
-    for (k, (label, val, style, min)) in cells.iter().enumerate() {
-        let (y0, y1) = if k < 2 { (LOW + 1, MID - 1) } else { (MID + 1, BOTTOM - 1) };
-        let (cx0, cx1) = if k % 2 == 0 { (0, W / 2 - 2) } else { (W / 2, W - 1) };
-        cell(d, rect(cx0, y0, cx1, y1), (&small_label, label), (style, val.as_str(), min), 6)?;
-    }
-    Ok(())
+    thirds(d, t, (MID + 1, BOTTOM - 1), &bottom)
 }
 
 /// An altitude profile: the area under it; with `me` (riding), the line and the rider at its end.

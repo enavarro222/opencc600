@@ -171,7 +171,7 @@ rest when a ride starts (sensors seen, route loaded) and picks standard views:
   to tune on real rides.
 - **Effort** (a power meter paired; the HR alone is on Essential): 3 s power (big), zone bar, then by priority avg
   power, HR, cadence, speed, time.
-- **Map** (route loaded), **Altitude** (altitude, gradient, D+/D-, last 5 km), **Climbs** (route with climbs, in place
+- **Map** (route loaded), **Altitude** (altitude, gradient, D+, climbing speed over the last minute, last 5 km), **Climbs** (route with climbs, in place
   of Altitude). Climbs, out of a climb: altitude, gradient and D+ of the ride on top, then the climbs (the last one
   done, the next one with its distance, the following ones). In a climb: distance and D+ left to its top, gradient
   measured, its profile coloured by gradient with the rider on it, the gradients of the next 500 m. The climbs are

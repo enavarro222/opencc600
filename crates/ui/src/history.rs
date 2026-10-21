@@ -1,9 +1,14 @@
-//! Altitude along the ride, every 100 m: the gradient, the last 5 km and the whole ride's profile.
+//! Altitude along the ride, every 100 m: the gradient, the last 5 km and the whole ride's profile; and every second
+//! of the timer over the last minute: the climbing speed.
 
 use crate::{PROFILE, Profile};
 
 /// Distance between two points.
 pub const STEP_CM: u32 = 10_000;
+/// The climbing speed is the altitude gained over this much of the timer (seconds)...
+pub const VAM_S: usize = 60;
+/// ...once it has this much: the barometer is within a metre or two, ±120 m/h over 60 s, ±240 over 30.
+pub const VAM_MIN_S: u32 = 30;
 
 /// Fed with each record of the ride.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,6 +24,10 @@ pub struct History {
     steps: u32,
     /// Distance of the next point.
     next_cm: Option<u32>,
+    /// Altitude at each second of the timer, a ring ending at `second`, `seconds` of them.
+    by_second: [i16; VAM_S + 1],
+    second: u32,
+    seconds: u32,
 }
 
 impl Default for History {
@@ -38,7 +47,42 @@ impl History {
             every: 1,
             steps: 0,
             next_cm: None,
+            by_second: [0; VAM_S + 1],
+            second: 0,
+            seconds: 0,
         }
+    }
+
+    /// The altitude at `timer_s` of the timer (once a record): the seconds skipped (a point every 5 s) get it too.
+    pub fn push_time(&mut self, timer_s: u32, altitude_dm: i32) {
+        let alt = altitude_dm.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+        let n = self.by_second.len() as u32;
+        if self.seconds == 0 {
+            self.second = timer_s;
+            self.seconds = 1;
+        } else if timer_s > self.second {
+            let skipped = (timer_s - self.second).min(n);
+            for k in 1..=skipped {
+                self.by_second[((self.second + k) % n) as usize] = alt;
+            }
+            self.second = timer_s;
+            self.seconds = (self.seconds + skipped).min(n);
+        }
+        self.by_second[(self.second % n) as usize] = alt;
+    }
+
+    /// Climbing speed, metres an hour: the altitude gained over the last minute of the timer (half a minute at
+    /// least).
+    pub fn vam_m_h(&self) -> Option<i32> {
+        let span = self.seconds.checked_sub(1)?;
+        if span < VAM_MIN_S {
+            return None;
+        }
+        let n = self.by_second.len() as u32;
+        let now = self.by_second[(self.second % n) as usize] as i32;
+        let then = self.by_second[((self.second + n - span) % n) as usize] as i32;
+        // decimetres in `span` seconds: × 3600 / 10
+        Some((now - then) * 360 / span as i32)
     }
 
     pub fn push(&mut self, distance_cm: u32, altitude_dm: i32) {
@@ -136,6 +180,35 @@ mod tests {
             h.push(i * 1000, 1500);
         }
         assert_eq!(h.grade_pct(130_000, 1500), Some(0));
+    }
+
+    #[test]
+    fn climbing_speed() {
+        let mut h = History::new();
+        // 0.25 m/s: 900 m/h, after half a minute
+        for t in 0..30 {
+            h.push_time(t, 5000 + t as i32 * 25 / 10);
+            assert_eq!(h.vam_m_h(), None, "at {t}");
+        }
+        for t in 30..200 {
+            h.push_time(t, 5000 + t as i32 * 25 / 10);
+            let v = h.vam_m_h().unwrap();
+            assert!((v - 900).abs() <= 15, "{v} at {t}");
+        }
+        // a point every 5 s: the same
+        for t in (200..400).step_by(5) {
+            h.push_time(t, 5000 + t as i32 * 25 / 10);
+        }
+        assert!((h.vam_m_h().unwrap() - 900).abs() <= 15);
+        // stopped on the flat for a minute (the timer runs): 0
+        for t in 400..470 {
+            h.push_time(t, 6000);
+        }
+        assert_eq!(h.vam_m_h(), Some(0));
+        // the same second twice keeps the last altitude
+        h.push_time(470, 6010);
+        h.push_time(470, 6020);
+        assert_eq!(h.vam_m_h(), Some(20 * 360 / 60));
     }
 
     #[test]

@@ -100,7 +100,7 @@ pub enum Page {
     Map,
     /// Speed, time, distance, D+, heart rate (else average speed).
     Essential,
-    /// Altitude, gradient, D+ / D-, the last 5 km.
+    /// Altitude, gradient, D+, climbing speed, the last 5 km.
     Altitude,
     /// The climbs of the route; in one, what is left of it (a route with climbs, in place of Altitude).
     Climbs,
@@ -427,6 +427,8 @@ pub struct View {
     pub altitude_dm: Option<i32>,
     /// Gradient over the last 100 m, percent.
     pub grade_pct: Option<i8>,
+    /// Climbing speed over the last minute of the timer, metres an hour ([`history::History::vam_m_h`]).
+    pub vam_m_h: Option<i32>,
     pub heart_rate: Option<u8>,
     pub cadence_rpm: Option<u8>,
     pub power_w: Option<u16>,

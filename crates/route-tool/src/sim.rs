@@ -147,6 +147,7 @@ pub fn run(gpx_path: &str, out: &str, every_s: u32, map_path: Option<&str>) {
         ride.descent_m = descent as u16;
         let ele_dm = (ele * 10.0).round() as i32;
         history.push(ride.distance_cm, ele_dm);
+        history.push_time(t, ele_dm);
 
         // the fix back to latitude and longitude through the route's projection: the firmware's input
         let fix = unproject(&r, xi, yi).map(|(lat_e7, lon_e7)| Fix {
@@ -164,6 +165,7 @@ pub fn run(gpx_path: &str, out: &str, every_s: u32, map_path: Option<&str>) {
             speed_mm_s: Some(if speed < 500 { 0 } else { speed }),
             altitude_dm: Some(ele_dm),
             grade_pct: history.grade_pct(ride.distance_cm, ele_dm),
+            vam_m_h: history.vam_m_h(),
             ride,
             recent: history.recent(),
             whole: history.whole(),

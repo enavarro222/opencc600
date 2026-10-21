@@ -2355,6 +2355,7 @@ impl Ride {
         }
         if let (true, Some(alt)) = (self.recorder.summary().running(), record.altitude_dm) {
             self.history.push(distance_cm, alt);
+            self.history.push_time(self.recorder.summary().totals().timer_ms / 1000, alt);
         }
     }
 
@@ -2504,6 +2505,7 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
             .map(|v| if v < recorder::MOVING_MM_S { 0 } else { v }),
         altitude_dm,
         grade_pct: altitude_dm.and_then(|a| ride.history.grade_pct(ride.distance_cm, a)),
+        vam_m_h: ride.history.vam_m_h(),
         heart_rate: sensors.heart_rate,
         cadence_rpm: sensors.cadence_rpm,
         power_w: sensors.power_w,
