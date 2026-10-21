@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-night.svg">
+    <img src="docs/logo.svg" alt="OpenCC600" width="200">
+  </picture>
+</p>
+
 # opencc600
 
 Open firmware for the **GEOID CC600** bike computer (ESP32-S3; a Magene C606 board without eMMC and without touch).
@@ -202,6 +209,7 @@ UI and prototype:
   between states.
 - `tools/build_fonts.py`: rasterizes Barlow Condensed (`crates/ui/fonts/`) at the prototype's sizes, with the UI
   icons as glyphs, into `crates/ui/src/fonts/` (FreeType, HarfBuzz kerning and tabular figures).
+- `tools/build_logo.py`: draws the splash screen's logo as SVG, stacked and wide, day and night, into `docs/logo*.svg`.
 
 Reverse engineering of the vendor firmware, in `tools/reverse/` ([docs/REVERSE_NOTES.md](docs/REVERSE_NOTES.md)):
 - `read_pins.py`: reads the pin routing of a running ESP32-S3 over its built-in USB-JTAG (Espressif OpenOCD),
