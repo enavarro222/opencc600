@@ -1,6 +1,7 @@
 //! The session driven as the app drives it: frames cut in BLE-sized writes, files sent with the app's `Sender`.
 
 use companion::{Device, Event, Session};
+use protocol_cc600::payload::{ActivityEntry, ReadActivity};
 use protocol_cc600::transfer::{Ack, Begin, Kind, Ready, Sender, chunk_header};
 use protocol_cc600::{ErrorCode, Frame, Op, crc16_ccitt};
 
@@ -10,6 +11,8 @@ struct FakeDevice {
     files: Vec<(Kind, Vec<u8>)>,
     /// `max_file` answers this for maps (routes: 64 KB).
     map: Option<Result<u32, ErrorCode>>,
+    /// Finished rides: id, file, sent.
+    rides: Vec<(u32, Vec<u8>, bool)>,
 }
 
 impl Device for FakeDevice {
@@ -28,6 +31,45 @@ impl Device for FakeDevice {
     fn file_received(&mut self, kind: Kind, data: Vec<u8>) -> Result<(), ErrorCode> {
         self.files.push((kind, data));
         Ok(())
+    }
+    async fn rides(&mut self) -> Result<Vec<ActivityEntry>, ErrorCode> {
+        Ok(self
+            .rides
+            .iter()
+            .map(|(id, file, sent)| ActivityEntry {
+                id: *id,
+                start_time: id - 631_065_600,
+                size: file.len() as u32,
+                synced: *sent,
+            })
+            .collect())
+    }
+    async fn read_ride(&mut self, id: u32, offset: u32, max: u16) -> Result<Vec<u8>, ErrorCode> {
+        let (_, file, _) = self
+            .rides
+            .iter()
+            .find(|r| r.0 == id)
+            .ok_or(ErrorCode::BadRequest)?;
+        let start = (offset as usize).min(file.len());
+        Ok(file[start..(start + max as usize).min(file.len())].to_vec())
+    }
+    async fn ride_sent(&mut self, id: u32) -> Result<(), ErrorCode> {
+        let r = self
+            .rides
+            .iter_mut()
+            .find(|r| r.0 == id)
+            .ok_or(ErrorCode::BadRequest)?;
+        r.2 = true;
+        Ok(())
+    }
+}
+
+/// The fake device never waits: one poll does.
+fn block_on<T>(f: impl Future<Output = T>) -> T {
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    match std::pin::pin!(f).poll(&mut cx) {
+        std::task::Poll::Ready(v) => v,
+        std::task::Poll::Pending => panic!("the fake device waited"),
     }
 }
 
@@ -52,7 +94,10 @@ fn answers(out: &[u8]) -> Vec<(Op, u8, Vec<u8>)> {
 
 /// Writes `bytes` 20 at a time (the smallest BLE write), as Web Bluetooth does.
 fn write(s: &mut Session, d: &mut FakeDevice, bytes: &[u8]) -> Vec<Event> {
-    bytes.chunks(20).flat_map(|c| s.on_write(c, d)).collect()
+    bytes
+        .chunks(20)
+        .flat_map(|c| block_on(s.on_write(c, d)))
+        .collect()
 }
 
 fn request(
@@ -145,7 +190,7 @@ fn several_frames_in_one_write() {
     let (mut s, mut d) = (Session::new(), FakeDevice::default());
     let mut both = frame(Op::Hello, 1, &[]);
     both.extend(frame(Op::Hello, 2, &[]));
-    s.on_write(&both, &mut d);
+    block_on(s.on_write(&both, &mut d));
     let seqs: Vec<u8> = answers(&s.take_output()).iter().map(|a| a.1).collect();
     assert_eq!(seqs, [1, 2]);
 }
@@ -156,15 +201,131 @@ fn a_damaged_frame_is_dropped_and_the_next_one_answered() {
     let mut bad = frame(Op::Hello, 1, &[]);
     bad[2] ^= 0xFF;
     bad.extend(frame(Op::Hello, 2, &[]));
-    s.on_write(&bad, &mut d);
+    block_on(s.on_write(&bad, &mut d));
     assert_eq!(answers(&s.take_output()), [(Op::DeviceInfo, 2, vec![])]);
 }
 
+fn with_rides() -> FakeDevice {
+    let ride = |id: u32, len: usize| {
+        (
+            id,
+            (0..len).map(|i| (i * 7 + id as usize) as u8).collect(),
+            false,
+        )
+    };
+    FakeDevice {
+        rides: vec![ride(1_760_000_000, 5000), ride(1_760_100_000, 0)],
+        ..Default::default()
+    }
+}
+
+/// Ride `id` read as Musette does, `max` bytes at a time.
+fn download(s: &mut Session, d: &mut FakeDevice, id: u32, max: u16) -> Vec<u8> {
+    let mut file = Vec::new();
+    loop {
+        let r = ReadActivity {
+            id,
+            offset: file.len() as u32,
+            max,
+        };
+        let a = request(s, d, Op::ReadActivity, 5, &r.to_bytes());
+        let [(Op::ActivityChunk, 5, data)] = &a[..] else {
+            panic!("{a:?}")
+        };
+        if data.is_empty() {
+            return file;
+        }
+        file.extend_from_slice(data);
+    }
+}
+
+fn ack(s: &mut Session, d: &mut FakeDevice, id: u32, crc: u16) -> Vec<(Op, u8, Vec<u8>)> {
+    let mut p = id.to_le_bytes().to_vec();
+    p.extend(crc.to_le_bytes());
+    request(s, d, Op::AckActivity, 6, &p)
+}
+
 #[test]
-fn rides_are_refused_for_now() {
-    let (mut s, mut d) = (Session::new(), FakeDevice::default());
+fn lists_the_rides() {
+    let (mut s, mut d) = (Session::new(), with_rides());
     let a = request(&mut s, &mut d, Op::ListActivities, 4, &[]);
-    assert_eq!(a, [(Op::Error, 4, vec![ErrorCode::BadRequest as u8])]);
+    let entries: Vec<_> = a[..2]
+        .iter()
+        .map(|(_, _, p)| ActivityEntry::from_bytes(p).unwrap())
+        .collect();
+    assert_eq!(entries[0].id, 1_760_000_000);
+    assert_eq!(entries[0].size, 5000);
+    // 2025-10-09T08:53:20Z
+    assert_eq!(entries[0].start_time, 1_128_934_400);
+    assert!(!entries[0].synced);
+    assert_eq!(entries[1].size, 0);
+    assert_eq!(
+        a.iter().map(|x| (x.0, x.1)).collect::<Vec<_>>(),
+        [
+            (Op::ActivityEntry, 4),
+            (Op::ActivityEntry, 4),
+            (Op::EndOfList, 4)
+        ]
+    );
+}
+
+#[test]
+fn a_ride_is_read_in_pieces_and_acknowledged() {
+    let (mut s, mut d) = (Session::new(), with_rides());
+    let file = download(&mut s, &mut d, 1_760_000_000, 512);
+    assert_eq!(file, d.rides[0].1);
+    assert_eq!(
+        ack(&mut s, &mut d, 1_760_000_000, crc16_ccitt(&file)),
+        [(Op::Ok, 6, vec![])]
+    );
+    assert!(d.rides[0].2);
+    let a = request(&mut s, &mut d, Op::ListActivities, 4, &[]);
+    assert!(ActivityEntry::from_bytes(&a[0].2).unwrap().synced);
+}
+
+#[test]
+fn a_piece_is_at_most_a_frame() {
+    let (mut s, mut d) = (Session::new(), with_rides());
+    let r = ReadActivity {
+        id: 1_760_000_000,
+        offset: 0,
+        max: u16::MAX,
+    };
+    let a = request(&mut s, &mut d, Op::ReadActivity, 5, &r.to_bytes());
+    assert_eq!(a[0].2.len(), protocol_cc600::MAX_PAYLOAD);
+}
+
+#[test]
+fn an_ack_with_a_wrong_crc_is_refused() {
+    let (mut s, mut d) = (Session::new(), with_rides());
+    let crc = crc16_ccitt(&d.rides[0].1);
+    let a = ack(&mut s, &mut d, 1_760_000_000, crc ^ 1);
+    assert_eq!(a, [(Op::Error, 6, vec![ErrorCode::BadCrc as u8])]);
+    assert!(!d.rides[0].2);
+}
+
+#[test]
+fn an_ack_without_a_crc_is_taken() {
+    // Musette sends 0 for now
+    let (mut s, mut d) = (Session::new(), with_rides());
+    assert_eq!(ack(&mut s, &mut d, 1_760_000_000, 0), [(Op::Ok, 6, vec![])]);
+    assert!(d.rides[0].2);
+}
+
+#[test]
+fn an_unknown_ride_is_an_error() {
+    let (mut s, mut d) = (Session::new(), with_rides());
+    let r = ReadActivity {
+        id: 3,
+        offset: 0,
+        max: 512,
+    };
+    let a = request(&mut s, &mut d, Op::ReadActivity, 5, &r.to_bytes());
+    assert_eq!(a, [(Op::Error, 5, vec![ErrorCode::BadRequest as u8])]);
+    assert_eq!(
+        ack(&mut s, &mut d, 3, 0),
+        [(Op::Error, 6, vec![ErrorCode::BadRequest as u8])]
+    );
 }
 
 #[test]

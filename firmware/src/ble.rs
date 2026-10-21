@@ -724,13 +724,18 @@ async fn serve_app(
         }) else {
             continue;
         };
-        let events = match &event {
-            GattEvent::Write(w) if w.handle() == rx.handle => w.with_data(|_, data| session.on_write(data, device)),
-            _ => alloc::vec::Vec::new(),
+        let written = match &event {
+            GattEvent::Write(w) if w.handle() == rx.handle => Some(w.with_data(|_, data| data.to_vec())),
+            _ => None,
         };
         if let Ok(reply) = event.accept() {
             reply.send().await;
         }
+        // after the write response: a ride's piece waits for the main loop, which owns the storage
+        let events = match written {
+            Some(data) => session.on_write(&data, device).await,
+            None => alloc::vec::Vec::new(),
+        };
         for e in events {
             match e {
                 companion::Event::Receiving { kind, received, size } => info!("ble: app {kind:?} {received}/{size}"),

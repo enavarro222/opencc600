@@ -4,7 +4,11 @@
 //!
 //! Handled: `Hello`, the settings (`GetSettings`, `SetSettings`, all or nothing) and files sent by the app (route,
 //! map): kept in RAM while they arrive, resumed after a dropped link (not after a reboot), checked (size, CRC, then
-//! the format) before the device gets them. The rides (`ListActivities`...) are refused for now.
+//! the format) before the device gets them. The rides: listed, read in pieces, acknowledged once the app has them
+//! (with the CRC of the whole file, when the app gives one: checked first).
+//!
+//! The rides are in the device's storage, which the firmware's main loop owns: the [`Device`]'s ride methods are
+//! async, and so is [`Session::on_write`].
 
 #![no_std]
 
@@ -13,14 +17,18 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use protocol_cc600::payload::{ActivityEntry, ReadActivity};
 use protocol_cc600::transfer::{self, Begin, Chunk, Kind, Partial, Receiver};
-use protocol_cc600::{ErrorCode, Frame, HEADER_LEN, MAX_FRAME, MAX_PAYLOAD, Op, TRAILER_LEN};
+use protocol_cc600::{
+    CRC16_INIT, ErrorCode, Frame, HEADER_LEN, MAX_FRAME, MAX_PAYLOAD, Op, TRAILER_LEN, crc16_update,
+};
 
 /// File bytes the app may send before an acknowledgement. Each chunk takes a packet of the BLE host's pool (16 of
 /// 251 bytes in `trouble-host`, shared with the sensors): 4 KB in flight ran it out (`OutOfMemory`, the write lost).
 pub const WINDOW: u16 = 1024;
 
 /// What the device does for the link.
+#[allow(async_fn_in_trait)]
 pub trait Device {
     fn settings(&self) -> settings::Settings;
     /// Settings changed by the app (already checked): to apply and save.
@@ -29,6 +37,12 @@ pub trait Device {
     fn max_file(&self, kind: Kind) -> Result<u32, ErrorCode>;
     /// A complete file, its size, CRC and format checked: to store and use.
     fn file_received(&mut self, kind: Kind, data: Vec<u8>) -> Result<(), ErrorCode>;
+    /// The finished rides, in the order the app lists them.
+    async fn rides(&mut self) -> Result<Vec<ActivityEntry>, ErrorCode>;
+    /// Up to `max` bytes of ride `id` from `offset`: fewer at the end of the file, none past it.
+    async fn read_ride(&mut self, id: u32, offset: u32, max: u16) -> Result<Vec<u8>, ErrorCode>;
+    /// The app has ride `id`: marked as sent, the device may free it.
+    async fn ride_sent(&mut self, id: u32) -> Result<(), ErrorCode>;
 }
 
 /// What happened, for the screen.
@@ -74,7 +88,7 @@ impl Session {
 
     /// Bytes the app wrote (a frame may come in several writes, a write may hold several frames). Returns what
     /// happened; the answers wait in [`Self::take_output`].
-    pub fn on_write(&mut self, bytes: &[u8], device: &mut impl Device) -> Vec<Event> {
+    pub async fn on_write(&mut self, bytes: &[u8], device: &mut impl Device) -> Vec<Event> {
         self.input.extend_from_slice(bytes);
         loop {
             match Frame::decode(&self.input) {
@@ -83,7 +97,7 @@ impl Session {
                     // the payload is copied out: answering needs `self`
                     let payload: Vec<u8> = frame.payload.into();
                     self.input.drain(..n);
-                    self.handle(op, seq, &payload, device);
+                    self.handle(op, seq, &payload, device).await;
                 }
                 Err(protocol_cc600::Error::Incomplete { .. }) => break,
                 Err(protocol_cc600::Error::UnknownOp(_)) => {
@@ -137,7 +151,7 @@ impl Session {
         self.reply(Op::Error, seq, &[code as u8]);
     }
 
-    fn handle(&mut self, op: Op, seq: u8, payload: &[u8], device: &mut impl Device) {
+    async fn handle(&mut self, op: Op, seq: u8, payload: &[u8], device: &mut impl Device) {
         match op {
             Op::Hello => self.reply(Op::DeviceInfo, seq, &[]),
             Op::GetSettings => {
@@ -172,8 +186,53 @@ impl Session {
                 self.file = Vec::new();
                 self.reply(Op::Ok, seq, &[]);
             }
-            // rides: not yet; answers to the app's requests are not requests
+            Op::ListActivities => match device.rides().await {
+                Ok(rides) => {
+                    for r in rides {
+                        self.reply(Op::ActivityEntry, seq, &r.to_bytes());
+                    }
+                    self.reply(Op::EndOfList, seq, &[]);
+                }
+                Err(code) => self.error(seq, code),
+            },
+            Op::ReadActivity => {
+                let Some(r) = ReadActivity::from_bytes(payload) else {
+                    return self.error(seq, ErrorCode::BadRequest);
+                };
+                let max = r.max.min(MAX_PAYLOAD as u16);
+                match device.read_ride(r.id, r.offset, max).await {
+                    Ok(data) => self.reply(Op::ActivityChunk, seq, &data),
+                    Err(code) => self.error(seq, code),
+                }
+            }
+            Op::AckActivity => self.ack(seq, payload, device).await,
+            // answers to the app's requests are not requests
             _ => self.error(seq, ErrorCode::BadRequest),
+        }
+    }
+
+    /// `AckActivity`: id, then the CRC of the file as the app received it (0: not given, Musette's for now).
+    async fn ack(&mut self, seq: u8, payload: &[u8], device: &mut impl Device) {
+        let Some((id, crc)) = payload.first_chunk::<4>().map(|id| {
+            (
+                u32::from_le_bytes(*id),
+                payload
+                    .get(4..6)
+                    .map_or(0, |c| u16::from_le_bytes([c[0], c[1]])),
+            )
+        }) else {
+            return self.error(seq, ErrorCode::BadRequest);
+        };
+        if crc != 0 {
+            match ride_crc(device, id).await {
+                Ok(c) if c == crc => {}
+                Ok(_) => return self.error(seq, ErrorCode::BadCrc),
+                Err(code) => return self.error(seq, code),
+            }
+        }
+        match device.ride_sent(id).await {
+            Ok(()) => self.reply(Op::Ok, seq, &[]),
+            Err(code) => self.error(seq, code),
         }
     }
 
@@ -252,6 +311,19 @@ impl Session {
                 self.error(seq, code)
             }
         }
+    }
+}
+
+/// The CRC of the whole of ride `id`, read as the app reads it.
+async fn ride_crc(device: &mut impl Device, id: u32) -> Result<u16, ErrorCode> {
+    let (mut crc, mut offset) = (CRC16_INIT, 0);
+    loop {
+        let data = device.read_ride(id, offset, MAX_PAYLOAD as u16).await?;
+        if data.is_empty() {
+            return Ok(crc);
+        }
+        crc = crc16_update(crc, &data);
+        offset += data.len() as u32;
     }
 }
 

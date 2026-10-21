@@ -18,6 +18,7 @@ use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_futures::select::{Either, select};
 use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Timer, with_timeout};
 use embedded_graphics::mono_font::MonoTextStyle;
@@ -277,7 +278,34 @@ async fn main(spawner: Spawner) -> ! {
     let mut auto_off_announced = false;
     let mut unplugged_at: Option<Instant> = None;
     loop {
-        let _ = with_timeout(Duration::from_secs(1), STATUS_CHANGED.wait()).await;
+        // the app's ride requests are served while waiting: an iteration (and its redraw) for each piece of a ride
+        // made a download 3 times slower
+        let sent = with_timeout(Duration::from_secs(1), async {
+            loop {
+                // the request first: the nRF and the GNSS signal a change several times a second
+                match select(RIDE_REQUEST.wait(), STATUS_CHANGED.wait()).await {
+                    Either::Second(()) => return false,
+                    Either::First(r) => {
+                        let answer = fs
+                            .as_ref()
+                            .map_err(|_| protocol_cc600::ErrorCode::Storage)
+                            .and_then(|fs| serve_rides(fs, r));
+                        let sent = matches!(answer, Ok(RideAnswer::Sent));
+                        RIDE_ANSWER.signal(answer);
+                        if sent {
+                            return true;
+                        }
+                    }
+                }
+            }
+        })
+        .await
+        .unwrap_or(false);
+        if sent {
+            // the rides screen shows it sent
+            stored = None;
+            ui.inform("Sortie envoyée", ui::fonts::Line::new(format_args!("À l'appli")), Instant::now().as_millis());
+        }
         if let Some(new) = ROUTE_RECEIVED.try_take()
             && let Ok(fs) = fs.as_ref()
         {
@@ -774,7 +802,7 @@ async fn nrf_link(uart: UART2<'static>, tx_pin: GPIO42<'static>, rx_pin: GPIO41<
     then kept on the heap"
 )]
 async fn ble_task(bt: esp_hal::peripherals::BT<'static>) {
-    Box::pin(ble::run(bt, App)).await;
+    Box::pin(ble::run(bt, App::default())).await;
 }
 
 #[embassy_executor::task]
@@ -1388,8 +1416,84 @@ fn save_settings(fs: &Fs<'_>, s: &settings::Settings) {
     }
 }
 
-/// What the companion app (BLE, [`ble::run`]) reads and changes: the settings, the route.
-struct App;
+/// What the companion app (BLE, [`ble::run`]) reads and changes: the settings, the route, the rides.
+#[derive(Default)]
+struct App {
+    /// A ride read ahead: id, offset, bytes. The app reads 512 bytes at a time, each request waits for the main loop.
+    ahead: Option<(u32, u32, Vec<u8>)>,
+}
+
+/// Bytes of a ride read from the storage for each request of the app (the most a frame carries).
+const READ_AHEAD: u16 = protocol_cc600::MAX_PAYLOAD as u16;
+
+/// What the app asks of the rides, served by the main loop (it owns the storage).
+enum RideRequest {
+    List,
+    Read { id: u32, offset: u32, max: u16 },
+    Sent(u32),
+}
+
+enum RideAnswer {
+    List(Vec<protocol_cc600::payload::ActivityEntry>),
+    Read(Vec<u8>),
+    Sent,
+}
+
+static RIDE_REQUEST: Signal<CriticalSectionRawMutex, RideRequest> = Signal::new();
+static RIDE_ANSWER: Signal<CriticalSectionRawMutex, Result<RideAnswer, protocol_cc600::ErrorCode>> =
+    Signal::new();
+
+/// One request at a time: the app waits for each answer.
+async fn ask_rides(r: RideRequest) -> Result<RideAnswer, protocol_cc600::ErrorCode> {
+    RIDE_ANSWER.reset();
+    RIDE_REQUEST.signal(r);
+    RIDE_ANSWER.wait().await
+}
+
+/// Seconds from the Unix epoch to the FIT one (1989-12-31T00:00:00Z).
+const FIT_EPOCH_UNIX: u32 = 631_065_600;
+
+fn serve_rides(fs: &Fs<'_>, r: RideRequest) -> Result<RideAnswer, protocol_cc600::ErrorCode> {
+    use protocol_cc600::ErrorCode;
+    match r {
+        RideRequest::List => {
+            let mut list = Vec::new();
+            ride_store::finished_sent(fs, |id, size, sent| {
+                list.push(protocol_cc600::payload::ActivityEntry {
+                    id,
+                    start_time: id.saturating_sub(FIT_EPOCH_UNIX),
+                    size: size as u32,
+                    synced: sent,
+                })
+            })
+            .map_err(|_| ErrorCode::Storage)?;
+            list.sort_by_key(|e| e.id);
+            Ok(RideAnswer::List(list))
+        }
+        RideRequest::Read { id, offset, max } => {
+            let mut buf = alloc::vec![0; usize::from(max)];
+            match ride_store::read_at(fs, id, true, offset as usize, &mut buf) {
+                Ok(n) => {
+                    buf.truncate(n);
+                    Ok(RideAnswer::Read(buf))
+                }
+                Err(Error::NO_SUCH_ENTRY) => Err(ErrorCode::BadRequest),
+                Err(_) => Err(ErrorCode::Storage),
+            }
+        }
+        RideRequest::Sent(id) => match ride_store::mark_sent(fs, id) {
+            Ok(()) => {
+                info!("ride {id}: sent");
+                Ok(RideAnswer::Sent)
+            }
+            Err(Error::NO_SUCH_ENTRY) => Err(ErrorCode::BadRequest),
+            Err(e) => {
+                warn!("ride {id}: littlefs error {} marking it sent", e.code());
+                Err(ErrorCode::Storage)
+            }
+        },
+    }
+}
 
 impl companion::Device for App {
     fn settings(&self) -> settings::Settings {
@@ -1417,6 +1521,41 @@ impl companion::Device for App {
                 Ok(())
             }
             Kind::Map => Err(protocol_cc600::ErrorCode::BadRequest),
+        }
+    }
+
+    async fn rides(&mut self) -> Result<Vec<protocol_cc600::payload::ActivityEntry>, protocol_cc600::ErrorCode> {
+        self.ahead = None;
+        match ask_rides(RideRequest::List).await? {
+            RideAnswer::List(list) => Ok(list),
+            _ => Err(protocol_cc600::ErrorCode::Busy),
+        }
+    }
+
+    async fn read_ride(&mut self, id: u32, offset: u32, max: u16) -> Result<Vec<u8>, protocol_cc600::ErrorCode> {
+        let held = |a: &(u32, u32, Vec<u8>)| {
+            a.0 == id && a.1 <= offset && offset + u32::from(max) <= a.1 + a.2.len() as u32
+                // the end of the file: fewer bytes than asked for
+                || a.0 == id && a.1 <= offset && a.2.len() < usize::from(READ_AHEAD)
+        };
+        if !self.ahead.as_ref().is_some_and(held) {
+            self.ahead = None;
+            let max = max.max(READ_AHEAD);
+            match ask_rides(RideRequest::Read { id, offset, max }).await? {
+                RideAnswer::Read(data) => self.ahead = Some((id, offset, data)),
+                _ => return Err(protocol_cc600::ErrorCode::Busy),
+            }
+        }
+        let (_, start, data) = self.ahead.as_ref().ok_or(protocol_cc600::ErrorCode::Busy)?;
+        let from = ((offset - start) as usize).min(data.len());
+        Ok(data[from..(from + usize::from(max)).min(data.len())].to_vec())
+    }
+
+    async fn ride_sent(&mut self, id: u32) -> Result<(), protocol_cc600::ErrorCode> {
+        self.ahead = None;
+        match ask_rides(RideRequest::Sent(id)).await? {
+            RideAnswer::Sent => Ok(()),
+            _ => Err(protocol_cc600::ErrorCode::Busy),
         }
     }
 }
