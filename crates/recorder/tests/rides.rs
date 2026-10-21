@@ -589,10 +589,65 @@ fn a_resumed_ride_survives_any_power_cut() {
 
 #[test]
 fn hours_left_on_the_storage() {
-    // the CC600's partition, empty (1943 blocks of 4 KB free): ~58 h of rides, ~8 h with the trip log
+    // the CC600's partition, empty (1943 blocks of 4 KB free): ~50 h of rides at a record a second, then ~40 h in
+    // the last 1 MB at one every 5 s; the trip log only takes from the first part
     let free = 1943 * 4096;
     assert_eq!(recorder::RIDE_BYTES_PER_S, 34);
-    assert_eq!(recorder::hours_left(free, 0), 58);
-    assert_eq!(recorder::hours_left(free, 190), 8);
-    assert_eq!(recorder::hours_left(100_000, 0), 0);
+    assert_eq!(recorder::hours_left(free, 0), 92);
+    assert_eq!(recorder::hours_left(free, 190), 50);
+    // nearly full: all of it at one record every 5 s
+    assert_eq!(recorder::hours_left(100_000, 0), 3);
+}
+
+#[test]
+fn a_sparse_ride_records_every_5_s_with_the_same_distance() {
+    let mut flash = Flash::new();
+    Filesystem::format(&mut flash).unwrap();
+    let mut alloc = Allocation::new();
+    let fs = Filesystem::mount(&mut alloc, &mut flash).unwrap();
+    let mut r = Recorder::start(&fs, ID, t0(), 42).unwrap();
+    for i in 0..SAMPLES {
+        if i == 30 {
+            r.set_interval(recorder::SPARSE_INTERVAL_S);
+        }
+        r.record(&fs, &sample(i)).unwrap();
+    }
+    let totals = r.stop(&fs, t0() + SAMPLES - 1, 0).unwrap();
+    let times = check_fit(&read_fit(&fs), "sparse");
+    // every second up to 30, then every 5 s from the last record written
+    assert_eq!(times[..30], (0..30).collect::<Vec<_>>());
+    assert!(times[29..].windows(2).all(|w| w[1] - w[0] == 5), "{times:?}");
+    assert_eq!(*times.last().unwrap(), SAMPLES - 1);
+    // the distance is the odometer's at the last record
+    assert_eq!(totals.distance_cm, sample(SAMPLES - 1).distance_cm.unwrap());
+    assert_eq!(totals.timer_ms, (SAMPLES - 1) * 1000);
+}
+
+#[test]
+fn the_totals_of_a_finished_ride_are_read_from_its_end_and_survive_its_ack() {
+    let mut flash = Flash::new();
+    Filesystem::format(&mut flash).unwrap();
+    let mut alloc = Allocation::new();
+    let fs = Filesystem::mount(&mut alloc, &mut flash).unwrap();
+    ride(&fs, &mut Acked::default()).unwrap();
+    let size = read_fit(&fs).len();
+    let totals = recorder::finished_totals(&fs, ID, size).unwrap();
+    assert_eq!(totals.distance_cm, sample(SAMPLES - 1).distance_cm.unwrap());
+    assert_eq!(totals.timer_ms, (SAMPLES - 1 - (PAUSE.end - PAUSE.start)) * 1000);
+    // acknowledged by the app: the same file under another name, still listed, read and deleted by its id
+    ride_store::mark_sent(&fs, ID).unwrap();
+    ride_store::mark_sent(&fs, ID).unwrap();
+    let mut listed = Vec::new();
+    ride_store::finished_sent(&fs, |id, len, sent| listed.push((id, len, sent))).unwrap();
+    assert_eq!(listed, [(ID, size, true)]);
+    assert_eq!(recorder::finished_totals(&fs, ID, size).unwrap(), totals);
+    assert_eq!(last_finished(&fs).unwrap(), Some(ID));
+    // resumed, it is no longer acknowledged
+    let r = Recorder::reopen_finished(&fs, ID).unwrap();
+    r.stop(&fs, t0() + SAMPLES, 0).unwrap();
+    let mut sent = Vec::new();
+    ride_store::finished_sent(&fs, |id, _, s| sent.push((id, s))).unwrap();
+    assert_eq!(sent, [(ID, false)]);
+    ride_store::remove(&fs, ID).unwrap();
+    assert_eq!(last_finished(&fs).unwrap(), None);
 }

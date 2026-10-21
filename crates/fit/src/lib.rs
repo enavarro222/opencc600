@@ -521,6 +521,37 @@ pub struct Session {
     pub num_laps: u16,
 }
 
+impl Session {
+    /// Reads back a data message written by [`Message::encode`].
+    pub fn decode(msg: &[u8]) -> Option<Self> {
+        let mut i = data_of(&Self::DEFINITION, msg)?;
+        let end_time = i.u32();
+        let start_time = i.u32();
+        let elapsed_ms = i.u32();
+        let timer_ms = i.u32();
+        let distance_cm = i.u32();
+        let _avg_speed = i.u32();
+        let max_speed_mm_s = i.u32();
+        let ascent_m = i.u16();
+        let descent_m = i.u16();
+        let _first_lap = i.u16();
+        let num_laps = i.u16();
+        Some(Self {
+            totals: Totals {
+                start_time,
+                end_time,
+                elapsed_ms,
+                timer_ms,
+                distance_cm,
+                ascent_m,
+                descent_m,
+                max_speed_mm_s,
+            },
+            num_laps,
+        })
+    }
+}
+
 impl Message for Session {
     const DEFINITION: Definition = Definition {
         local: 4,

@@ -7,7 +7,7 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use littlefs2::consts::{U4, U256};
+use littlefs2::consts::{U32, U256};
 use littlefs2::driver::Storage;
 use littlefs2::io::Result;
 
@@ -74,7 +74,7 @@ impl<const BLOCKS: usize> Storage for RamFlash<BLOCKS> {
     const READ_SIZE: usize = 16;
     const WRITE_SIZE: usize = 16;
     type CACHE_SIZE = U256;
-    type LOOKAHEAD_SIZE = U4;
+    type LOOKAHEAD_SIZE = U32;
 
     fn read(&mut self, off: usize, buf: &mut [u8]) -> Result<usize> {
         if self.off {

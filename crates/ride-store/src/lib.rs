@@ -3,7 +3,9 @@
 //! A ride being recorded is `/rides/<id>.part`, grown by [`append`]: each call opens, writes and closes the file, and
 //! littlefs commits on close, so every `append` that returned `Ok` is on flash, whatever happens next. [`finish`]
 //! renames it to `/rides/<id>.fit` (atomic in littlefs). After a power cut, [`unfinished`] lists the rides to resume
-//! or close. `<id>` is the ride start time (Unix seconds), like the vendor firmware's names.
+//! or close. `<id>` is the ride start time (Unix seconds), like the vendor firmware's names. A ride the companion
+//! app acknowledged (copied and checked) becomes `/rides/<id>.sent.fit` ([`mark_sent`]): the first to go when room
+//! is needed.
 //!
 //! Nothing here formats on its own: a mount error is reported, never "fixed" by erasing the rides. Formatting is
 //! [`littlefs2::fs::Filesystem::format`], called on an explicit request only.
@@ -15,6 +17,7 @@ extern crate alloc;
 
 #[cfg(feature = "ram")]
 pub mod ram;
+pub mod room;
 
 use core::fmt::Write as _;
 
@@ -29,6 +32,7 @@ pub const RIDES: &Path = path!("/rides");
 
 const PART: &str = ".part";
 const FIT: &str = ".fit";
+const SENT: &str = ".sent.fit";
 
 fn ride_path(id: u32, ext: &str) -> PathBuf {
     let mut buf = Name::default();
@@ -71,19 +75,34 @@ pub fn update<S: Storage, R>(
     fs.open_file_with_options_and_then(|o| o.read(true).write(true), &ride_path(id, PART), f)
 }
 
+/// `/rides/<id>.sent.fit` if the ride was acknowledged, else `/rides/<id>.fit` (finished rides).
+fn finished_path<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> PathBuf {
+    let sent = ride_path(id, SENT);
+    if fs.exists(&sent) { sent } else { ride_path(id, FIT) }
+}
+
 /// Closes ride `id`: `/rides/<id>.part` becomes `/rides/<id>.fit`.
 pub fn finish<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
     fs.rename(&ride_path(id, PART), &ride_path(id, FIT))
 }
 
-/// Opens finished ride `id` again: `/rides/<id>.fit` becomes `/rides/<id>.part` (atomic), to resume it.
+/// Opens finished ride `id` again: `/rides/<id>.fit` becomes `/rides/<id>.part` (atomic), to resume it. It is no
+/// longer acknowledged: what the app has is not the whole ride any more.
 pub fn unfinish<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
-    fs.rename(&ride_path(id, FIT), &ride_path(id, PART))
+    fs.rename(&finished_path(fs, id), &ride_path(id, PART))
 }
 
-/// Deletes finished ride `id` (e.g. once uploaded).
+/// Marks finished ride `id` as acknowledged by the companion app (atomic, done again harmlessly).
+pub fn mark_sent<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
+    if fs.exists(&ride_path(id, SENT)) {
+        return Ok(());
+    }
+    fs.rename(&ride_path(id, FIT), &ride_path(id, SENT))
+}
+
+/// Deletes finished ride `id`, acknowledged or not.
 pub fn remove<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<()> {
-    fs.remove(&ride_path(id, FIT))
+    fs.remove(&finished_path(fs, id))
 }
 
 /// Deletes unfinished ride `id` (e.g. an empty one found after a power cut).
@@ -92,30 +111,38 @@ pub fn remove_unfinished<S: Storage>(fs: &Filesystem<'_, S>, id: u32) -> Result<
 }
 
 /// Calls `f(id, size)` for every finished ride.
-pub fn finished<S: Storage>(fs: &Filesystem<'_, S>, f: impl FnMut(u32, usize)) -> Result<()> {
-    rides(fs, FIT, f)
+pub fn finished<S: Storage>(fs: &Filesystem<'_, S>, mut f: impl FnMut(u32, usize)) -> Result<()> {
+    finished_sent(fs, |id, size, _| f(id, size))
+}
+
+/// Calls `f(id, size, sent)` for every finished ride, `sent` once the companion app acknowledged it.
+pub fn finished_sent<S: Storage>(fs: &Filesystem<'_, S>, mut f: impl FnMut(u32, usize, bool)) -> Result<()> {
+    rides(fs, |name, size| {
+        if let Some(id) = name.strip_suffix(SENT).and_then(|id| id.parse().ok()) {
+            f(id, size, true);
+        } else if let Some(id) = name.strip_suffix(FIT).and_then(|id| id.parse().ok()) {
+            f(id, size, false);
+        }
+    })
 }
 
 /// Calls `f(id, size)` for every ride whose recording was interrupted (power cut, crash).
-pub fn unfinished<S: Storage>(fs: &Filesystem<'_, S>, f: impl FnMut(u32, usize)) -> Result<()> {
-    rides(fs, PART, f)
+pub fn unfinished<S: Storage>(fs: &Filesystem<'_, S>, mut f: impl FnMut(u32, usize)) -> Result<()> {
+    rides(fs, |name, size| {
+        if let Some(id) = name.strip_suffix(PART).and_then(|id| id.parse().ok()) {
+            f(id, size);
+        }
+    })
 }
 
-fn rides<S: Storage>(
-    fs: &Filesystem<'_, S>,
-    ext: &str,
-    mut f: impl FnMut(u32, usize),
-) -> Result<()> {
+fn rides<S: Storage>(fs: &Filesystem<'_, S>, mut f: impl FnMut(&str, usize)) -> Result<()> {
     if !fs.exists(RIDES) {
         return Ok(());
     }
     fs.read_dir_and_then(RIDES, |dir| {
         for entry in dir {
             let entry = entry?;
-            let name = entry.file_name().as_str();
-            if let Some(id) = name.strip_suffix(ext).and_then(|id| id.parse().ok()) {
-                f(id, entry.metadata().len());
-            }
+            f(entry.file_name().as_str(), entry.metadata().len());
         }
         Ok(())
     })
@@ -139,7 +166,7 @@ pub fn read_at<S: Storage>(
     offset: usize,
     buf: &mut [u8],
 ) -> Result<usize> {
-    let path = ride_path(id, if finished { FIT } else { PART });
+    let path = if finished { finished_path(fs, id) } else { ride_path(id, PART) };
     fs.open_file_and_then(&path, |file| {
         file.seek(SeekFrom::Start(offset as u32))?;
         let mut n = 0;

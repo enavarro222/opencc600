@@ -16,15 +16,24 @@ use fit::{
 use ride_store::littlefs2::driver::Storage;
 use ride_store::littlefs2::fs::Filesystem;
 use ride_store::littlefs2::io::{Error, Result, SeekFrom};
+use ride_store::room;
 
 /// Bytes a ride takes a second: one [`Record`] (the closing messages are small next to it), ~122 KB an hour.
 pub const RIDE_BYTES_PER_S: u32 = Record::DEFINITION.data_len() as u32;
 
-/// Hours of riding the free space holds, with `extra_bytes_per_s` written alongside (the trip log); a tenth is kept
-/// for the file system (its metadata, the blocks half filled).
+/// With less room than [`room::SPARSE_BYTES`] for the rides, one record every this many seconds
+/// ([`Recorder::set_interval`]), ~40 h of riding in the last 1 MB instead of ~8 h.
+pub const SPARSE_INTERVAL_S: u32 = 5;
+
+/// Hours of riding the free space holds, with `extra_bytes_per_s` written alongside (the trip log, which stays out
+/// of the last [`room::SPARSE_BYTES`], ridden with a record every [`SPARSE_INTERVAL_S`]); a tenth is kept for the
+/// file system (its metadata, the blocks half filled).
 pub fn hours_left(free_bytes: u64, extra_bytes_per_s: u32) -> u32 {
-    let per_hour = (RIDE_BYTES_PER_S + extra_bytes_per_s) as u64 * 3600;
-    (free_bytes * 9 / 10 / per_hour) as u32
+    let usable = free_bytes * 9 / 10;
+    let sparse = usable.min(room::SPARSE_BYTES as u64);
+    let seconds = (usable - sparse) / (RIDE_BYTES_PER_S + extra_bytes_per_s) as u64
+        + sparse * SPARSE_INTERVAL_S as u64 / RIDE_BYTES_PER_S as u64;
+    (seconds / 3600) as u32
 }
 
 /// Appends at most this often (seconds of ride time): each append is a littlefs commit (a block copy).
@@ -242,6 +251,9 @@ pub struct Recorder {
     buf: [u8; BUF],
     len: usize,
     last_flush: u32,
+    /// One record every this many seconds, and the last one written.
+    interval_s: u32,
+    last_record: Option<u32>,
 }
 
 impl Recorder {
@@ -260,6 +272,8 @@ impl Recorder {
             buf: [0; BUF],
             len: 0,
             last_flush: timestamp,
+            interval_s: 1,
+            last_record: None,
         };
         r.put_raw(&fit::header(0))?;
         let n = fit::encode_definitions(&mut r.buf[r.len..]).map_err(|_| Error::NO_SPACE)?;
@@ -294,6 +308,8 @@ impl Recorder {
             buf: [0; BUF],
             len: 0,
             last_flush: scan.summary.last_time,
+            interval_s: 1,
+            last_record: None,
         };
         let end = r.summary.last_time;
         r.pause(fs, end)?;
@@ -315,16 +331,30 @@ impl Recorder {
         &self.summary
     }
 
-    /// Adds a sample (only while the timer runs: paused samples are not recorded); appends to the file every
-    /// [`FLUSH_EVERY_S`] seconds.
+    /// One record every `s` seconds from now on (1: every sample). The totals come from the records written: the
+    /// distance and the timer stay exact (the distance is cumulative), the ascent, the maximum speed and the
+    /// averages are sampled.
+    pub fn set_interval(&mut self, s: u32) {
+        self.interval_s = s.max(1);
+    }
+
+    pub fn interval_s(&self) -> u32 {
+        self.interval_s
+    }
+
+    /// Adds a sample (only while the timer runs: paused samples are not recorded, and one every
+    /// [`Recorder::set_interval`] seconds); appends to the file every [`FLUSH_EVERY_S`] seconds.
     pub fn record<S: Storage>(&mut self, fs: &Filesystem<'_, S>, r: &Record) -> Result<()> {
-        if !self.summary.running() {
+        if !self.summary.running()
+            || self.last_record.is_some_and(|t| r.timestamp < t.saturating_add(self.interval_s))
+        {
             return Ok(());
         }
         if self.len + Record::DEFINITION.data_len() > BUF {
             self.flush(fs)?;
         }
         self.put(r)?;
+        self.last_record = Some(r.timestamp);
         if r.timestamp.saturating_sub(self.last_flush) >= FLUSH_EVERY_S {
             self.flush(fs)?;
             self.last_flush = r.timestamp;
@@ -444,6 +474,17 @@ fn close<S: Storage>(
 fn push<M: Message>(buf: &mut [u8], n: &mut usize, m: &M) -> Result<()> {
     *n += m.encode(&mut buf[*n..]).map_err(|_| Error::NO_SPACE)?;
     Ok(())
+}
+
+/// Totals of finished ride `id` of `size` bytes, from its session message: the closing messages have fixed lengths,
+/// only the end of the file is read.
+pub fn finished_totals<S: Storage>(fs: &Filesystem<'_, S>, id: u32, size: usize) -> Result<Totals> {
+    let session = Session::DEFINITION.data_len();
+    let tail = session + Activity::DEFINITION.data_len() + 2;
+    let mut buf = [0u8; 64];
+    let at = size.checked_sub(tail).ok_or(Error::CORRUPTION)?;
+    ride_store::read_at(fs, id, true, at, &mut buf[..tail])?;
+    Session::decode(&buf[..session]).map(|s| s.totals).ok_or(Error::CORRUPTION)
 }
 
 /// Writes the real header and the CRC of ride `id` (one commit), then renames it to `.fit`. A sealed file is
