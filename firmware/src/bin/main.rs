@@ -630,7 +630,7 @@ async fn main(spawner: Spawner) -> ! {
             if stored.is_none()
                 && let Ok(fs) = fs.as_ref()
             {
-                stored = Some(stored_rides(fs));
+                stored = Some(stored_rides(fs, ui.making_room()));
             }
         } else {
             stored = None;
@@ -1894,8 +1894,9 @@ struct StoredRide {
     totals: Option<fit::Totals>,
 }
 
-/// The finished rides, in the order of the rides screen: the ones the app has first, then the oldest first.
-fn stored_rides(fs: &Fs<'_>) -> Vec<StoredRide> {
+/// The finished rides, in the order of the rides screen: the latest first; to make room, the ones the app has first,
+/// then the oldest first.
+fn stored_rides(fs: &Fs<'_>, making_room: bool) -> Vec<StoredRide> {
     let t = Instant::now();
     let mut list = Vec::new();
     if let Err(e) = ride_store::finished_sent(fs, |id, size, sent| list.push((id, size, sent))) {
@@ -1905,7 +1906,11 @@ fn stored_rides(fs: &Fs<'_>) -> Vec<StoredRide> {
         .into_iter()
         .map(|(id, size, sent)| StoredRide { id, sent, totals: recorder::finished_totals(fs, id, size).ok() })
         .collect();
-    rides.sort_by_key(|r| (!r.sent, r.id));
+    if making_room {
+        rides.sort_by_key(|r| (!r.sent, r.id));
+    } else {
+        rides.sort_by_key(|r| core::cmp::Reverse(r.id));
+    }
     info!("rides: {} listed in {} ms", rides.len(), t.elapsed().as_millis());
     rides
 }

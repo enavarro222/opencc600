@@ -34,6 +34,7 @@ pub mod icon {
     pub const UNDO: char = '\u{e00d}';
     pub const RING: char = '\u{e00e}';
     pub const ZOOM: char = '\u{e00f}';
+    pub const OFF_ROUTE: char = '\u{e010}';
 }
 
 pub struct Font {

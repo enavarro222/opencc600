@@ -140,7 +140,7 @@ pub fn pages(route: bool, train: bool, effort: bool) -> Pages {
 pub const ZOOMS_M: [u32; 4] = [250, 500, 1000, 2000];
 /// Zoom steps of the map: [`ZOOMS_M`], then the whole route.
 pub const ZOOM_STEPS: u8 = ZOOMS_M.len() as u8 + 1;
-/// Off the route farther than this, decimetres: the banner.
+/// Off the route farther than this, decimetres: the banner. Back on it under half of it.
 pub const OFF_ROUTE_DM: u32 = 500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -337,6 +337,26 @@ pub const AUTO_OFF: &str = "Extinction automatique";
 
 /// The off-route banner's line alternates between the distance and how to set the route aside.
 pub const OFF_ROUTE_HINT_MS: u64 = 4_000;
+/// The off-route banner shows this long (the distance, then how to set the route aside), again when the distance
+/// doubles; the top bar shows the distance in place of the clock meanwhile.
+pub const OFF_ROUTE_ALERT_MS: u64 = 2 * OFF_ROUTE_HINT_MS;
+
+/// Off the route: since when the banner shows, the distance then, the distance now (decimetres).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct OffRoute {
+    since_ms: u64,
+    alert_dm: u32,
+    off_dm: u32,
+}
+
+/// A distance off the route: in metres up to 2 km, then in km.
+pub(crate) fn off_distance(dm: u32) -> Line {
+    if dm < 20_000 {
+        Line::new(format_args!("{} m", dm / 10))
+    } else {
+        Line::new(format_args!("{},{} km", dm / 10_000, dm / 1_000 % 10))
+    }
+}
 
 /// Entries of a menu at most.
 pub const MENU: usize = 5;
@@ -580,6 +600,7 @@ pub struct Ui {
     /// The GNSS had a fix during this ride ("lost" rather than "searching").
     had_fix: bool,
     fix: bool,
+    off_route: Option<OffRoute>,
     /// The entry of the rides screen, and whether it was opened because a ride could not start.
     ride_item: u16,
     making_room: bool,
@@ -616,6 +637,7 @@ impl Ui {
             effort: false,
             had_fix: false,
             fix: false,
+            off_route: None,
             ride_item: 0,
             making_room: false,
         }
@@ -1016,10 +1038,16 @@ impl Ui {
         // when the GNSS comes back, an information for a while.
         let fix = matches!(view.gnss, Gnss::Fix { .. });
         let riding = ride.is_some();
-        let off_route = view
-            .route
-            .and_then(|r| r.progress)
-            .filter(|p| p.off_dm > OFF_ROUTE_DM);
+        let off_dm = view.route.and_then(|r| r.progress).map(|p| p.off_dm);
+        // kept while the fix is lost; the banner again when the distance doubles
+        self.off_route = match (off_dm, self.off_route) {
+            _ if !riding => None,
+            (_, o) if !fix => o,
+            (Some(d), Some(o)) if d >= OFF_ROUTE_DM / 2 && d < 2 * o.alert_dm => Some(OffRoute { off_dm: d, ..o }),
+            (Some(d), _) if d > OFF_ROUTE_DM => Some(OffRoute { since_ms: now_ms, alert_dm: d, off_dm: d }),
+            _ => None,
+        };
+        let off_route = self.off_route.filter(|o| now_ms.saturating_sub(o.since_ms) < OFF_ROUTE_ALERT_MS);
         let attention = match (riding, fix, off_route) {
             _ if self.auto_off_left(now_ms).is_some() => {
                 let left_s = self.auto_off_left(now_ms).unwrap_or(0).div_ceil(1000);
@@ -1035,19 +1063,14 @@ impl Ui {
             }
             (true, false, _) if self.had_fix => Some(("GPS perdu", Line::new(format_args!("Distance en attente du GPS")))),
             (true, false, _) => Some(("Recherche du GPS", Line::new(format_args!("La distance part au fix")))),
-            // every other [`OFF_ROUTE_HINT_MS`]: the wrong route followed by mistake is set aside from the pause menu
-            // (the device never drops it)
-            (true, true, Some(_)) if (now_ms / OFF_ROUTE_HINT_MS) % 2 == 1 => {
+            // the distance, then: the wrong route followed by mistake is set aside from the pause menu (the device
+            // never drops it)
+            (true, true, Some(o)) if now_ms - o.since_ms >= OFF_ROUTE_HINT_MS => {
                 Some(("Hors de la trace", Line::new(format_args!("Pas cette trace ? Pause › Menu"))))
             }
-            // in metres up to 2 km, then in km
-            (true, true, Some(p)) if p.off_dm < 20_000 => {
-                Some(("Hors de la trace", Line::new(format_args!("à {} m", p.off_dm / 10))))
+            (true, true, Some(o)) => {
+                Some(("Hors de la trace", Line::new(format_args!("à {}", off_distance(o.off_dm).as_str()))))
             }
-            (true, true, Some(p)) => Some((
-                "Hors de la trace",
-                Line::new(format_args!("à {},{} km", p.off_dm / 10_000, p.off_dm / 1_000 % 10)),
-            )),
             _ => None,
         };
         match (attention, self.banner) {
@@ -1169,7 +1192,12 @@ impl Ui {
                 Hint::new("Garder").kind(Kind::Go),
             ],
             Rides => {
-                let next = if view.rides.count > 1 { Hint::new("Suivante \u{e00a}") } else { NOTHING };
+                // the list from the menu is the latest first, the one to make room the ones to delete first
+                let next = match view.rides.count {
+                    0 | 1 => NOTHING,
+                    _ if self.making_room => Hint::new("Suivante \u{e00a}"),
+                    _ => Hint::new("Précédente"),
+                };
                 match view.rides.card {
                     _ if self.making_room && view.rides.can_start => [BACK, next, Hint::new("Démarrer").kind(Kind::Go)],
                     Some(_) => [BACK, next, Hint::new("Supprimer…").kind(Kind::Danger)],
@@ -1208,6 +1236,11 @@ impl Ui {
     /// The top bar shows "GPS ✕" in place of the clock (riding without a fix).
     pub fn gps_warning(&self) -> bool {
         matches!(self.screen, Screen::Ride | Screen::Paused) && !self.fix
+    }
+
+    /// The top bar shows the distance off the route in place of the clock, decimetres (riding off the route).
+    pub fn off_route_dm(&self) -> Option<u32> {
+        self.off_route.filter(|_| matches!(self.screen, Screen::Ride | Screen::Paused) && self.fix).map(|o| o.off_dm)
     }
 }
 
@@ -1480,10 +1513,29 @@ mod tests {
             heading_cdeg: None,
             progress: Some(route::Progress { along_dm: 0, off_dm: 12_340, segment: 0 }),
         });
-        ui.tick(OFF_ROUTE_HINT_MS, Some(true), &v);
-        assert_eq!(ui.banner().unwrap().detail.as_str(), "Pas cette trace ? Pause › Menu");
-        ui.tick(2 * OFF_ROUTE_HINT_MS, Some(true), &v);
+        ui.tick(1_000, Some(true), &v);
         assert_eq!(ui.banner().unwrap().detail.as_str(), "à 1234 m");
+        ui.tick(1_000 + OFF_ROUTE_HINT_MS, Some(true), &v);
+        assert_eq!(ui.banner().unwrap().detail.as_str(), "Pas cette trace ? Pause › Menu");
+        // then only the distance in place of the clock
+        ui.tick(1_000 + OFF_ROUTE_ALERT_MS, Some(true), &v);
+        assert!(ui.banner().is_none());
+        assert_eq!(ui.off_route_dm(), Some(12_340));
+        // the banner again when the distance doubles
+        let farther = |v: &mut View, off_dm| v.route.as_mut().unwrap().progress.as_mut().unwrap().off_dm = off_dm;
+        farther(&mut v, 24_000);
+        ui.tick(60_000, Some(true), &v);
+        assert!(ui.banner().is_none());
+        farther(&mut v, 24_680);
+        ui.tick(61_000, Some(true), &v);
+        assert_eq!(ui.banner().unwrap().detail.as_str(), "à 2,4 km");
+        // back on the route under half the threshold only
+        farther(&mut v, OFF_ROUTE_DM / 2);
+        ui.tick(62_000, Some(true), &v);
+        assert_eq!(ui.off_route_dm(), Some(OFF_ROUTE_DM / 2));
+        farther(&mut v, OFF_ROUTE_DM / 2 - 1);
+        ui.tick(63_000, Some(true), &v);
+        assert_eq!((ui.banner(), ui.off_route_dm()), (None, None));
         assert_eq!(off(23_456).unwrap().as_str(), "à 2,3 km");
         assert!(off(400).is_none());
     }

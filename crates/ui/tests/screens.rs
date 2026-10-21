@@ -246,6 +246,8 @@ fn every_screen() {
         shot(&ui, &View { battery_pct: Some(18), ..v }, "ride-battery-low");
         shot(&ui, &View { battery_pct: Some(7), ..v }, "ride-battery-very-low");
         shot(&ui, &View { battery_pct: Some(100), ..v }, "ride-battery-full");
+        shot(&ui, &View { battery_pct: Some(64), plugged: true, ..v }, "ride-plugged");
+        shot(&ui, &View { battery_pct: Some(100), plugged: true, ..v }, "ride-plugged-full");
         key(&mut ui, BottomRight);
         shot(&ui, &home, "paused");
         shot(&ui, &View { sparse: true, record_hours: Some(6), ..home }, "paused-sparse");
@@ -319,9 +321,18 @@ fn every_screen() {
     }
     ui.tick(1, Some(true), &off);
     save("route-off", &ui, &off, &ui::DAY);
-    ui.tick(ui::OFF_ROUTE_HINT_MS, Some(true), &off);
+    ui.tick(1 + ui::OFF_ROUTE_HINT_MS, Some(true), &off);
     save("route-off-hint", &ui, &off, &ui::DAY);
-    ui.tick(2 * ui::OFF_ROUTE_HINT_MS, Some(true), &off);
+    ui.tick(1 + ui::OFF_ROUTE_ALERT_MS, Some(true), &off);
+    save("route-off-after", &ui, &off, &ui::DAY);
+    let mut far = off;
+    if let Some(r) = far.route.as_mut() {
+        r.progress = r.progress.map(|p| route::Progress { off_dm: 99_990, ..p });
+    }
+    ui.tick(2 + ui::OFF_ROUTE_ALERT_MS, Some(true), &far);
+    ui.tick(2 + 2 * ui::OFF_ROUTE_ALERT_MS, Some(true), &far);
+    save("route-off-far", &ui, &far, &ui::DAY);
+    save("route-off-far-plugged", &ui, &View { plugged: true, ..far }, &ui::DAY);
     ui.key(Key::BottomLeft, Press::Click, 0, &riding);
     save("route-essential", &ui, &riding, &ui::DAY);
     // the automatic power off announced, a ride still for a while

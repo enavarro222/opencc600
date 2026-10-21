@@ -25,6 +25,8 @@ const KEY_PAD: i32 = 8;
 const KEY_MARK: i32 = 5;
 /// Width of the top key box: the middle of the top bar stays free for the clock.
 const TOP_KEY: i32 = 100;
+/// Right margin of the top bar's battery.
+const BAR_PAD: i32 = 4;
 /// Columns of the key bar: left key, page, right key.
 const BAR_LEFT: i32 = 104;
 const BAR_RIGHT: i32 = 136;
@@ -1233,7 +1235,7 @@ fn rides<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme)
     let note = match (ui.making_room(), r.can_start) {
         (true, true) => "Place suffisante : tu peux démarrer.",
         (true, false) => "Pour démarrer, supprime une sortie.\nCelles déjà dans l'appli d'abord.",
-        _ => "Celles déjà dans l'appli d'abord,\npuis la plus ancienne.",
+        _ => "La plus récente d'abord.",
     };
     let color = if ui.making_room() && r.can_start { t.ok } else { t.mute };
     note_lines(d, &t.mute(&fonts::NOTE).colored(color), note, MARGIN, 190, 19)?;
@@ -1379,15 +1381,54 @@ fn top_bar<D: DrawTarget<Color = Rgb565>>(
     }
     let cy = TOP / 2;
     let bar = t.mute(&fonts::BAR);
+    // the battery icon 3 px before "100%" (full, written without its space to stay close): it stays put from 100 to
+    // 10 %, 7 px before two digits; closer to the edge than the keys' labels, room for the distance off the route
+    let right = W - BAR_PAD - fonts::BAR.width("100%", 0) - 3;
+    let left = right - BATTERY_W;
+    if let Some(p) = v.battery_pct {
+        let pct = if p >= 100 { Fmt::new(format_args!("100%")) } else { Fmt::new(format_args!("{p} %")) };
+        let text = match low_battery(p, t) {
+            Some(c) if !v.plugged => bar.colored(c),
+            _ => bar,
+        };
+        fonts::value(d, &text, pct.as_str(), "", W - BAR_PAD, cy, Align::Right)?;
+        battery(d, right, cy, p, v.plugged, t)?;
+        // plugged: a bolt over the battery's body
+        if v.plugged {
+            small_bolt(d, right - 3 - (BATTERY_W - 3) / 2, cy)?;
+        }
+    }
+    // the ride is recorded: a floppy disk before the battery, in its grey; red when the storage is nearly full (a
+    // point every 5 s, the pause screen says so) or a write failed (a banner says so)
+    if matches!(ui.screen(), Screen::Ride | Screen::Paused) {
+        floppy(d, left - 6, cy, record_color(v, t), t.bg)?;
+    }
+    // the clock in the middle of the room between the key and the floppy disk, whether it shows or not
+    let mid = (TOP_KEY + right - BATTERY_W - 6 - FLOPPY_W) / 2;
     if ui.gps_warning() {
         let gps = Fmt::new(format_args!("GPS {}", icon::CROSS));
         fonts::text(
             d,
             &bar.colored(t.warn),
             gps.as_str(),
-            W / 2,
+            mid,
             cy,
             Align::Center,
+        )?;
+    } else if let Some(dm) = ui.off_route_dm() {
+        // after the key (wider than the clock), three figures at most
+        let off = match dm {
+            ..10_000 => Fmt::new(format_args!("{} {} m", icon::OFF_ROUTE, dm / 10)),
+            ..100_000 => Fmt::new(format_args!("{} {},{} km", icon::OFF_ROUTE, dm / 10_000, dm / 1_000 % 10)),
+            _ => Fmt::new(format_args!("{} {} km", icon::OFF_ROUTE, dm / 10_000)),
+        };
+        fonts::text(
+            d,
+            &bar.colored(t.warn),
+            off.as_str(),
+            TOP_KEY + 3,
+            cy,
+            Align::Left,
         )?;
     } else {
         fonts::value(
@@ -1395,37 +1436,16 @@ fn top_bar<D: DrawTarget<Color = Rgb565>>(
             &bar,
             clock(v.clock).as_str(),
             "00:00",
-            W / 2,
+            mid,
             cy,
             Align::Center,
         )?;
-    }
-    // the battery icon 4 px before "100%" (full, written without its space to stay close): it stays put from 100 to
-    // 10 %, 8 px before two digits
-    let right = W - KEY_PAD - fonts::BAR.width("100%", 0) - 4;
-    let mut left = right - BATTERY_W;
-    if let Some(p) = v.battery_pct {
-        let pct = if p >= 100 { Fmt::new(format_args!("100%")) } else { Fmt::new(format_args!("{p} %")) };
-        let text = match low_battery(p, t) {
-            Some(c) if !v.plugged => bar.colored(c),
-            _ => bar,
-        };
-        fonts::value(d, &text, pct.as_str(), "", W - KEY_PAD, cy, Align::Right)?;
-        battery(d, right, cy, p, v.plugged, t)?;
-        if v.plugged {
-            left -= 9;
-            bolt(d, left, cy, battery_color(p, true, t))?;
-        }
-    }
-    // the ride is recorded: a floppy disk before the battery, in its grey; red when the storage is nearly full (a
-    // point every 5 s, the pause screen says so) or a write failed (a banner says so)
-    if matches!(ui.screen(), Screen::Ride | Screen::Paused) {
-        floppy(d, left - 8, cy, record_color(v, t), t.bg)?;
     }
     hline(d, TOP, t)
 }
 
 const BATTERY_W: i32 = 18;
+const FLOPPY_W: i32 = 14;
 
 fn record_color(v: &View, t: &Theme) -> Rgb565 {
     if v.sparse || v.write_failure.is_some() { t.danger } else { t.mute }
@@ -1492,12 +1512,30 @@ fn battery<D: DrawTarget<Color = Rgb565>>(
     Ok(())
 }
 
-/// The charging bolt, 7 × 12 px, left edge at `left`, centred on `cy`.
-fn bolt<D: DrawTarget<Color = Rgb565>>(d: &mut D, left: i32, cy: i32, c: Rgb565) -> Result<(), D::Error> {
-    let p = |x, y| Point::new(left + x, cy - 6 + y);
-    let style = PrimitiveStyle::with_fill(c);
-    Triangle::new(p(5, 0), p(0, 7), p(4, 7)).into_styled(style).draw(d)?;
-    Triangle::new(p(2, 5), p(7, 5), p(1, 12)).into_styled(style).draw(d)
+/// The bolt over the top bar's battery, a row a byte (bit 5: the left column).
+const SMALL_BOLT: [u8; 11] = [
+    0b000001, 0b000011, 0b000110, 0b001110, 0b011100, 0b111111, 0b001110, 0b011100, 0b011000, 0b110000, 0b100000,
+];
+
+/// The bolt over the top bar's battery, 6 × 11 px centred on (`cx`, `cy`): black outlined in white, day or night.
+fn small_bolt<D: DrawTarget<Color = Rgb565>>(d: &mut D, cx: i32, cy: i32) -> Result<(), D::Error> {
+    let on = |x: i32, y: i32| {
+        (0..6).contains(&x) && (0..11).contains(&y) && SMALL_BOLT[y as usize] & (0b100000 >> x) != 0
+    };
+    let (x0, y0) = (cx - 3, cy - 5);
+    for y in -1..12 {
+        for x in -1..7 {
+            let c = if on(x, y) {
+                DAY.fg
+            } else if on(x - 1, y) || on(x + 1, y) || on(x, y - 1) || on(x, y + 1) {
+                DAY.bg
+            } else {
+                continue;
+            };
+            fill(d, rect(x0 + x, y0 + y, x0 + x, y0 + y), c)?;
+        }
+    }
+    Ok(())
 }
 
 /// A key label, checked to fit in its box (`width`).

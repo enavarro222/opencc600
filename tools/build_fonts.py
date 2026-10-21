@@ -29,7 +29,7 @@ LABEL = UPPER + DIGITS + "/·'’()%"
 
 # private use code points of the icons, in the order of `crate::fonts::icon`
 ICONS = ["play", "pause", "stop", "left", "right", "power", "check", "cross", "dot", "menu", "down", "chevron", "cycle",
-         "undo", "ring", "zoom"]
+         "undo", "ring", "zoom", "off_route"]
 ICON_BASE = 0xE000
 ICON_CHARS = "".join(chr(ICON_BASE + i) for i in range(len(ICONS)))
 
@@ -61,7 +61,8 @@ SPECS = [
 ]
 # icon width, in cap heights
 ICON_W = {"play": 0.9, "pause": 0.95, "stop": 0.9, "left": 0.9, "right": 0.9, "power": 1.08, "check": 1.1, "cross": 0.85,
-          "dot": 0.62, "menu": 1.0, "down": 0.95, "chevron": 0.5, "cycle": 1.05, "undo": 1.05, "ring": 0.85, "zoom": 1.0}
+          "dot": 0.62, "menu": 1.0, "down": 0.95, "chevron": 0.5, "cycle": 1.05, "undo": 1.05, "ring": 0.85, "zoom": 1.0,
+          "off_route": 1.2}
 SS = 8  # supersampling of the icons
 
 
@@ -125,6 +126,16 @@ def icon(name: str, cap: int, bold: bool) -> tuple[int, list[int]]:
         k = r * 0.55
         dr.line([(c[0] - k, c[1]), (c[0] + k, c[1])], fill=255, width=round(u))
         dr.line([(c[0], c[1] - k), (c[0], c[1] + k)], fill=255, width=round(u))
+    elif name == "off_route":
+        # the route, a line on the left; the rider, a dot on the right; dots between them
+        u = t * 0.8
+        dr.rectangle([0, 0, u, H], fill=255)
+        r = H * 0.25
+        c = (W - r, H / 2)
+        dr.ellipse([c[0] - r, c[1] - r, c[0] + r, c[1] + r], fill=255)
+        for k in (1, 2):
+            x = u + k * (c[0] - r - u) / 3
+            dr.ellipse([x - u * 0.45, H / 2 - u * 0.45, x + u * 0.45, H / 2 + u * 0.45], fill=255)
     elif name == "ring":
         r = W / 2 - t * 0.35
         c = (W / 2, H / 2)
