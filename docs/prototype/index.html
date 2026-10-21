@@ -15,7 +15,7 @@ header p { margin: 4px 0; font-size: 18px; line-height: 1.3; color: #333; }
 header a { color: #1D4ED8; }
 label.night { display: inline-flex; gap: 6px; align-items: center; font-size: 18px; font-weight: 600; margin-top: 6px; cursor: pointer; }
 .fitwrap { overflow: hidden; }
-#stage { width: 820px; height: 720px; margin: 0 auto; transform-origin: top left; }
+#stage { width: 820px; height: 800px; margin: 0 auto; transform-origin: top left; }
 @media (min-width: 836px) { #stage { transform-origin: top center; } }
 
 body{margin:0}
@@ -37,7 +37,7 @@ button{font-family:inherit}
 </header>
 <div class="fitwrap"><div id="stage"><div id="app"></div></div></div>
 <template id="tpl">
-<div style="width: 820px; height: 720px; box-sizing: border-box; padding: 40px; display: flex; gap: 40px; align-items: flex-start; font-family: 'Barlow Condensed', sans-serif; background: #E9E7E2; color: #111111">
+<div style="width: 820px; height: 800px; box-sizing: border-box; padding: 40px; display: flex; gap: 40px; align-items: flex-start; font-family: 'Barlow Condensed', sans-serif; background: #E9E7E2; color: #111111">
 
   <div style="position: relative; width: 300px; height: 480px; flex-shrink: 0; border-radius: 36px; background: #141416; box-shadow: 0 12px 28px rgba(0,0,0,0.25)">
     <sc-if value="{{hasBeep}}" hint-placeholder-val="{{ false }}">
@@ -55,6 +55,15 @@ button{font-family:inherit}
         <div style="width: 240px; height: 320px; background: #000000"></div>
       </sc-if>
 
+      <sc-if value="{{isSplash}}" hint-placeholder-val="{{ false }}">
+        <div style="width: 240px; height: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px">
+          <svg width="96" height="96" viewBox="0 0 96 96" aria-hidden="true"><circle cx="48" cy="48" r="40" fill="none" stroke="#E8590C" stroke-width="12" stroke-dasharray="8 5.6"></circle><circle cx="48" cy="48" r="28" fill="#E8590C"></circle><circle cx="48" cy="48" r="20" fill="{{c.bg}}"></circle><path d="M36 58 C 44 58, 40 40, 48 40 S 52 52, 60 38" fill="none" stroke="{{c.fg}}" stroke-width="3" stroke-linecap="round"></path></svg>
+          <span style="margin-top: 16px; font-size: 30px; font-weight: 700"><span style="color: {{c.mute}}">Open</span>CC600</span>
+          <span style="font-size: 17px; font-weight: 500; color: {{c.mute}}">Rouler en liberté</span>
+          <span style="margin-top: 36px; font-size: 14px; font-weight: 500; color: {{c.mute}}">v0.1.0</span>
+        </div>
+      </sc-if>
+
       <sc-if value="{{isOn}}" hint-placeholder-val="{{ true }}">
         <div style="width: 240px; height: 320px; display: flex; flex-direction: column; position: relative">
 
@@ -62,6 +71,7 @@ button{font-family:inherit}
             <button onClick="{{pressHG}}" onPointerDown="{{holdStart}}" onPointerUp="{{holdEnd}}" onPointerLeave="{{holdEnd}}" style="height: 100%; width: 100px; flex-shrink: 0; box-sizing: border-box; padding: 0 8px; border: none; box-shadow: inset 0 5px 0 #3BB3E0; text-align: left; white-space: nowrap; overflow: hidden; font-size: 18px; font-weight: 700; cursor: pointer; background: {{c.chip}}; color: {{hgColor}}">{{hgLabel}}</button>
             <span style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); white-space: nowrap; font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; color: {{clockColor}}; pointer-events: none">{{clockText}}</span>
             <div style="width: 70px; box-sizing: border-box; padding: 0 6px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; overflow: hidden; flex-shrink: 0; font-size: 14px; font-weight: 600; color: {{c.mute}}">
+              <sc-if value="{{rec}}" hint-placeholder-val="{{ false }}"><svg width="12" height="12" viewBox="0 0 12 12" aria-label="Enregistrement" style="flex-shrink: 0; color: {{recColor}}"><path d="M1 1 H9 L11 3 V11 H1 Z" fill="none" stroke="currentColor" stroke-width="1.5"></path><rect x="3.5" y="1" width="4.5" height="3" fill="currentColor"></rect></svg></sc-if>
               <span style="display: flex; align-items: center; gap: 3px"><svg width="18" height="10" viewBox="0 0 18 10" aria-hidden="true"><rect x="0.75" y="0.75" width="14.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"></rect><rect x="16" y="3" width="1.5" height="4" fill="currentColor"></rect><rect x="2.5" y="2.5" width="7.3" height="5" fill="currentColor"></rect></svg>81 %</span>
             </div>
           </div>
@@ -88,19 +98,6 @@ button{font-family:inherit}
               </div>
             </sc-if>
 
-            <sc-if value="{{is.traces}}" hint-placeholder-val="{{ false }}">
-              <div style="display: flex; flex-direction: column">
-                <div style="padding: 8px 12px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Traces sur le compteur</div>
-                <sc-for list="{{traceRows}}" as="t" hint-placeholder-count="3">
-                  <div style="height: 48px; display: flex; flex-direction: column; justify-content: center; padding: 0 12px; line-height: 1.05; border-bottom: 1px solid {{c.rule}}; background: {{t.bg}}; color: {{t.fg}}">
-                    <span style="font-size: 20px; font-weight: 700">{{t.name}}</span>
-                    <span style="font-size: 15px; font-weight: 500">{{t.info}}</span>
-                  </div>
-                </sc-for>
-                <div style="padding: 8px 12px; font-size: 14px; font-weight: 500; color: {{c.mute}}">Les traces s'ajoutent depuis l'app.</div>
-              </div>
-            </sc-if>
-
             <sc-if value="{{is.ess}}" hint-placeholder-val="{{ false }}">
               <div style="height: 100%; display: flex; flex-direction: column">
                 <div style="height: 108px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 1px solid {{c.rule}}">
@@ -120,8 +117,8 @@ button{font-family:inherit}
                     <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">D+ m</span>
                     <span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">812</span>
                   </div>
-                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: {{ess4.bg}}; color: {{ess4.fg}}">
-                    <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase">{{ess4.label}}</span>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center">
+                    <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">{{ess4.label}}</span>
                     <span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">{{ess4.value}}</span>
                   </div>
                 </div>
@@ -133,11 +130,6 @@ button{font-family:inherit}
                 <div style="height: 116px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-bottom: 1px solid {{c.rule}}">
                   <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">{{eff.bigLabel}}</span>
                   <span style="font-size: 80px; font-weight: 700; line-height: 0.9; font-variant-numeric: tabular-nums">{{eff.big}}</span>
-                  <div style="width: 200px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px">
-                    <sc-for list="{{eff.zones}}" as="z" hint-placeholder-count="5">
-                      <div style="height: 10px; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; background: {{z.bg}}; color: #111111; outline: {{z.ring}}">{{z.n}}</div>
-                    </sc-for>
-                  </div>
                 </div>
                 <div style="flex-grow: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr))">
                   <sc-for list="{{eff.cells}}" as="e" hint-placeholder-count="4">
@@ -159,7 +151,7 @@ button{font-family:inherit}
                 <div style="flex-shrink: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid {{c.rule}}">
                   <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 62px; border-right: 1px solid {{c.rule}}"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Pente</span><span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: #F08C00">4 %</span></div>
                   <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 62px; border-right: 1px solid {{c.rule}}"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">D+ m</span><span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">812</span></div>
-                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 62px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">D− m</span><span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">640</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 62px"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">VAM m/h</span><span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">640</span></div>
                 </div>
                 <div style="flex-grow: 1; display: flex; flex-direction: column; padding: 4px 8px 0">
                   <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">5 derniers km</span>
@@ -189,84 +181,68 @@ button{font-family:inherit}
                     <path d="M120 183 L 126 198 L 120 195 L 114 198 Z" fill="{{c.me}}"></path>
                   </g>
                   <g opacity="{{offCourseOp}}">
-                    <line x1="176" y1="214" x2="128" y2="150" stroke="#F59F00" stroke-width="3" stroke-dasharray="5 4"></line>
-                    <circle cx="176" cy="214" r="11" fill="{{c.bg}}" stroke="#F59F00" stroke-width="2.5"></circle>
-                    <path d="M176 205 L 182 220 L 176 217 L 170 220 Z" fill="#F59F00"></path>
+                    <circle cx="176" cy="150" r="11" fill="{{c.bg}}" stroke="{{c.me}}" stroke-width="2"></circle>
+                    <path d="M176 141 L 182 156 L 176 153 L 170 156 Z" fill="{{c.me}}"></path>
                   </g>
                 </svg>
-                <div style="position: absolute; top: 6px; left: 6px; width: 70px; box-sizing: border-box; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; line-height: 1">
+                <div style="position: absolute; top: 6px; left: 6px; width: 84px; box-sizing: border-box; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; line-height: 1">
                   <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: {{c.mute}}">Reste</span>
                   <span style="font-size: 22px; font-weight: 700">63,4 km</span>
                 </div>
-                <div style="position: absolute; top: 6px; right: 6px; width: 62px; box-sizing: border-box; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; align-items: flex-end; line-height: 1">
-                  <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: {{c.mute}}">Vitesse</span>
+                <div style="position: absolute; top: 6px; right: 6px; width: 86px; box-sizing: border-box; padding: 3px 7px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; align-items: flex-end; line-height: 1">
+                  <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: {{c.mute}}">Vitesse km/h</span>
                   <span style="font-size: 22px; font-weight: 700">{{speed}}</span>
-                </div>
-                <div style="position: absolute; bottom: 6px; right: 6px; width: 62px; box-sizing: border-box; padding: 2px 6px; border-radius: 4px; background: {{c.bg}}; border: 1px solid {{c.rule}}; display: flex; flex-direction: column; align-items: flex-end; gap: 2px">
-                  <span style="font-size: 13px; font-weight: 700">{{zoomLabel}}</span>
-                  <div style="width: 48px; height: 3px; background: {{c.fg}}"></div>
                 </div>
               </div>
             </sc-if>
 
             <sc-if value="{{is.climbs}}" hint-placeholder-val="{{ false }}">
               <div style="display: flex; flex-direction: column">
-                <div style="padding: 8px 12px 4px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Montées · 3 restantes</div>
-                <div style="height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid {{c.rule}}; color: {{c.mute}}">
-                  <div style="width: 6px; height: 26px; border-radius: 2px; background: #F2C94C; opacity: 0.5"></div>
-                  <div style="display: flex; flex-direction: column; line-height: 1.05"><span style="font-size: 18px; font-weight: 700">✓ Côte de Sorèze</span><span style="font-size: 14px; font-weight: 500">3,1 km · 5,2 % · 14:20</span></div>
+                <div style="height: 62px; flex-shrink: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid {{c.rule}}">
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: 1px solid {{c.rule}}"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Altitude m</span><span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">612</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: 1px solid {{c.rule}}"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Pente</span><span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: #D9302C">8 %</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">D+ m</span><span style="font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">812</span></div>
                 </div>
-                <div style="height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid {{c.rule}}; background: {{c.next}}">
-                  <div style="width: 6px; height: 34px; border-radius: 2px; background: #D9302C"></div>
-                  <div style="flex-grow: 1; display: flex; flex-direction: column; line-height: 1.05"><span style="font-size: 20px; font-weight: 700">Col de la Galaube</span><span style="font-size: 15px; font-weight: 600">9,6 km · 6,9 % · 660 m</span></div>
-                  <div style="display: flex; flex-direction: column; align-items: flex-end; line-height: 1"><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">dans</span><span style="font-size: 24px; font-weight: 700">{{climbDist}}</span></div>
-                </div>
-                <div style="height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid {{c.rule}}">
-                  <div style="width: 6px; height: 26px; border-radius: 2px; background: #9AA0A6"></div>
-                  <div style="flex-grow: 1; display: flex; flex-direction: column; line-height: 1.05"><span style="font-size: 18px; font-weight: 700">Côte de Lacombe</span><span style="font-size: 14px; font-weight: 500; color: {{c.mute}}">2,4 km · 4,8 %</span></div>
-                  <span style="font-size: 18px; font-weight: 700">22 km</span>
-                </div>
-                <div style="height: 38px; display: flex; align-items: center; gap: 8px; padding: 0 10px">
-                  <div style="width: 6px; height: 26px; border-radius: 2px; background: #F08C00"></div>
-                  <div style="flex-grow: 1; display: flex; flex-direction: column; line-height: 1.05"><span style="font-size: 18px; font-weight: 700">Pic de Nore</span><span style="font-size: 14px; font-weight: 500; color: {{c.mute}}">11,8 km · 5,6 %</span></div>
-                  <span style="font-size: 18px; font-weight: 700">41 km</span>
-                </div>
+                <div style="padding: 6px 12px 2px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">{{climbsTitle}}</div>
+                <sc-for list="{{climbRows}}" as="r" hint-placeholder-count="3">
+                  <div style="height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid {{c.rule}}; background: {{r.bg}}; color: {{r.fg}}">
+                    <div style="width: 5px; height: 30px; border-radius: 2px; flex-shrink: 0; background: {{r.stripe}}; opacity: {{r.op}}"></div>
+                    <div style="flex-grow: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.05"><span style="font-size: 19px; font-weight: 700">{{r.name}}</span><span style="font-size: 14px; font-weight: 500">{{r.info}}</span></div>
+                    <div style="display: flex; flex-direction: column; align-items: flex-end; line-height: 1"><span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: {{c.mute}}">{{r.in}}</span><span style="font-size: {{r.size}}; font-weight: 700">{{r.dist}}</span></div>
+                  </div>
+                </sc-for>
               </div>
             </sc-if>
 
             <sc-if value="{{is.climb}}" hint-placeholder-val="{{ false }}">
               <div style="height: 100%; display: flex; flex-direction: column">
-                <div style="padding: 4px 10px 0; display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 16px; font-weight: 700">Col de la Galaube</span><span style="font-size: 14px; font-weight: 600; color: {{c.mute}}">montée 2/4</span></div>
-                <div style="padding: 2px 10px 6px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; border-bottom: 1px solid {{c.rule}}">
-                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 32px; font-weight: 700">5,2</span><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">km restants</span></div>
-                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 32px; font-weight: 700">384</span><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">m D+ restants</span></div>
-                  <div style="display: flex; flex-direction: column; align-items: flex-end; line-height: 1"><span style="font-size: 32px; font-weight: 700; color: #F08C00">8 %</span><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">pente ici</span></div>
-                </div>
-                <svg width="240" height="112" viewBox="0 0 240 112" role="img" aria-label="Profil de la montée coloré par pente" style="display: block">
-                  <path d="M0 108 L0 102 L20 96 L20 108 Z" fill="{{c.climbDone}}"></path>
-                  <path d="M20 108 L20 96 L40 88 L40 108 Z" fill="{{c.climbDone}}"></path>
-                  <path d="M40 108 L40 88 L60 81 L60 108 Z" fill="{{c.climbDone}}"></path>
-                  <path d="M60 108 L60 81 L80 72 L80 108 Z" fill="{{c.climbDone}}"></path>
-                  <path d="M80 108 L80 72 L100 61 L100 108 Z" fill="{{c.climbDone}}"></path>
-                  <path d="M100 108 L100 61 L120 54 L120 108 Z" fill="#F08C00"></path>
-                  <path d="M120 108 L120 54 L140 44 L140 108 Z" fill="#D9302C"></path>
-                  <path d="M140 108 L140 44 L160 32 L160 108 Z" fill="#7D1A1A"></path>
-                  <path d="M160 108 L160 32 L180 24 L180 108 Z" fill="#F08C00"></path>
-                  <path d="M180 108 L180 24 L200 18 L200 108 Z" fill="#F08C00"></path>
-                  <path d="M200 108 L200 18 L220 14 L220 108 Z" fill="#F2C94C"></path>
-                  <path d="M220 108 L220 14 L240 12 L240 108 Z" fill="#BFC5CC"></path>
-                  <line x1="100" y1="4" x2="100" y2="108" stroke="{{c.me}}" stroke-width="2"></line>
-                  <circle cx="100" cy="61" r="5" fill="{{c.me}}"></circle>
+                <div style="padding: 4px 10px 0; display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 20px; font-weight: 700">{{climbNow.name}}</span><span style="font-size: 15px; font-weight: 600; color: {{c.mute}}">▲ 1 090 m</span></div>
+                <span style="padding: 0 10px; font-size: 15px; font-weight: 500; color: {{c.mute}}">{{climbNow.info}}</span>
+                <svg width="240" height="90" viewBox="0 0 240 104" preserveAspectRatio="none" role="img" aria-label="Profil de la montée coloré par pente, bandes de 1 km" style="display: block; flex-shrink: 0">
+                  <path d="M0 104 L0 100 L24 94.5 L24 104 Z" fill="{{c.climbDone}}"></path>
+                  <path d="M24 104 L24 94.5 L48 86.3 L48 104 Z" fill="{{c.climbDone}}"></path>
+                  <path d="M48 104 L48 86.3 L72 76.8 L72 104 Z" fill="{{c.climbDone}}"></path>
+                  <path d="M72 104 L72 76.8 L96 68.6 L96 104 Z" fill="{{c.climbDone}}"></path>
+                  <path d="M96 104 L96 68.6 L120 57.7 L120 104 Z" fill="#D9302C"></path>
+                  <path d="M120 104 L120 57.7 L144 45.4 L144 104 Z" fill="#7D1A1A"></path>
+                  <path d="M144 104 L144 45.4 L168 34.5 L168 104 Z" fill="#D9302C"></path>
+                  <path d="M168 104 L168 34.5 L192 25 L192 104 Z" fill="#D9302C"></path>
+                  <path d="M192 104 L192 25 L216 16.8 L216 104 Z" fill="#D9302C"></path>
+                  <path d="M216 104 L216 16.8 L240 10 L240 104 Z" fill="#F08C00"></path>
+                  <g font-size="14" font-weight="700" text-anchor="middle" font-family="Barlow Condensed, sans-serif">
+                    <text x="36" y="99" fill="{{c.mute}}">6</text><text x="60" y="99" fill="{{c.mute}}">7</text><text x="84" y="99" fill="{{c.mute}}">6</text>
+                    <text x="108" y="99" fill="#FFFFFF">8</text><text x="132" y="99" fill="#FFFFFF">9</text><text x="156" y="99" fill="#FFFFFF">8</text><text x="180" y="99" fill="#FFFFFF">7</text><text x="204" y="99" fill="#FFFFFF">6</text><text x="228" y="99" fill="#111111">5</text>
+                  </g>
+                  <circle cx="96" cy="68.6" r="5" fill="{{c.me}}"></circle>
                 </svg>
-                <div style="padding: 0 10px 6px; display: flex; flex-direction: column; gap: 2px">
-                  <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">500 prochains mètres</span>
-                  <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px">
-                    <div style="height: 22px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: #F08C00; color: #111111">8</div>
-                    <div style="height: 22px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: #F08C00; color: #111111">7</div>
-                    <div style="height: 22px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: #D9302C; color: #FFFFFF">10</div>
-                    <div style="height: 22px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: #D9302C; color: #FFFFFF">11</div>
-                    <div style="height: 22px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: #7D1A1A; color: #FFFFFF">13</div>
-                  </div>
+                <div style="padding: 1px 10px 2px; display: flex; justify-content: space-between; font-size: 14px; font-weight: 500; color: {{c.mute}}; border-bottom: 1px solid {{c.rule}}"><span>⤓ 430 m</span><span>bandes de 1 km</span></div>
+                <div style="flex-grow: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr))">
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: 1px solid {{c.rule}}; border-bottom: 1px solid {{c.rule}}"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Reste km</span><span style="font-size: 28px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">5,6</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: 1px solid {{c.rule}}; border-bottom: 1px solid {{c.rule}}"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Reste D+ m</span><span style="font-size: 28px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">452</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 1px solid {{c.rule}}"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Moy. reste</span><span style="font-size: 28px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: #D9302C">8 %</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: 1px solid {{c.rule}}"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Pente</span><span style="font-size: 28px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; color: #D9302C">8 %</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; border-right: 1px solid {{c.rule}}"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">VAM m/h</span><span style="font-size: 28px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">940</span></div>
+                  <div style="display: flex; flex-direction: column; align-items: center; justify-content: center"><span style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Au sommet</span><span style="font-size: 28px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums">0:38</span></div>
                 </div>
               </div>
             </sc-if>
@@ -280,8 +256,8 @@ button{font-family:inherit}
                 <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 10px 14px">
                   <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 17px; font-weight: 600; color: {{c.mute}}">Distance</span><span style="font-size: 30px; font-weight: 700">48,6 km</span></div>
                   <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 17px; font-weight: 600; color: {{c.mute}}">Durée</span><span style="font-size: 30px; font-weight: 700">1:42:08</span></div>
-                  <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 17px; font-weight: 600; color: {{c.mute}}">Moyenne</span><span style="font-size: 30px; font-weight: 700">28,5 km/h</span></div>
-                  <div style="padding-top: 6px; border-top: 1px solid {{c.rule}}; font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}">Pause longue ? ≡ Menu › Éteindre : la sortie est gardée et reprend au rallumage.</div>
+                  <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 17px; font-weight: 600; color: {{c.mute}}">Moyenne</span><span style="font-size: 30px; font-weight: 700">28,6 km/h</span></div>
+                  <div style="padding-top: 6px; border-top: 1px solid {{c.rule}}; font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}">Pause longue ? ≡ Menu › Éteindre : la sortie reprend au rallumage.</div>
                 </div>
               </div>
             </sc-if>
@@ -307,7 +283,6 @@ button{font-family:inherit}
                   <span style="font-size: 25px; font-weight: 700; line-height: 1; white-space: nowrap">Terminer la sortie ?</span>
                   <div style="display: flex; flex-direction: column; gap: 6px; font-size: 18px; font-weight: 500; line-height: 1.2">
                     <span>✓ Enregistrée : 48,6 km · 1:42:08</span>
-                    <span>✓ Envoyée dès que possible, effacée une fois reçue</span>
                     <span style="font-weight: 700">↺ Reprenable tant qu'elle n'est pas envoyée</span>
                   </div>
                 </div>
@@ -320,12 +295,12 @@ button{font-family:inherit}
                 <div style="width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; text-align: left">
                   <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">DISTANCE</span><span style="font-size: 26px; font-weight: 700">48,6 km</span></div>
                   <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">DURÉE</span><span style="font-size: 26px; font-weight: 700">1:42:08</span></div>
-                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">MOYENNE</span><span style="font-size: 26px; font-weight: 700">28,5</span></div>
+                  <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">MOYENNE</span><span style="font-size: 26px; font-weight: 700">28,6</span></div>
                   <div style="display: flex; flex-direction: column; line-height: 1"><span style="font-size: 12px; font-weight: 600; color: {{c.mute}}">D+</span><span style="font-size: 26px; font-weight: 700">812 m</span></div>
                 </div>
                 <svg width="212" height="34" viewBox="0 0 212 34" aria-hidden="true" style="display: block"><path d="M0 30 L 16 26 L 26 27 L 38 16 L 46 18 L 56 23 L 66 23 L 82 6 L 92 9 L 106 26 L 124 27 L 132 21 L 142 23 L 158 26 L 188 4 L 200 15 L 212 28 L 212 34 L 0 34 Z" fill="{{c.climbDone}}"></path></svg>
-                <span style="font-size: 15px; font-weight: 600">2 montées sur 4 · 12 min à l'arrêt</span>
-                <span style="font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}">Tu peux la reprendre (bas gauche, ou ≡ Menu) tant qu'elle n'est pas envoyée.</span>
+                <span style="font-size: 15px; font-weight: 600">12 min à l'arrêt</span>
+                <span style="font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}">Tu peux la reprendre (bas gauche, ou Menu) tant qu'elle n'est pas envoyée.</span>
               </div>
             </sc-if>
 
@@ -333,73 +308,85 @@ button{font-family:inherit}
               <div style="display: flex; flex-direction: column">
                 <sc-for list="{{menuRows}}" as="m" hint-placeholder-count="3">
                   <div style="height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 21px; font-weight: 600; border-bottom: 1px solid {{c.rule}}; background: {{m.bg}}; color: {{m.fg}}">
-                    <span>{{m.label}}</span><span>›</span>
+                    <span>{{m.label}}</span><span>{{m.chev}}</span>
                   </div>
                 </sc-for>
-                <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; font-size: 15px; font-weight: 500; line-height: 1.25; color: {{c.mute}}">
-                  <span style="font-weight: 700">Dans l'app :</span>
-                  <span>envoi de la trace, pages de données, zones FC et FTP, roue et manivelle, réseaux Wi-Fi et serveur de synchro.</span>
-                </div>
+                <sc-if value="{{menuNote}}" hint-placeholder-val="{{ true }}">
+                  <div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; font-size: 15px; font-weight: 500; line-height: 1.25; color: {{c.mute}}">
+                    <span style="font-weight: 700">Dans l'app :</span>
+                    <span>envoi de la trace, pages de données, zones FC et FTP, roue et manivelle, réseaux Wi-Fi et serveur de synchro.</span>
+                  </div>
+                </sc-if>
               </div>
             </sc-if>
 
             <sc-if value="{{is.sensors}}" hint-placeholder-val="{{ false }}">
-              <div style="display: flex; flex-direction: column">
-                <sc-for list="{{sensorRows}}" as="s" hint-placeholder-count="5">
-                  <div style="height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid {{c.rule}}; background: {{s.bg}}; color: {{s.fg}}">
-                    <div style="display: flex; flex-direction: column; line-height: 1.05">
-                      <span style="font-size: 20px; font-weight: 700">{{s.title}}</span>
-                      <span style="font-size: 14px; font-weight: 500">{{s.name}}</span>
+              <div style="height: 100%; display: flex; flex-direction: column">
+                <div style="padding: 8px 12px 4px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Capteurs</div>
+                <sc-for list="{{sensorRows}}" as="s" hint-placeholder-count="3">
+                  <div style="height: {{s.h}}; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid {{c.rule}}; background: {{s.bg}}; color: {{s.fg}}">
+                    <div style="display: flex; flex-direction: column; line-height: 1.1">
+                      <span style="font-size: 21px; font-weight: 600">{{s.title}}</span>
+                      <span style="font-size: 15px; font-weight: 500; color: {{s.subFg}}">{{s.sub}}</span>
                     </div>
-                    <span style="font-size: 17px; font-weight: 700">{{s.val}}</span>
+                    <span style="font-size: 21px; font-weight: 600">›</span>
                   </div>
                 </sc-for>
+                <span style="padding: 8px 12px; font-size: 15px; font-weight: 500; line-height: 1.25; color: {{c.mute}}">{{sensorsNote}}</span>
               </div>
             </sc-if>
 
             <sc-if value="{{is.scan}}" hint-placeholder-val="{{ false }}">
               <div style="display: flex; flex-direction: column">
-                <div style="padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid {{c.rule}}">
-                  <span style="font-size: 19px; font-weight: 700; color: {{c.me}}">Recherche ANT+ et Bluetooth…</span>
-                  <span style="font-size: 14px; font-weight: 500; color: {{c.mute}}">Réveille le capteur : pédale, ou mets la ceinture.</span>
-                </div>
+                <div style="padding: 8px 12px 4px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Recherche · {{role.title}}</div>
                 <sc-for list="{{scanRows}}" as="s" hint-placeholder-count="3">
-                  <div style="height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid {{c.rule}}; background: {{s.bg}}; color: {{s.fg}}">
-                    <div style="display: flex; flex-direction: column; line-height: 1.05">
-                      <span style="font-size: 20px; font-weight: 700">{{s.title}}</span>
-                      <span style="font-size: 14px; font-weight: 500">{{s.sub}}</span>
-                    </div>
-                    <span style="font-size: 15px; font-weight: 700">{{s.sig}}</span>
+                  <div style="height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border-bottom: 1px solid {{c.rule}}; background: {{s.bg}}; color: {{s.fg}}">
+                    <span style="font-size: 21px; font-weight: 600">{{s.title}}</span>
+                    <span style="font-size: 15px; font-weight: 500">{{s.sig}}</span>
                   </div>
+                </sc-for>
+                <span style="padding: 8px 12px; font-size: 15px; font-weight: 500; line-height: 1.25; color: {{c.mute}}">{{scanNote}}</span>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.calibrate}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 8px 12px">
+                <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Calibrer la puissance</span>
+                <span style="font-size: 19px; font-weight: 500; line-height: 1.2">Vélo à l'arrêt, pieds au sol, manivelle en bas. Ne touche plus les pédales pendant ~10 s.</span>
+                <span style="font-size: 15px; font-weight: 500; line-height: 1.25; color: {{c.mute}}">Avant chaque sortie, et quand la température a bien changé.</span>
+                <span style="margin-top: 14px; font-size: 19px; font-weight: 700; color: {{calib.fg}}">{{calib.text}}</span>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{is.status}}" hint-placeholder-val="{{ false }}">
+              <div style="display: flex; flex-direction: column; gap: 5px; padding: 8px 12px">
+                <span style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">État du compteur</span>
+                <sc-for list="{{statusRows}}" as="r" hint-placeholder-count="5">
+                  <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; height: 22px; font-size: 18px; font-weight: 600; white-space: nowrap"><span style="color: {{c.mute}}">{{r.k}}</span><span>{{r.v}}</span></div>
                 </sc-for>
               </div>
             </sc-if>
 
-            <sc-if value="{{is.detail}}" hint-placeholder-val="{{ false }}">
-              <div style="height: 100%; display: flex; flex-direction: column">
-                <div style="padding: 10px 12px 8px; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid {{c.rule}}">
-                  <span style="font-size: 26px; font-weight: 700; line-height: 1">{{sensor.title}}</span>
-                  <span style="font-size: 16px; font-weight: 500; color: {{c.mute}}">{{sensor.name}}</span>
-                </div>
-                <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px">
-                  <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Mesure</span><span style="color: {{c.ok}}">{{sensor.val}}</span></div>
-                  <div style="display: flex; justify-content: space-between; font-size: 19px; font-weight: 600"><span style="color: {{c.mute}}">Pile</span><span>{{sensor.batt}}</span></div>
-                  <sc-if value="{{sensorIsPower}}" hint-placeholder-val="{{ false }}">
-                    <div style="padding-top: 6px; border-top: 1px solid {{c.rule}}; font-size: 15px; font-weight: 500; line-height: 1.2; color: {{c.mute}}">Étalonner : manivelle en bas, ne pas pédaler pendant 5 s.</div>
-                  </sc-if>
-                </div>
+            <sc-if value="{{is.rides}}" hint-placeholder-val="{{ false }}">
+              <div style="height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px; padding: 8px 12px">
+                <div style="display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}"><span>{{ridesTitle}}</span><span>{{rideCard.pos}}</span></div>
+                <span style="margin-top: 6px; font-size: 26px; font-weight: 700; line-height: 1">{{rideCard.date}}</span>
+                <span style="font-size: 19px; font-weight: 500">{{rideCard.info}}</span>
+                <span style="font-size: 19px; font-weight: 700; color: {{rideCard.fg}}">{{rideCard.sent}}</span>
+                <span style="margin-top: 8px; font-size: 15px; font-weight: 500; line-height: 1.25; color: {{c.mute}}">{{ridesNote}}</span>
+                <span style="margin-top: auto; font-size: 15px; font-weight: 500; color: {{c.mute}}">{{ridesFree}}</span>
               </div>
             </sc-if>
 
-            <sc-if value="{{is.forget}}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{is.ask}}" hint-placeholder-val="{{ false }}">
               <div style="height: 100%; display: flex; flex-direction: column">
-                <div style="height: 6px; background: #C92A2A"></div>
-                <div style="display: flex; flex-direction: column; gap: 10px; padding: 14px">
-                  <span style="font-size: 25px; font-weight: 700; line-height: 1; white-space: nowrap">Oublier ce capteur ?</span>
-                  <div style="display: flex; flex-direction: column; gap: 6px; font-size: 18px; font-weight: 500; line-height: 1.2">
-                    <span>{{sensor.title}} · {{sensor.name}}</span>
-                    <span style="color: {{c.danger}}; font-weight: 700">✕ Il faudra le rechercher à nouveau pour l'utiliser</span>
-                  </div>
+                <div style="height: 4px; background: {{ask.stripe}}"></div>
+                <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px">
+                  <span style="font-size: 25px; font-weight: 700; line-height: 1; white-space: nowrap; color: {{ask.titleFg}}">{{ask.title}}</span>
+                  <sc-for list="{{ask.lines}}" as="l" hint-placeholder-count="2">
+                    <span style="font-size: 18px; font-weight: {{l.w}}; line-height: 1.2; color: {{l.fg}}">{{l.t}}</span>
+                  </sc-for>
+                  <span style="margin-top: auto; font-size: 15px; font-weight: 500; line-height: 1.25; color: {{c.mute}}">{{ask.note}}</span>
                 </div>
               </div>
             </sc-if>
@@ -439,10 +426,12 @@ button{font-family:inherit}
                 <div style="padding: 8px 12px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: {{c.mute}}">Sortie en pause</div>
                 <sc-for list="{{pmRows}}" as="m" hint-placeholder-count="3">
                   <div style="height: 42px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font-size: 21px; font-weight: 600; border-bottom: 1px solid {{c.rule}}; background: {{m.bg}}; color: {{m.fg}}">
-                    <span>{{m.label}}</span><span>›</span>
+                    <span>{{m.label}}</span><span>{{m.chev}}</span>
                   </div>
                 </sc-for>
-                <div style="padding: 10px 12px; font-size: 15px; font-weight: 500; line-height: 1.25; color: {{c.mute}}">Pour changer de trace, envoie-la depuis l'app, même pendant la sortie.</div>
+                <sc-if value="{{pmNote}}" hint-placeholder-val="{{ false }}">
+                  <div style="padding: 10px 12px; font-size: 15px; font-weight: 500; line-height: 1.25; color: {{c.mute}}">Pour changer de trace, envoie-la depuis l'app, même pendant la sortie.</div>
+                </sc-if>
               </div>
             </sc-if>
 
@@ -463,7 +452,7 @@ button{font-family:inherit}
           </div>
 
           <div style="height: 40px; flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr); grid-template-rows: 40px; border-top: 1px solid {{c.rule}}">
-            <button onClick="{{pressBG}}" style="display: flex; align-items: center; height: 40px; padding: 0 5px; border: none; white-space: nowrap; overflow: hidden; box-shadow: inset 0 -5px 0 #3BB3E0; font-size: 18px; font-weight: 700; cursor: pointer; background: {{c.chip}}; color: {{bgColor}}">{{bgLabel}}</button>
+            <button onClick="{{pressBG}}" style="display: flex; align-items: center; height: 40px; padding: 0 5px; border: none; white-space: nowrap; overflow: hidden; box-shadow: inset 0 -5px 0 #3BB3E0; font-size: 18px; font-weight: 700; cursor: pointer; background: {{bgBg}}; color: {{bgColor}}">{{bgLabel}}</button>
             <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1; overflow: hidden; color: {{c.mute}}"><span style="font-size: 9px; letter-spacing: 1px">{{dots}}</span><span style="height: 12px; font-size: 12px; font-weight: 700; color: {{c.me}}">{{scrollMark}}</span></div>
             <button onClick="{{pressBD}}" style="display: flex; align-items: center; justify-content: flex-end; height: 40px; padding: 0 5px; border: none; white-space: nowrap; overflow: hidden; box-shadow: inset 0 -5px 0 #3BB3E0; font-size: 18px; font-weight: 700; cursor: pointer; background: {{bdBg}}; color: {{bdFg}}">{{bdLabel}}</button>
           </div>
@@ -485,6 +474,9 @@ button{font-family:inherit}
         <button onClick="{{simClimbStep}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">{{climbLabel}}</button>
         <button onClick="{{simTunnel}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">{{tunnelLabel}}</button>
         <button onClick="{{simLost}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Ceinture FC décroche</button>
+        <button onClick="{{simStill}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">Rester arrêté 20 min</button>
+        <button onClick="{{simEmpty}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">{{emptyLabel}}</button>
+        <button onClick="{{simFull}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">{{fullLabel}}</button>
         <div style="height: 1px; margin: 4px 0; background: #C8C5BE"></div>
         <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Depuis l'app</span>
         <button onClick="{{simUpload}}" style="height: 34px; border: 1px solid #B9B5AD; border-radius: 6px; background: #FFFFFF; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 10px; color: #111111">La sortie est envoyée</button>
@@ -495,15 +487,15 @@ button{font-family:inherit}
       <div style="display: flex; flex-direction: column; gap: 2px">
         <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Usage (question de l'app)</span>
         <sc-for list="{{usageRows}}" as="o" hint-placeholder-count="2">
-          <button onClick="{{o.toggle}}" style="height: 28px; border: none; border-radius: 6px; background: transparent; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 4px; color: #111111">{{o.box}} {{o.label}}</button>
+          <button onClick="{{o.toggle}}" style="height: 28px; border: none; border-radius: 6px; background: transparent; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 4px; white-space: nowrap; color: #111111">{{o.box}} {{o.label}}</button>
         </sc-for>
         <span style="margin-top: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Détecté au départ</span>
         <sc-for list="{{ctxRows}}" as="o" hint-placeholder-count="4">
-          <button onClick="{{o.toggle}}" style="height: 28px; border: none; border-radius: 6px; background: transparent; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 4px; color: #111111">{{o.box}} {{o.label}}</button>
+          <button onClick="{{o.toggle}}" style="height: 28px; border: none; border-radius: 6px; background: transparent; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 4px; white-space: nowrap; color: #111111">{{o.box}} {{o.label}}</button>
         </sc-for>
         <span style="margin-top: 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #555555">Réglages (dans l'app)</span>
         <sc-for list="{{settingRows}}" as="o" hint-placeholder-count="6">
-          <button onClick="{{o.toggle}}" style="height: 26px; border: none; border-radius: 6px; background: transparent; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 4px; color: #111111">{{o.box}} {{o.label}}</button>
+          <button onClick="{{o.toggle}}" style="height: 26px; border: none; border-radius: 6px; background: transparent; font-size: 17px; font-weight: 600; cursor: pointer; text-align: left; padding: 0 4px; white-space: nowrap; color: #111111">{{o.box}} {{o.label}}</button>
         </sc-for>
         <span style="margin-top: 6px; font-size: 14px; font-weight: 500; line-height: 1.25; color: #555555">Les fonctions « bientôt » sont prévues mais désactivées par défaut.</span>
       </div>
@@ -599,7 +591,7 @@ function fit() {
   const w = Math.min(1, (document.documentElement.clientWidth - 16) / 820);
   const box = document.getElementById('stage');
   box.style.transform = 'scale(' + w + ')';
-  box.parentElement.style.height = (720 * w) + 'px';
+  box.parentElement.style.height = (800 * w) + 'px';
 }
 window.addEventListener('resize', fit);
 fit();
@@ -614,14 +606,15 @@ class Component extends DCLogic {
   }
   initial() {
     return {
-      scr: 'home', page: 0, ride: false, climb: 'none', gps: 'search', toast: '', pending: 2, pmI: 0, pmBack: 'pause', lost: false, moving: false, off: false, zoomI: 0, scrollOn: false, free: false,
-      opt: { usage: 'balade', pwr: true, hr: true, cad: true, trace: true, autoPause: true, startPrompt: true, offBeep: true, autoScroll: true, nightAuto: true, turns: false, strava: false },
-      menuI: 0, sensI: 0, scanI: 0, traceI: 0, trace: 0, confirmFrom: 'pause',
-      sensors: [
-        { key: 'hr', title: 'Fréquence cardiaque', name: 'HRM-Pro · ANT+', val: '● 142', batt: 'OK', paired: true },
-        { key: 'cad', title: 'Cadence', name: 'Wahoo RPM · BLE', val: '● 88', batt: 'OK', paired: true },
-        { key: 'pwr', title: 'Puissance', name: 'Assioma · ANT+', val: '● 215 W', batt: 'faible · ~5 h', paired: true },
-        { key: 'spd', title: 'Vitesse', name: 'non associé · GPS utilisé', val: '○', batt: '—', paired: false }
+      scr: 'home', page: 0, ride: false, climb: 'none', climbsDone: 1, gps: 'search', toast: '', pmI: 0, pmBack: 'pause', lost: false, moving: false, off: false, offStage: 0, zoomI: 2, scrollOn: false, free: false,
+      empty: false, full: false, makingRoom: false, autoOff: false, calib: 'idle',
+      opt: { usage: 'balade', pwr: true, hr: true, cad: true, trace: true, autoOffOn: true, autoPause: false, startPrompt: false, offBeep: false, autoScroll: true, nightAuto: false, turns: false, strava: false },
+      names: { hr: 'HRM-Pro', cad: 'Wahoo CADENCE', pwr: 'Assioma' },
+      menuI: 0, roleI: 0, calibRow: false, scanI: 0, rideI: 0, trace: 0, confirmFrom: 'pause',
+      rides: [
+        { date: 'mar. 20 oct.', info: '17:32 · 1 h 05 · 28,4 km', sent: false },
+        { date: 'dim. 18 oct.', info: '08:47 · 3 h 10 · 74,2 km', sent: false },
+        { date: 'sam. 17 oct.', info: '09:15 · 1 h 22 · 38,0 km', sent: true }
       ]
     };
   }
@@ -634,12 +627,14 @@ class Component extends DCLogic {
       if (st.scr === 'ride' && st.scrollOn) this.setState({ page: (st.page + 1) % st.pages.length });
     }, 4000);
   }
+  // as crates/ui `pages`: the map first with a route, Climbs in place of Altitude, Effort with a power meter only
   compose(o) {
-    const effort = o.pwr || o.hr;
+    const effort = o.pwr ? 'effort' : null;
     const route = o.trace && !this.state.free;
+    const height = route ? 'climbs' : 'alt';
     let p;
-    if (o.usage === 'balade') p = route ? ['map', 'ess', 'climbs'] : ['ess', 'alt', effort ? 'effort' : null];
-    else p = route ? [effort ? 'effort' : null, 'ess', 'map', 'climbs'] : [effort ? 'effort' : null, 'ess', 'alt'];
+    if (o.usage === 'balade') p = route ? ['map', 'ess', height, effort] : ['ess', height, effort];
+    else p = route ? [effort, 'ess', 'map', height] : [effort, 'ess', height];
     return p.filter(Boolean);
   }
   beep(why) {
@@ -648,7 +643,7 @@ class Component extends DCLogic {
     this.beepT = setTimeout(() => this.setState({ beepWhy: '' }), 1600);
   }
   stopScroll() { clearInterval(this.scrollT); if (this.state.scrollOn) this.setState({ scrollOn: false }); }
-  componentWillUnmount() { clearTimeout(this.beepT); clearInterval(this.scrollT); clearTimeout(this.timer); clearTimeout(this.holdT); clearTimeout(this.lostT); }
+  componentWillUnmount() { clearTimeout(this.beepT); clearInterval(this.scrollT); clearTimeout(this.timer); clearTimeout(this.holdT); clearTimeout(this.lostT); clearTimeout(this.offT); clearTimeout(this.autoOffT); clearTimeout(this.calibT); clearTimeout(this.splashT); }
   say(msg, ms) {
     if (this.timer) clearTimeout(this.timer);
     const d = ms || 3000;
@@ -662,9 +657,45 @@ class Component extends DCLogic {
       { name: 'Sortie VTT Sidobre', info: '38 km · 950 m D+' }
     ];
   }
-  menuItems() { return (this.state.last === 'kept' ? ['↺ Reprendre la dernière sortie'] : []).concat(this.routeItem() ? [this.routeItem()] : []).concat(['Synchro Wi-Fi', 'Capteurs']); }
-  routeItem() { return this.state.opt.trace ? (this.state.free ? 'Suivre la trace' : 'Rouler sans trace') : null; }
-  pmItems() { return ['Capteurs'].concat(this.routeItem() ? [this.routeItem()] : []).concat(['Éteindre (sortie gardée)']); }
+  climbs() {
+    return [
+      { info: '3,1 km · 5,2 % · 160 m', stripe: '#F08C00', at: [0, 0] },
+      { info: '9,6 km · 6,9 % · 660 m', stripe: '#D9302C', at: ['1,2 km', '0,4 km'] },
+      { info: '2,4 km · 4,8 % · 115 m', stripe: '#F08C00', at: ['22 km'] },
+      { info: '11,8 km · 5,6 % · 660 m', stripe: '#F08C00', at: ['41 km'] }
+    ];
+  }
+  roles() {
+    return [
+      { key: 'hr', title: 'Cardio', scan: 'Cardio', unit: '142 bpm', found: [['HRM-Pro', '−48 dBm'], ['Polar H10', '−71 dBm']] },
+      { key: 'cad', title: 'Vitesse / cadence', scan: 'Vitesse / cadence', unit: '88 rpm', found: [['Wahoo CADENCE', '−55 dBm'], ['Garmin Speed 2', '−80 dBm']] },
+      { key: 'pwr', title: 'Puissance', scan: 'Puissance', unit: '215 W', found: [['Assioma', '−60 dBm']] }
+    ];
+  }
+  routeItem() {
+    if (!this.state.opt.trace) return null;
+    return this.state.free ? { l: 'Suivre la trace', a: 'Suivre', route: true } : { l: 'Rouler sans trace', a: 'Sans trace', route: true };
+  }
+  // as crates/ui `Ui::menu`; `a` is the select key's label on the entry, `opens` draws a chevron
+  menuItems() {
+    return [
+      this.state.last === 'kept' ? { l: '↺ Reprendre la sortie', a: 'Reprendre', resume: true } : null,
+      this.routeItem(),
+      { l: 'Capteurs', a: 'Ouvrir ›', opens: 'sensors' },
+      { l: 'Sorties enregistrées', a: 'Ouvrir ›', opens: 'rides' },
+      { l: 'État du compteur', a: 'Ouvrir ›', opens: 'status' },
+      { l: 'Synchro Wi-Fi (bientôt)', a: 'Ouvrir ›', opens: 'sync' }
+    ].filter(Boolean);
+  }
+  pmItems() {
+    return [
+      { l: 'Capteurs', a: 'Ouvrir ›', opens: 'sensors' },
+      this.routeItem(),
+      { l: 'Éteindre (sortie gardée)', a: 'Éteindre', powerOff: true },
+      { l: 'État du compteur', a: 'Ouvrir ›', opens: 'status' },
+      { l: 'Abandonner la sortie', a: 'Effacer…', discard: true }
+    ].filter(Boolean);
+  }
   toggleRoute(back) {
     const free = !this.state.free;
     const tr = this.traces()[this.state.trace];
@@ -674,111 +705,161 @@ class Component extends DCLogic {
     this.setState(patch);
     this.say(free ? 'Parcours libre · trace gardée' : 'Trace suivie · ' + tr.name);
   }
+  start() {
+    const s = this.state;
+    if (s.full) { this.setState({ scr: 'rides', makingRoom: true, rideI: s.rides.length - 1 }); return; }
+    this.setState({ scr: 'ride', page: 0, ride: true, moving: true, simMsg: '', pages: this.compose(s.opt), lost: false, empty: false, climb: 'none' });
+    this.beep('enregistrement démarré');
+  }
   resumeLast() {
     if (this.state.last !== 'kept') { this.say('Déjà envoyée · elle ne peut plus être reprise'); return; }
-    this.setState({ scr: 'ride', ride: true, page: 0, moving: true, last: null, pending: Math.max(0, this.state.pending - 1), pages: this.state.pages && this.state.pages.length ? this.state.pages : this.compose(this.state.opt) });
+    this.setState({ scr: 'ride', ride: true, page: 0, moving: true, last: null, rides: this.state.rides.slice(1), pages: this.state.pages && this.state.pages.length ? this.state.pages : this.compose(this.state.opt) });
     this.say('Sortie reprise · même enregistrement');
   }
-  scanItems() {
-    return [
-      { key: 'spd', title: 'Vitesse · Garmin 2', sub: 'ANT+ · n° 48213', name: 'Garmin 2 · ANT+', val: '● 33,9 km/h', sig: '▂▄▆█' },
-      { key: 'hr', title: 'FC · Polar H10', sub: 'BLE · un autre cycliste ?', name: 'Polar H10 · BLE', val: '● 139', sig: '▂▄' }
-    ];
+  finish() {
+    this.stopScroll();
+    const ride = { date: 'mer. 21 oct.', info: '08:47 · 1 h 42 · 48,6 km', sent: false };
+    this.setState({ scr: 'saved', ride: false, climb: 'none', off: false, last: 'kept', rides: [ride].concat(this.state.rides) });
+    this.beep('sortie enregistrée');
+  }
+  discard() {
+    this.stopScroll();
+    this.setState({ scr: 'home', ride: false, climb: 'none', off: false, empty: false });
+    this.say('Sortie effacée · rien n’est enregistré');
+  }
+  powerOff() {
+    this.stopScroll();
+    clearTimeout(this.autoOffT);
+    this.setState({ scr: 'off', autoOff: false });
+  }
+  scanRows() {
+    const s = this.state;
+    const r = this.roles()[s.roleI];
+    const paired = s.opt[r.key];
+    return r.found.map(([n, sig]) => ({ title: (paired && s.names[r.key] === n ? '✓ ' : '') + n, sig, name: n }))
+      .concat(paired ? [{ title: 'Aucun (oublier)', sig: '', forget: true }] : []);
   }
   keys() {
     const s = this.state;
     const set = (p) => () => this.setState(p);
     const none = { l: '—', f: () => {} };
-    const sens = s.sensors;
+    const back = { l: '◀ Retour' };
+    const next = { l: 'Suivant ▼' };
     switch (s.scr) {
       case 'home': return {
-        hg: { l: '⏻ Maintenir', hold: true, f: set({ scr: 'off' }) },
+        hg: { l: '⏻ Maintenir', hold: true, f: () => this.powerOff() },
         bg: { l: '≡ Menu', f: set({ scr: 'menu', menuI: 0 }) },
-        bd: { l: 'Démarrer', k: 'go', f: () => { this.setState({ scr: 'ride', page: 0, ride: true, moving: true, simMsg: '', pages: this.compose(s.opt), lost: false }); this.beep('enregistrement démarré'); } } };
-      case 'traces': return {
-        hg: { l: '◀ Retour', f: set({ scr: 'home' }) },
-        bg: { l: 'Suivant ▼', f: set({ traceI: (s.traceI + 1) % 3 }) },
-        bd: { l: 'Charger', k: 'sel', f: () => { this.setState({ scr: 'home', trace: s.traceI }); this.say('Trace chargée'); } } };
+        bd: { l: 'Démarrer', k: 'go', f: () => this.start() } };
       case 'ride': {
-        const zooms = ['500 m', '1 km', '2 km'];
+        const zooms = ['125 m ━━', '250 m ━━', '500 m ━━', '1 km ━━', '⊕ Trace'];
         let hg;
-        if ((s.pages || [])[s.page] === 'map') hg = { l: '⊕ ' + zooms[(s.zoomI + 1) % 3], f: set({ zoomI: (s.zoomI + 1) % 3 }) };
+        if ((s.pages || [])[s.page] === 'map') hg = { l: zooms[s.zoomI], f: set({ zoomI: (s.zoomI + 1) % zooms.length }) };
         else if (s.opt.autoScroll) hg = { l: s.scrollOn ? '⟳ Défil. oui' : '⟳ Défil. non', f: () => this.toggleScroll() };
-        else hg = { l: '—', f: () => {} };
+        else hg = none;
         return {
         hg,
         bg: { l: 'Page ▶', f: set({ page: (s.page + 1) % s.pages.length }) },
         bd: { l: 'Pause ❚❚', k: 'pause', f: () => { this.stopScroll(); this.setState({ scr: 'pause' }); } } };
       }
-      case 'pause': return {
-        hg: { l: '≡ Menu', f: set({ scr: 'pauseMenu', pmI: 0, pmBack: 'pause' }) },
-        bg: { l: 'Terminer…', f: set({ scr: 'confirm', confirmFrom: 'pause' }) },
-        bd: { l: 'Reprendre', k: 'go', f: set({ scr: 'ride' }) } };
+      case 'pause':
       case 'resume': return {
-        hg: { l: '≡ Menu', f: set({ scr: 'pauseMenu', pmI: 0, pmBack: 'resume' }) },
-        bg: { l: 'Terminer…', f: set({ scr: 'confirm', confirmFrom: 'resume' }) },
-        bd: { l: 'Reprendre', k: 'go', f: set({ scr: 'ride', page: 0 }) } };
+        hg: { l: '≡ Menu', f: set({ scr: 'pauseMenu', pmI: 0, pmBack: s.scr }) },
+        bg: { l: 'Terminer…', f: set({ scr: s.empty ? 'confirmEmpty' : 'confirm', confirmFrom: s.scr }) },
+        bd: { l: 'Reprendre', k: 'go', f: set({ scr: 'ride', page: s.scr === 'resume' ? 0 : s.page }) } };
       case 'confirm': return {
         hg: { l: '◀ Annuler', f: set({ scr: s.confirmFrom }) },
         bg: { l: 'Annuler', f: set({ scr: s.confirmFrom }) },
-        bd: { l: 'Terminer ■', k: 'sel', f: () => { this.stopScroll(); this.setState({ scr: 'saved', ride: false, climb: 'none', off: false, pending: s.pending + 1, last: 'kept' }); this.beep('sortie enregistrée'); } } };
-      case 'saved': return { hg: none, bg: { l: 'Reprendre', f: () => this.resumeLast() }, bd: { l: 'OK', k: 'sel', f: set({ scr: 'home' }) } };
-      case 'pauseMenu': return {
-        hg: { l: '◀ Retour', f: set({ scr: s.pmBack }) },
-        bg: { l: 'Suivant ▼', f: set({ pmI: (s.pmI + 1) % this.pmItems().length }) },
-        bd: { l: 'Ouvrir ›', k: 'sel', f: () => {
-          const it = this.pmItems()[s.pmI];
-          if (it === 'Capteurs') this.setState({ scr: 'sensors', sensI: 0 });
-          else if (it === this.routeItem()) this.toggleRoute(s.pmBack);
-          else { this.stopScroll(); this.setState({ scr: 'off' }); }
-        } } };
-      case 'off': return { hg: { l: '', hold: true, f: set({ scr: s.ride ? 'resume' : 'home', gps: 'search' }) }, bg: { l: '', f: () => {} }, bd: { l: '', f: () => {} } };
-      case 'menu': return {
-        hg: { l: '◀ Retour', f: set({ scr: 'home' }) },
-        bg: { l: 'Suivant ▼', f: set({ menuI: (s.menuI + 1) % this.menuItems().length }) },
-        bd: { l: 'Ouvrir ›', k: 'sel', f: () => {
-          const it = this.menuItems()[s.menuI];
-          if (it === 'Synchro Wi-Fi') this.setState({ scr: 'sync' });
-          else if (it === this.routeItem()) this.toggleRoute('home');
-          else if (it === 'Capteurs') this.setState({ scr: 'sensors', sensI: 0 });
-          else this.resumeLast();
-        } } };
-      case 'sensors': return {
-        hg: { l: '◀ Retour', f: set({ scr: s.ride ? 'pauseMenu' : 'menu' }) },
-        bg: { l: 'Suivant ▼', f: set({ sensI: (s.sensI + 1) % (sens.length + 1) }) },
-        bd: { l: 'Ouvrir ›', k: 'sel', f: () => {
-          if (s.sensI === sens.length || !sens[s.sensI].paired) this.setState({ scr: 'scan', scanI: 0 });
-          else this.setState({ scr: 'detail' });
-        } } };
-      case 'detail': {
-        const isPwr = sens[s.sensI] && sens[s.sensI].key === 'pwr';
+        bd: { l: 'Terminer ■', k: 'sel', f: () => this.finish() } };
+      case 'confirmEmpty': return {
+        hg: { l: '◀ Annuler', f: set({ scr: s.confirmFrom }) },
+        bg: { l: 'Enregistrer', f: () => this.finish() },
+        bd: { l: 'Effacer ✕', k: 'danger', f: () => this.discard() } };
+      case 'confirmDiscard': return {
+        hg: { l: '◀ Annuler', f: set({ scr: s.pmBack }) },
+        bg: { l: 'Annuler', f: set({ scr: s.pmBack }) },
+        bd: { l: 'Effacer…', k: 'danger', f: set({ scr: 'confirmDiscardAgain' }) } };
+      // the keys the other way round: two presses out of habit erase nothing
+      case 'confirmDiscardAgain': return {
+        hg: { l: '◀ Annuler', f: set({ scr: s.pmBack }) },
+        bg: { l: 'Effacer ✕', k: 'danger', f: () => this.discard() },
+        bd: { l: 'Garder', k: 'go', f: set({ scr: s.pmBack }) } };
+      case 'saved': return { hg: none, bg: s.last === 'kept' ? { l: 'Reprendre', f: () => this.resumeLast() } : none, bd: { l: 'OK', k: 'sel', f: set({ scr: 'home' }) } };
+      case 'menu':
+      case 'pauseMenu': {
+        const items = s.scr === 'menu' ? this.menuItems() : this.pmItems();
+        const i = s.scr === 'menu' ? s.menuI : s.pmI;
+        const it = items[i];
+        const from = s.scr === 'menu' ? 'home' : s.pmBack;
         return {
-          hg: { l: '◀ Retour', f: set({ scr: 'sensors' }) },
-          bg: { l: 'Oublier…', f: set({ scr: 'forget' }) },
-          bd: isPwr ? { l: 'Étalonner', k: 'sel', f: () => this.say('Étalonné · décalage −12') } : none };
+          hg: { l: back.l, f: set({ scr: from }) },
+          bg: { l: next.l, f: set(s.scr === 'menu' ? { menuI: (i + 1) % items.length } : { pmI: (i + 1) % items.length }) },
+          bd: { l: it.a, k: it.discard ? 'danger' : 'sel', f: () => {
+            if (it.resume) this.resumeLast();
+            else if (it.route) this.toggleRoute(from);
+            else if (it.powerOff) this.powerOff();
+            else if (it.discard) this.setState({ scr: s.empty ? 'confirmEmpty' : 'confirmDiscard', confirmFrom: s.pmBack });
+            else if (it.opens === 'sensors') this.setState({ scr: 'sensors', roleI: 0, calibRow: false });
+            else if (it.opens === 'rides') this.setState({ scr: 'rides', rideI: 0, makingRoom: false });
+            else this.setState({ scr: it.opens });
+          } } };
       }
-      case 'forget': return {
-        hg: { l: '◀ Annuler', f: set({ scr: 'detail' }) },
-        bg: { l: 'Annuler', f: set({ scr: 'detail' }) },
-        bd: { l: 'Oublier ✕', k: 'danger', f: () => {
-          const next = sens.map((x, i) => i === s.sensI ? { ...x, name: 'non associé', val: '○', batt: '—', paired: false } : x);
-          this.setState({ sensors: next, scr: 'sensors' });
-          this.say('Capteur oublié · recherche-le pour le réutiliser');
+      case 'status': return { hg: { l: back.l, f: set({ scr: s.ride ? 'pauseMenu' : 'menu' }) }, bg: none, bd: none };
+      // after the power meter, its calibration once it is paired
+      case 'sensors': return {
+        hg: { l: back.l, f: set({ scr: s.ride ? 'pauseMenu' : 'menu' }) },
+        bg: { l: next.l, f: () => {
+          if (s.calibRow) this.setState({ calibRow: false, roleI: 0 });
+          else if (s.roleI === 2 && s.opt.pwr) this.setState({ calibRow: true });
+          else this.setState({ roleI: (s.roleI + 1) % 3 });
+        } },
+        bd: s.calibRow ? { l: 'Ouvrir ›', k: 'sel', f: set({ scr: 'calibrate', calib: 'idle' }) }
+          : { l: 'Chercher ›', k: 'sel', f: set({ scr: 'scan', scanI: 0 }) } };
+      case 'scan': {
+        const rows = this.scanRows();
+        const r = this.roles()[s.roleI];
+        return {
+          hg: { l: back.l, f: set({ scr: 'sensors' }) },
+          bg: rows.length > 1 ? { l: next.l, f: set({ scanI: (s.scanI + 1) % rows.length }) } : none,
+          bd: { l: 'Choisir ›', k: 'sel', f: () => {
+            const row = rows[s.scanI];
+            const opt = Object.assign({}, s.opt, { [r.key]: !row.forget });
+            this.setState({ opt, names: Object.assign({}, s.names, row.forget ? {} : { [r.key]: row.name }), scr: 'sensors', calibRow: false });
+            this.say(row.forget ? 'Capteur oublié · ' + r.title : 'Capteur associé · ' + row.name);
+          } } };
+      }
+      case 'calibrate': return s.calib === 'run'
+        ? { hg: { l: back.l, f: set({ scr: 'sensors' }) }, bg: none, bd: none }
+        : { hg: { l: back.l, f: set({ scr: 'sensors' }) }, bg: none, bd: { l: 'Calibrer', k: 'go', f: () => {
+          clearTimeout(this.calibT);
+          this.setState({ calib: 'run' });
+          this.calibT = setTimeout(() => this.setState({ calib: 'done' }), 2500);
         } } };
-      case 'scan': return {
-        hg: { l: '◀ Annuler', f: set({ scr: 'sensors' }) },
-        bg: { l: 'Suivant ▼', f: set({ scanI: (s.scanI + 1) % 2 }) },
-        bd: { l: 'Associer +', k: 'go', f: () => {
-          const f = this.scanItems()[s.scanI];
-          const next = sens.map((x) => x.key === f.key ? { ...x, name: f.name, val: f.val, batt: 'OK', paired: true } : x);
-          this.setState({ sensors: next, scr: 'sensors' });
-          this.say('Capteur associé · ' + f.name);
+      case 'rides': {
+        const n = s.rides.length;
+        const roomMade = s.makingRoom && !s.full;
+        const nx = n > 1 ? { l: s.makingRoom ? 'Suivante ▼' : 'Précédente', f: set({ rideI: (s.rideI + (s.makingRoom ? n - 1 : 1)) % n }) } : none;
+        const hg = { l: back.l, f: set({ scr: s.makingRoom ? 'home' : 'menu', makingRoom: false }) };
+        if (roomMade) return { hg, bg: nx, bd: { l: 'Démarrer', k: 'go', f: () => { this.setState({ makingRoom: false }); this.start(); } } };
+        if (!n) return { hg, bg: none, bd: none };
+        return { hg, bg: nx, bd: { l: 'Supprimer…', k: 'danger', f: set({ scr: 'confirmDelete' }) } };
+      }
+      case 'confirmDelete': return {
+        hg: { l: '◀ Annuler', f: set({ scr: 'rides' }) },
+        bg: { l: 'Annuler', f: set({ scr: 'rides' }) },
+        bd: { l: 'Supprimer', k: 'danger', f: () => {
+          const rides = s.rides.filter((_, i) => i !== s.rideI);
+          this.setState({ rides, rideI: Math.min(s.rideI, Math.max(0, rides.length - 1)), scr: 'rides', full: false, last: s.rideI === 0 ? null : s.last });
+          this.say('Sortie supprimée');
         } } };
+      case 'off': return { hg: { l: '', hold: true, f: () => {
+        clearTimeout(this.splashT);
+        this.setState({ scr: 'splash', gps: 'search' });
+        this.splashT = setTimeout(() => this.setState({ scr: this.state.ride ? 'resume' : 'home' }), 1200);
+      } }, bg: { l: '', f: () => {} }, bd: { l: '', f: () => {} } };
       case 'sync': return {
-        hg: { l: '◀ Retour', f: set({ scr: 'menu' }) },
-        bg: { l: '◀ Retour', f: set({ scr: 'menu' }) },
+        hg: { l: back.l, f: set({ scr: 'menu' }) },
+        bg: { l: back.l, f: set({ scr: 'menu' }) },
         bd: { l: 'Arrêter…', k: 'pause', f: set({ scr: 'syncStop' }) } };
-
       case 'syncStop': return {
         hg: { l: '◀ Annuler', f: set({ scr: 'sync' }) },
         bg: { l: 'Arrêter ■', f: () => { this.setState({ scr: 'menu' }); this.say('Synchro arrêtée · Sorties gardées, Wi-Fi coupé'); } },
@@ -789,15 +870,16 @@ class Component extends DCLogic {
   renderVals() {
     const n = this.props.nuit ?? false;
     const c = n
-      ? { bg: '#0B0B0C', fg: '#F2F2F2', mute: '#A3A3A3', rule: '#2C2C2C', chip: '#26262A', notifBg: '#F2F2F2', notifFg: '#111111', ok: '#69DB7C', danger: '#FF8787', me: '#6EA8FF', route: '#FF7A45', done: '#5A5A5E', mapbg: '#121214', road: '#3E3E42', water: '#1F4A73', zone: '#7A5A00', zoneText: '#FFF3BF', next: '#1E1A12', climbDone: '#3A3A3E', sel: '#1D4ED8' }
-      : { bg: '#FFFFFF', fg: '#111111', mute: '#555555', rule: '#DADADA', chip: '#ECECEA', notifBg: '#1A1A1D', notifFg: '#FFFFFF', ok: '#237A35', danger: '#C92A2A', me: '#1D4ED8', route: '#D9480F', done: '#9A9A9A', mapbg: '#F5F4F0', road: '#BDBBB5', water: '#8DB8E0', zone: '#FFE066', zoneText: '#111111', next: '#FFF4E0', climbDone: '#D6D6D2', sel: '#1D4ED8' };
+      ? { bg: '#0B0B0C', fg: '#F2F2F2', mute: '#A3A3A3', rule: '#2C2C2C', chip: '#26262A', notifBg: '#F2F2F2', notifFg: '#111111', ok: '#69DB7C', warn: '#FFA94D', danger: '#FF8787', me: '#6EA8FF', route: '#FF7A45', done: '#5A5A5E', mapbg: '#121214', road: '#3E3E42', water: '#1F4A73', next: '#1E1A12', climbDone: '#3A3A3E', sel: '#1D4ED8' }
+      : { bg: '#FFFFFF', fg: '#111111', mute: '#555555', rule: '#DADADA', chip: '#ECECEA', notifBg: '#1A1A1D', notifFg: '#FFFFFF', ok: '#237A35', warn: '#B35C00', danger: '#C92A2A', me: '#1D4ED8', route: '#D9480F', done: '#9A9A9A', mapbg: '#F5F4F0', road: '#BDBBB5', water: '#8DB8E0', next: '#FFF4E0', climbDone: '#D6D6D2', sel: '#1D4ED8' };
     const s = this.state;
     const k = this.keys();
     const kinds = { go: ['#237A35', '#FFFFFF'], pause: ['#F59F00', '#111111'], danger: ['#C92A2A', '#FFFFFF'], sel: ['#1D4ED8', '#FFFFFF'] };
     const bdKind = kinds[k.bd.k] || [c.chip, k.bd.l === '—' ? c.mute : c.fg];
+    const bgKind = kinds[k.bg.k] || [c.chip, k.bg.l === '—' ? c.mute : c.fg];
     const sel = (on) => on ? { bg: c.sel, fg: '#FFFFFF' } : { bg: 'transparent', fg: c.fg };
     const tr = this.traces();
-    if (s.gps === 'search' && s.scr !== 'off' && !this.gpsT) {
+    if (s.gps === 'search' && s.scr !== 'off' && s.scr !== 'splash' && !this.gpsT) {
       this.gpsT = setTimeout(() => {
         this.gpsT = null;
         if (this.state.gps !== 'search' || this.state.scr === 'off') return;
@@ -808,25 +890,55 @@ class Component extends DCLogic {
     const ride = s.scr === 'ride';
     const pages = s.pages && s.pages.length ? s.pages : this.compose(s.opt);
     const view = pages[s.page] || pages[0];
+    const asks = ['confirmEmpty', 'confirmDiscard', 'confirmDiscardAgain', 'confirmDelete'];
     const is = {
-      home: s.scr === 'home', traces: s.scr === 'traces',
+      home: s.scr === 'home',
       ess: ride && view === 'ess', map: ride && view === 'map', effort: ride && view === 'effort', alt: ride && view === 'alt',
       climbs: ride && view === 'climbs' && s.climb !== 'in', climb: ride && view === 'climbs' && s.climb === 'in',
       pause: s.scr === 'pause', resume: s.scr === 'resume', confirm: s.scr === 'confirm', saved: s.scr === 'saved',
-      menu: s.scr === 'menu', sensors: s.scr === 'sensors', scan: s.scr === 'scan', detail: s.scr === 'detail',
-      forget: s.scr === 'forget', sync: s.scr === 'sync', syncStop: s.scr === 'syncStop', pauseMenu: s.scr === 'pauseMenu'
+      menu: s.scr === 'menu', sensors: s.scr === 'sensors', scan: s.scr === 'scan', calibrate: s.scr === 'calibrate',
+      status: s.scr === 'status', rides: s.scr === 'rides', ask: asks.includes(s.scr),
+      sync: s.scr === 'sync', syncStop: s.scr === 'syncStop', pauseMenu: s.scr === 'pauseMenu'
     };
-    const sens = s.sensors;
-    const sensorRows = sens.map((x, i) => ({ ...x, ...sel(i === s.sensI) }))
-      .concat([{ title: '+ Rechercher un capteur', name: 'ANT+ et Bluetooth', val: '', ...sel(s.sensI === sens.length) }]);
-    const cur = sens[s.sensI] || sens[0];
-    const ridePage = (p) => () => {
-      if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return null; }
-      return p;
-    };
+    const roles = this.roles();
+    const lostHr = s.ride && s.lost;
+    const sensorRows = roles.map((r, i) => {
+      const on = !s.calibRow && i === s.roleI;
+      const paired = s.opt[r.key];
+      const searching = paired && r.key === 'hr' && lostHr;
+      const sub = !paired ? 'Aucun capteur' : (searching ? s.names[r.key] + ' : recherche…' : s.names[r.key] + ' · ' + r.unit);
+      return { title: r.title, sub, h: '52px', ...sel(on), subFg: on ? '#FFFFFF' : (!paired ? c.mute : (searching ? c.warn : c.ok)) };
+    }).concat(s.opt.pwr ? [{ title: 'Calibrer la puissance', sub: '', h: '40px', ...sel(s.calibRow), subFg: c.mute }] : []);
+    const scanRows = this.scanRows().map((x, i) => ({ ...x, ...sel(i === s.scanI) }));
+    const rides = s.rides;
+    const card = rides[Math.min(s.rideI, rides.length - 1)];
+    const unsent = rides.filter((x) => !x.sent).length;
+    const climbs = this.climbs();
+    const done = s.climbsDone;
+    const left = climbs.length - done;
+    const climbRows = climbs.map((x, i) => ({ x, i })).filter(({ i }) => i >= done - 1 && i <= done + 1).map(({ x, i }) => {
+      const isNext = i === done;
+      const dist = isNext ? x.at[s.climb === 'approach' ? 1 : 0] || x.at[0] : (i > done ? x.at[0] : '');
+      return i < done
+        ? { name: '✓ Montée ' + (i + 1), info: x.info, stripe: x.stripe, op: 0.5, bg: 'transparent', fg: c.mute, in: '', dist: '', size: '18px' }
+        : { name: 'Montée ' + (i + 1), info: x.info, stripe: x.stripe, op: 1, bg: isNext ? c.next : 'transparent', fg: c.fg, in: isNext ? 'dans' : '', dist, size: isNext ? '24px' : '18px' };
+    });
+    const offShown = ride && s.off && s.offStage < 2;
+    const ask = {
+      confirmEmpty: { stripe: '#8A8F98', title: 'Sortie vide', titleFg: c.fg, note: 'Pour la garder quand même : Enregistrer.',
+        lines: [{ t: '0,0 km · 0:01:12', w: 700, fg: c.fg }, { t: 'Rien à garder : elle est effacée, pas enregistrée.', w: 500, fg: c.fg }] },
+      confirmDiscard: { stripe: '#C92A2A', title: 'Abandonner la sortie ?', titleFg: c.fg, note: '',
+        lines: [{ t: '✕ 48,6 km · 1:42:08 ne sera pas enregistrée', w: 500, fg: c.fg }, { t: '✕ Impossible à reprendre', w: 700, fg: c.fg }] },
+      confirmDiscardAgain: { stripe: '#C92A2A', title: 'Vraiment effacer ?', titleFg: c.danger, note: 'Attention, les touches changent : Effacer à gauche, Garder à droite.',
+        lines: [{ t: '48,6 km · 1:42:08', w: 700, fg: c.fg }, { t: 'Elle sera perdue pour de bon.', w: 500, fg: c.fg }] },
+      confirmDelete: { stripe: '#C92A2A', title: 'Supprimer la sortie ?', titleFg: c.fg,
+        note: card && !card.sent ? 'Elle sera perdue : l’appli ne l’a pas encore.' : '',
+        lines: card ? [{ t: card.date, w: 500, fg: c.fg }, { t: card.info, w: 500, fg: c.fg },
+          card.sent ? { t: '✓ Envoyée à l’appli', w: 500, fg: c.ok } : { t: '✕ Pas encore envoyée', w: 700, fg: c.warn }] : [] }
+    }[s.scr] || { stripe: '', title: '', titleFg: '', note: '', lines: [] };
     return {
       c, is,
-      isOff: s.scr === 'off', isOn: s.scr !== 'off',
+      isOff: s.scr === 'off', isSplash: s.scr === 'splash', isOn: s.scr !== 'off' && s.scr !== 'splash',
       simMsg: s.simMsg || '',
       canResume: s.last === 'kept',
       resumeHint: s.last === 'kept' ? '↺ Dernière sortie reprenable : ≡ Menu' : '',
@@ -834,29 +946,55 @@ class Component extends DCLogic {
       gpsTrack: s.gps === 'search' ? c.chip : 'transparent',
       gpsLabel: s.gps === 'search' ? '◌ Recherche · 5 sat' : (s.gps === 'lost' ? '✕ Perdu' : '● Fix OK · 9 sat'),
       gpsColor: s.gps === 'ok' ? c.ok : '#B35C00',
-      clockText: ride && s.gps !== 'ok' ? 'GPS ✕' : (ride ? '10:29' : '08:47'),
-      clockColor: ride && s.gps !== 'ok' ? '#B35C00' : c.mute,
+      clockText: ride && s.gps !== 'ok' ? 'GPS ✕' : (ride && s.off ? '⊢• 120 m' : (ride ? '10:29' : '08:47')),
+      clockColor: ride && (s.gps !== 'ok' || s.off) ? '#B35C00' : c.mute,
+      rec: s.ride, recColor: s.full ? c.danger : c.mute,
       tunnelLabel: s.gps === 'lost' ? 'Sortir du tunnel' : 'Tunnel (GPS perdu)',
+      emptyLabel: s.empty ? 'Sortie vide : non' : 'Démarrée par erreur',
+      fullLabel: s.full ? 'Mémoire libérée' : 'Mémoire pleine',
       simUpload: () => {
-        if (s.last !== 'kept') { this.setState({ simMsg: 'Termine d\u2019abord une sortie.' }); return; }
-        this.setState({ last: 'sent', pending: Math.max(0, s.pending - 1), menuI: 0 });
-        this.say('Sortie envoyée · effacée du compteur');
+        if (s.last !== 'kept') { this.setState({ simMsg: 'Termine d’abord une sortie.' }); return; }
+        this.setState({ last: 'sent', rides: s.rides.map((x, i) => i === 0 ? { ...x, sent: true } : x), menuI: 0 });
+        this.say('Sortie reçue par l’appli · elle ne peut plus être reprise');
       },
       simTunnel: () => {
-        if (!s.ride) { this.setState({ simMsg: 'Démarre d\u2019abord une sortie sur le compteur.' }); return; }
+        if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
         if (s.gps === 'lost') { this.setState({ gps: 'ok' }); this.say('GPS retrouvé · 9 satellites'); }
         else this.setState({ gps: 'lost' });
       },
+      simStill: () => {
+        if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
+        if (!s.opt.autoOffOn) { this.setState({ simMsg: 'Extinction automatique désactivée dans l’app.' }); return; }
+        clearTimeout(this.autoOffT);
+        this.setState({ moving: false, autoOff: true, simMsg: '' });
+        this.autoOffT = setTimeout(() => {
+          if (!this.state.autoOff) return;
+          this.stopScroll();
+          this.setState({ scr: 'off', autoOff: false });
+        }, 6000);
+      },
+      simEmpty: () => {
+        if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
+        this.setState({ empty: !s.empty, simMsg: s.empty ? '' : 'Sortie vide : Pause › Terminer… propose de l’effacer.' });
+      },
+      simFull: () => {
+        this.setState({ full: !s.full, simMsg: '' });
+        if (!s.full && !s.ride) this.say('Mémoire pleine · Envoie les sorties à l’appli');
+      },
       hasBeep: !!s.beepWhy, beepWhy: s.beepWhy || '', beepAnim: (s.beepN || 0) % 2 ? 'beepA' : 'beepB',
       offHint: s.scr === 'off' ? 'Compteur éteint : maintiens le bouton haut gauche pour le rallumer.' : '',
-      pmRows: this.pmItems().map((label, i) => ({ label, ...sel(i === s.pmI) })),
-      showLost: ride && s.lost,
-      clock: ride ? '10:29' : '08:47',
+      // the note only where it fits under the entries
+      menuNote: this.menuItems().length <= 3, pmNote: this.pmItems().length <= 3,
+      menuRows: this.menuItems().map((m, i) => ({ label: m.l, chev: m.opens ? '›' : '', ...sel(i === s.menuI) })),
+      pmRows: this.pmItems().map((m, i) => ({ label: m.l, chev: m.opens ? '›' : '',
+        ...(m.discard ? (i === s.pmI ? { bg: '#C92A2A', fg: '#FFFFFF' } : { bg: 'transparent', fg: c.danger }) : sel(i === s.pmI)) })),
       hgLabel: k.hg.l, bgLabel: k.bg.l, bdLabel: k.bd.l,
-      hgColor: k.hg.l === '—' ? c.mute : c.fg, bgColor: k.bg.l === '—' ? c.mute : c.fg,
+      hgColor: k.hg.l === '—' ? c.mute : c.fg, bgBg: bgKind[0], bgColor: bgKind[1],
       bdBg: bdKind[0], bdFg: bdKind[1],
+      // a key while the automatic power off is announced only cancels it
       pressHG: () => {
         if (this.swallow) { this.swallow = false; return; }
+        if (s.autoOff) { this.setState({ autoOff: false }); return; }
         if (k.hg.hold) { if (s.scr !== 'off') this.say('Maintiens le bouton · pour éteindre'); return; }
         k.hg.f();
       },
@@ -866,110 +1004,123 @@ class Component extends DCLogic {
         this.holdT = setTimeout(() => { this.swallow = true; this.keys().hg.f(); }, 700);
       },
       holdEnd: () => clearTimeout(this.holdT),
-      pressBG: () => k.bg.f(), pressBD: () => k.bd.f(),
+      pressBG: () => { if (s.autoOff) { this.setState({ autoOff: false }); return; } k.bg.f(); },
+      pressBD: () => { if (s.autoOff) { this.setState({ autoOff: false }); return; } k.bd.f(); },
       dots: ride ? pages.map((x, i) => i === s.page ? '●' : '○').join('') : '',
       scrollMark: ride && s.scrollOn ? '⟳' : '',
       speed: (ride && !s.moving) ? '0,0' : (s.climb === 'in' ? '11,8' : '32,4'),
-      mapScale: [1.5, 1, 0.65][s.zoomI], zoomLabel: ['500 m', '1 km', '2 km'][s.zoomI],
+      mapScale: [2.2, 1.6, 1, 0.65, 0.45][s.zoomI],
       onCourseOp: (ride && s.off) ? 0 : 1, offCourseOp: (ride && s.off) ? 1 : 0,
       moveLabel: s.moving ? 'S’arrêter (feu rouge)' : 'Se mettre à rouler',
       offLabel: s.off ? 'Revenir sur la trace' : 'Sortir de la trace',
       climbLabel: { none: 'Montée : approche', approach: 'Montée : pied', in: 'Montée : sommet' }[s.climb],
       usageRows: [['balade', 'Balader / explorer'], ['train', 'S’entraîner']].map(([key, label]) => ({ label, box: s.opt.usage === key ? '◉' : '○',
         toggle: () => { if (s.ride) { this.setState({ simMsg: 'Les pages se recomposent au prochain départ.' }); } this.setState({ opt: Object.assign({}, s.opt, { usage: key }) }); } })),
-      ctxRows: [['pwr', 'Capteur de puissance'], ['hr', 'Ceinture cardio'], ['cad', 'Capteur de cadence'], ['trace', 'Trace chargée (avec montées)']].map(([key, label]) => ({ label, box: s.opt[key] ? '☑' : '☐',
+      ctxRows: [['pwr', 'Capteur de puissance'], ['hr', 'Ceinture cardio'], ['cad', 'Capteur de cadence'], ['trace', 'Trace chargée (montées)']].map(([key, label]) => ({ label, box: s.opt[key] ? '☑' : '☐',
         toggle: () => { if (s.ride) { this.setState({ simMsg: 'Les pages se recomposent au prochain départ.' }); } this.setState({ opt: Object.assign({}, s.opt, { [key]: !s.opt[key] }) }); } })),
       settingRows: [
-        ['autoPause', 'Auto-pause'], ['startPrompt', 'Rappel de démarrage'], ['offBeep', 'Bip hors trace'],
-        ['autoScroll', 'Défilement auto des pages'], ['nightAuto', 'Nuit auto (coucher du soleil)'],
-        ['turns', 'Annonces de virage (bientôt)'], ['strava', 'Segments Strava (bientôt)']
+        ['autoOffOn', 'Extinction auto (20 min)'], ['autoScroll', 'Défilement auto des pages'],
+        ['autoPause', 'Auto-pause (bientôt)'], ['startPrompt', 'Rappel démarrage (bientôt)'], ['offBeep', 'Bip hors trace (bientôt)'],
+        ['nightAuto', 'Nuit auto (bientôt)'], ['turns', 'Annonces virage (bientôt)'], ['strava', 'Segments Strava (bientôt)']
       ].map(([key, label]) => ({ label, box: s.opt[key] ? '☑' : '☐', toggle: () => {
         const opt = Object.assign({}, s.opt, { [key]: !s.opt[key] });
         if (key === 'autoScroll' && !opt.autoScroll) this.stopScroll();
         this.setState({ opt });
       } })),
-      simMove: () => this.setState({ moving: !s.moving, simMsg: (!s.moving && s.scr === 'home' && !s.opt.startPrompt) ? 'Rappel de démarrage désactivé dans l’app.' : ((s.moving && s.ride && !s.opt.autoPause) ? 'Auto-pause désactivée : le chrono continue.' : '') }),
+      simMove: () => this.setState({ moving: !s.moving, simMsg: (!s.moving && s.scr === 'home' && !s.opt.startPrompt) ? 'Rappel de démarrage pas encore fait (réglage dans l’app).' : ((s.moving && s.ride && !s.opt.autoPause) ? 'Pas d’auto-pause : le chrono continue.' : '') }),
       simOff: () => {
         if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
+        clearTimeout(this.offT); clearTimeout(this.offT2);
         if (s.off) { this.setState({ off: false }); this.say('De retour sur la trace · guidage repris'); }
         else if (!s.opt.trace || s.free) { this.setState({ simMsg: s.free ? 'Parcours libre : pas d’alerte hors trace.' : 'Pas de trace chargée : pas d’alerte hors trace.' }); }
-        else { const mi = pages.indexOf('map'); this.setState(mi >= 0 ? { off: true, page: mi } : { off: true }); if (s.opt.offBeep) this.beep('hors trace'); }
+        else {
+          // a short alert: the distance, then the hint, then only the distance in the top bar
+          const mi = pages.indexOf('map');
+          this.setState(Object.assign({ off: true, offStage: 0 }, mi >= 0 ? { page: mi } : {}));
+          this.offT = setTimeout(() => this.setState({ offStage: 1 }), 3000);
+          this.offT2 = setTimeout(() => this.setState({ offStage: 2 }), 7000);
+          if (s.opt.offBeep) this.beep('hors trace');
+        }
       },
       simClimbStep: () => {
         if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
         if (!s.opt.trace || s.free) { this.setState({ simMsg: 'Sans trace suivie, pas de montées connues à l’avance.' }); return; }
+        if (done >= climbs.length) { this.setState({ simMsg: 'Toutes les montées sont faites.' }); return; }
         if (s.climb === 'none') { this.setState({ climb: 'approach' }); this.beep('montée à 400 m'); }
         else if (s.climb === 'approach') { const ci = pages.indexOf('climbs'); this.setState(ci >= 0 ? { climb: 'in', page: ci } : { climb: 'in' }); }
-        else { this.setState({ climb: 'none' }); this.say('Sommet atteint · 34:12 · 6,9 % de moyenne'); }
+        else { this.setState({ climb: 'none', climbsDone: done + 1 }); this.say('Sommet atteint · 34:12 · 6,9 % de moyenne'); }
       },
-      climbDist: s.climb === 'approach' ? '0,4 km' : '1,2 km',
-      showBanner: false,
+      climbRows, climbsTitle: left === 0 ? 'Montées · toutes faites' : (left === 1 ? 'Montées · 1 restante' : 'Montées · ' + left + ' restantes'),
+      climbNow: { name: 'Montée ' + (done + 1) + '/' + climbs.length, info: (climbs[done] || climbs[0]).info },
       traceName: s.opt.trace ? (s.free ? 'Parcours libre' : tr[s.trace].name) : 'Aucune trace',
       traceInfo: s.opt.trace ? (s.free ? 'Trace gardée · ≡ Menu pour la suivre' : tr[s.trace].info) : 'Envoie-en une depuis l’app (facultatif)',
       traceChip: s.opt.trace && !s.free ? c.route : c.rule,
       presentSummary: (() => { const l = [s.opt.pwr && 'Puiss.', s.opt.hr && 'FC', s.opt.cad && 'Cad.'].filter(Boolean); return l.length ? '● ' + l.join(' · ') : 'aucun (GPS seul)'; })(),
-      pagesPreview: this.compose(s.opt).map((v) => ({ map: 'Carte', ess: 'Essentiel', climbs: 'Montées', effort: 'Effort', alt: 'Altitude' })[v]).join(' · '),
-      ess4: (s.opt.hr && !(ride && s.lost)) ? { label: 'FC bpm · Z3', value: '142', bg: c.zone, fg: c.zoneText }
-        : (s.opt.hr ? { label: 'FC bpm', value: '--', bg: 'transparent', fg: c.fg } : { label: 'Moyenne km/h', value: '28,5', bg: 'transparent', fg: c.fg }),
+      pagesPreview: ((l) => l.join(l.length > 3 ? '·' : ' · '))(this.compose(s.opt).map((v) => ({ map: 'Carte', ess: 'Essentiel', climbs: 'Montées', effort: 'Effort', alt: 'Altitude' })[v])),
+      ess4: s.opt.hr ? { label: 'FC bpm', value: lostHr ? '--' : '142' } : { label: 'Moyenne km/h', value: '28,6' },
       eff: (() => {
-        const hrVal = (ride && s.lost) ? '--' : '142';
-        const zc = ['#D0D4DA', '#8FC1FF', '#7ED38F', '#FFE066', '#FF9F59'];
-        const zoneOf = (n) => zc.map((bg, i) => ({ n: 'Z' + (i + 1), bg, ring: i === n ? '2px solid ' + c.fg : 'none' }));
-        const cand = [];
-        if (s.opt.pwr) cand.push({ label: 'Moy. W', value: '198' });
-        if (s.opt.pwr && s.opt.hr) cand.push({ label: 'FC bpm', value: hrVal, zone: true });
-        if (s.opt.cad) cand.push({ label: 'Cadence', value: '88' });
-        cand.push({ label: 'Vitesse', value: s.moving || !ride ? '32,4' : '0,0' });
+        const hrVal = lostHr ? '--' : '142';
+        const cand = [{ label: 'Moy. W', value: '198' }];
+        if (s.opt.hr) cand.push({ label: 'FC bpm', value: hrVal });
+        cand.push({ label: 'Cadence', value: '88' });
+        cand.push({ label: 'Vitesse km/h', value: s.moving || !ride ? '32,4' : '0,0' });
         cand.push({ label: 'Durée', value: '1:42:08' });
-        if (!s.opt.pwr && s.opt.hr) cand.push({ label: 'FC moy.', value: '136' });
-        const cells = cand.slice(0, 4).map((x, i) => ({ label: x.label, value: x.value,
-          bg: x.zone && hrVal !== '--' ? c.zone : 'transparent', fg: x.zone && hrVal !== '--' ? c.zoneText : c.fg,
+        const cells = cand.slice(0, 4).map((x, i) => ({ label: x.label, value: x.value, bg: 'transparent', fg: c.fg,
           br: i % 2 === 0 ? '1px solid ' + c.rule : 'none', bb: i < 2 ? '1px solid ' + c.rule : 'none' }));
-        return s.opt.pwr
-          ? { bigLabel: 'Puissance 3 s · W', big: '215', zones: zoneOf(2), cells }
-          : { bigLabel: 'Fréquence cardiaque · bpm', big: hrVal, zones: zoneOf(2), cells };
+        return { bigLabel: 'Puissance 3 s · W', big: '215', cells };
       })(),
-      traceRows: tr.map((t, i) => ({ ...t, ...sel(i === s.traceI) })),
-      menuRows: this.menuItems().map((label, i) => ({ label, ...sel(i === s.menuI) })),
-      sensorRows,
-      scanRows: this.scanItems().map((x, i) => ({ ...x, ...sel(i === s.scanI) })),
-      sensor: cur, sensorIsPower: cur.key === 'pwr',
-      pairedSummary: '● ' + (sens.filter((x) => x.paired).length) + ' associés',
-      pendingLabel: s.pending > 0 ? s.pending + (s.pending > 1 ? ' sorties' : ' sortie') : '✓ rien',
-      pendingColor: s.pending > 0 ? '#B35C00' : c.ok,
+      sensorRows, sensorsNote: s.calibRow ? '' : 'Chercher : réveille d’abord le capteur (roue, pédale, ceinture).',
+      role: { title: roles[s.roleI].scan },
+      scanRows, scanNote: scanRows.length ? '' : 'Recherche en cours… Réveille le capteur : tourne la roue, pédale ou mets la ceinture.',
+      calib: { idle: { text: '', fg: c.fg }, run: { text: '● Calibration…', fg: c.warn }, done: { text: '✓ Réussie · offset −312', fg: c.ok } }[s.calib],
+      statusRows: [
+        { k: 'Batterie', v: '81 % · ~14 h' }, { k: 'Mémoire', v: s.full ? 'pleine' : '41 h libres' },
+        { k: 'GPS', v: s.gps === 'ok' ? 'Fix · 9 sat' : 'Recherche · 5 sat' },
+        { k: 'Baromètre', v: '612 m · 1 013 hPa' }, { k: 'Bluetooth', v: 'Musette connectée' }, { k: 'Logiciel', v: 'v0.1.0' }
+      ],
+      ridesTitle: s.makingRoom ? 'Mémoire pleine' : 'Sorties enregistrées',
+      rideCard: card ? { pos: (s.rideI + 1) + ' / ' + rides.length, date: card.date, info: card.info,
+        sent: card.sent ? '✓ Envoyée à l’appli' : '✕ Pas encore envoyée', fg: card.sent ? c.ok : c.warn }
+        : { pos: '', date: 'Aucune sortie enregistrée', info: '', sent: '', fg: c.fg },
+      ridesNote: s.makingRoom ? (s.full ? 'Pour démarrer, supprime une sortie. Celles déjà dans l’appli d’abord.' : 'Place suffisante : tu peux démarrer.') : 'La plus récente d’abord.',
+      ridesFree: s.full ? '0 h d’enregistrement libres' : '41 h d’enregistrement libres',
+      ask,
+      pendingLabel: (unsent > 0 ? unsent + (unsent > 1 ? ' sorties' : ' sortie') : '✓ rien') + (s.full ? ' · mémoire pleine' : ' · 58 h libres'),
+      pendingColor: unsent > 0 || s.full ? '#B35C00' : c.ok,
       ...(() => {
         let notif = null;
         const autoPaused = ride && !s.moving && s.opt.autoPause;
-        if (ride && s.off) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'Hors trace · 120 m', detail: 'Pas cette trace ? Pause › Menu' };
-        else if (ride && s.gps === 'search') notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'GPS en recherche', detail: 'Distance et carte au premier fix' };
-        else if (ride && s.gps === 'lost') notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'GPS perdu', detail: s.sensors.some((x) => x.key === 'spd' && x.paired) ? 'Distance par le capteur de vitesse' : 'Distance en attente du GPS' };
-        else if (ride && s.lost) notif = { stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title: 'FC perdue', detail: 'Reconnexion automatique…' };
+        const att = (title, detail) => ({ stripe: '#F59F00', iconFg: '#111111', icon: '!', timed: false, title, detail });
+        if (s.autoOff) notif = att('Extinction automatique', 'Dans 45 s, une touche annule');
+        else if (ride && s.full) notif = att('Mémoire pleine', 'La sortie n’est plus enregistrée');
+        else if (ride && s.gps === 'search') notif = att('Recherche du GPS', 'La distance part au fix');
+        else if (ride && s.gps === 'lost') notif = att('GPS perdu', 'Distance en attente du GPS');
+        else if (offShown) notif = att('Hors de la trace', s.offStage === 0 ? 'à 120 m' : 'Pas cette trace ? Pause › Menu');
+        else if (ride && s.lost) notif = att('FC perdue', 'Reconnexion automatique…');
         else if (autoPaused) notif = { stripe: '#8A8F98', iconFg: '#FFFFFF', icon: '❚❚', timed: false, title: 'Auto-pause', detail: 'Le chrono repart dès que tu roules' };
         else if (s.scr === 'home' && s.moving && s.opt.startPrompt) notif = { stripe: '#237A35', iconFg: '#FFFFFF', icon: '▶', timed: false, title: 'Tu roules', detail: 'Démarre la sortie : bouton bas droite' };
-        else if (ride && s.climb === 'approach' && view !== 'climbs') notif = { stripe: '#D9302C', iconFg: '#FFFFFF', icon: '▲', timed: false, title: 'Montée dans 400 m', detail: 'Col de la Galaube · 9,6 km · 6,9 %' };
+        else if (ride && s.climb === 'approach' && view !== 'climbs') notif = { stripe: '#D9302C', iconFg: '#FFFFFF', icon: '▲', timed: false, title: 'Montée dans 400 m', detail: 'Montée ' + (done + 1) + ' · ' + (climbs[done] || climbs[0]).info.split(' · ').slice(0, 2).join(' · ') };
         else if (s.toast) {
           const m = s.toast.match(/^(.*?)(?: · | : )(.*)$/);
           notif = { stripe: '#4C8DFF', iconFg: '#FFFFFF', icon: 'i', timed: true, title: m ? m[1] : s.toast, detail: m ? m[2] : '' };
         }
         return { notif: notif || { stripe: '', iconFg: '', icon: '', timed: false, title: '', detail: '' }, hasNotif: !!notif, notifAnim: s.toastN % 2 ? 'notifA' : 'notifB' };
       })(),
-      simApproach: () => { if (ridePage(1)() === null) return; this.setState({ climb: 'approach' }); },
-      simClimb: () => { if (ridePage(1)() === null) return; this.setState({ climb: 'in', page: 2, scr: s.scr === 'ride' ? 'ride' : s.scr }); },
-      simTop: () => { if (ridePage(1)() === null) return; this.setState({ climb: 'none' }); this.say('Sommet atteint · 34:12 · 6,9 % de moyenne'); },
       simLost: () => {
         if (!s.ride) { this.setState({ simMsg: 'Démarre d’abord une sortie sur le compteur.' }); return; }
+        if (!s.opt.hr) { this.setState({ simMsg: 'Pas de ceinture cardio associée.' }); return; }
         clearTimeout(this.lostT);
         this.setState({ lost: true });
         this.beep('capteur perdu');
-        this.lostT = setTimeout(() => { this.setState({ lost: false }); this.say('FC reconnectée · HRM-Pro'); }, 3500);
+        this.lostT = setTimeout(() => { this.setState({ lost: false }); this.say('FC reconnectée · ' + this.state.names.hr); }, 3500);
       },
       simTrace: () => {
         const nx = (s.trace + 1) % 3;
         this.state.free = false;
-        this.setState(s.ride ? { trace: nx, free: false, pages: this.compose(s.opt), page: 0 } : { trace: nx, free: false });
+        this.setState(s.ride ? { trace: nx, free: false, pages: this.compose(s.opt), page: 0, climbsDone: 0 } : { trace: nx, free: false, climbsDone: 0 });
         if (s.scr !== 'off') this.say('Trace remplacée · ' + tr[nx].name + ' (depuis l’app)', 3000);
       },
-      reset: () => { clearTimeout(this.gpsT); this.gpsT = null; clearTimeout(this.timer); clearTimeout(this.lostT); clearInterval(this.scrollT); this.setState(this.initial()); }
+      reset: () => { clearTimeout(this.gpsT); this.gpsT = null; clearTimeout(this.timer); clearTimeout(this.lostT); clearTimeout(this.offT); clearTimeout(this.offT2); clearTimeout(this.autoOffT); clearTimeout(this.calibT); clearTimeout(this.splashT); clearInterval(this.scrollT); this.setState(this.initial()); }
     };
   }
 }
