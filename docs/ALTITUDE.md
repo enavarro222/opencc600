@@ -7,7 +7,7 @@ How opencc600 combines the barometer and the GNSS altitude. Code: `crates/altitu
 
 | | Barometer (via the nRF, 5 Hz) | GNSS altitude (GGA, 1 Hz) |
 |---|---|---|
-| Short-term noise | 0.8 Pa ≈ **7 cm** at rest ([REVERSE_NOTES.md](REVERSE_NOTES.md)) | **5–15 m**, jumps under trees, in valleys (multipath) |
+| Short-term noise | 0.8 Pa ≈ **7 cm** at rest ([REVERSE_NOTES.md](REVERSE_NOTES.md)), already low-passed by the nRF: ~2 s late ([NRF_FIRMWARE.md](NRF_FIRMWARE.md)) | **5–15 m**, jumps under trees, in valleys (multipath) |
 | Long-term | **drifts with the weather**: 1 hPa ≈ 8.3 m; a few m/h, more than 10 m/h with a front | no drift on average, but errors correlated over minutes |
 | Absolute level | standard atmosphere vs real sea-level pressure: off by up to ±200 m | right on average (GGA gives the height above the geoid, MSL) |
 | Scale | Δh off by ~3.5 % per 10 °C of difference with the standard atmosphere | right |

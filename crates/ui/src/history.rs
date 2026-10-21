@@ -1,10 +1,16 @@
-//! Altitude along the ride, every 100 m: the gradient, the last 5 km and the whole ride's profile; and every second
-//! of the timer over the last minute: the climbing speed.
+//! Altitude along the ride, every 100 m: the last 5 km and the whole ride's profile; every 5 m over the last
+//! stretch: the gradient; and every second of the timer over the last minute: the climbing speed.
 
 use crate::{PROFILE, Profile};
 
 /// Distance between two points.
 pub const STEP_CM: u32 = 10_000;
+/// The gradient is the climb from at least this far back (replayed on the 2026-10-21 ride: 9 s late against 19 s
+/// with the 100–200 m of the profile points, 5 s of it in the pressure itself, docs/NRF_FIRMWARE.md)...
+pub const GRADE_BACK_CM: u32 = 4_000;
+/// ...from the points kept this far apart at least, as many as cover it twice.
+const NEAR_STEP_CM: u32 = 500;
+const NEAR: usize = (2 * GRADE_BACK_CM / NEAR_STEP_CM) as usize;
 /// The climbing speed is the altitude gained over this much of the timer (seconds)...
 pub const VAM_S: usize = 60;
 /// ...once it has this much: the barometer is within a metre or two, ±120 m/h over 60 s, ±240 over 30.
@@ -24,6 +30,10 @@ pub struct History {
     steps: u32,
     /// Distance of the next point.
     next_cm: Option<u32>,
+    /// The last [`NEAR`] (distance, altitude) points, a ring ending at `near_end`, `near_len` of them.
+    near: [(u32, i16); NEAR],
+    near_end: usize,
+    near_len: usize,
     /// Altitude at each second of the timer, a ring ending at `second`, `seconds` of them.
     by_second: [i16; VAM_S + 1],
     second: u32,
@@ -47,6 +57,9 @@ impl History {
             every: 1,
             steps: 0,
             next_cm: None,
+            near: [(0, 0); NEAR],
+            near_end: 0,
+            near_len: 0,
             by_second: [0; VAM_S + 1],
             second: 0,
             seconds: 0,
@@ -87,6 +100,12 @@ impl History {
 
     pub fn push(&mut self, distance_cm: u32, altitude_dm: i32) {
         let alt = altitude_dm.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+        let newest = self.near[(self.near_end + NEAR - 1) % NEAR].0;
+        if self.near_len == 0 || distance_cm >= newest + NEAR_STEP_CM {
+            self.near[self.near_end] = (distance_cm, alt);
+            self.near_end = (self.near_end + 1) % NEAR;
+            self.near_len = (self.near_len + 1).min(NEAR);
+        }
         let next = *self.next_cm.get_or_insert(distance_cm);
         let mut next = next;
         while distance_cm >= next {
@@ -144,16 +163,12 @@ impl History {
         p
     }
 
-    /// Gradient from the point 100 to 200 m back to here, percent.
+    /// Gradient from the newest point at least [`GRADE_BACK_CM`] back to here, percent.
     pub fn grade_pct(&self, distance_cm: u32, altitude_dm: i32) -> Option<i8> {
-        let next = self.next_cm?;
-        if self.len < 2 {
-            return None;
-        }
-        // the second newest point is between 100 and 200 m back
-        let back_cm = distance_cm + 2 * STEP_CM - next;
-        let from = self.recent_at(self.len - 2) as i32;
-        let pct = (altitude_dm - from) as i64 * 1000 / back_cm.max(1) as i64;
+        let (from_cm, from) = (1..=self.near_len)
+            .map(|i| self.near[(self.near_end + NEAR - i) % NEAR])
+            .find(|&(d, _)| distance_cm.saturating_sub(d) >= GRADE_BACK_CM)?;
+        let pct = (altitude_dm - from as i32) as i64 * 1000 / (distance_cm - from_cm) as i64;
         Some(pct.clamp(-99, 99) as i8)
     }
 }
@@ -171,7 +186,7 @@ mod tests {
             let d = i * 1000;
             let alt = 1000 + (i * 5) as i32;
             h.push(d, alt);
-            if i >= 20 {
+            if i >= 4 {
                 assert_eq!(h.grade_pct(d, alt), Some(5), "at {i}");
             }
         }
@@ -180,6 +195,28 @@ mod tests {
             h.push(i * 1000, 1500);
         }
         assert_eq!(h.grade_pct(130_000, 1500), Some(0));
+    }
+
+    #[test]
+    fn the_gradient_follows_within_50_m() {
+        let mut h = History::new();
+        // flat for 500 m, then 8 %, a record every 4 m (15 km/h)
+        let alt = |d: u32| 1000 + (d.saturating_sub(50_000) * 8 / 1000) as i32;
+        for d in (0..=50_000).step_by(400) {
+            h.push(d, alt(d));
+        }
+        assert_eq!(h.grade_pct(50_000, alt(50_000)), Some(0));
+        for d in (50_400..=55_000).step_by(400) {
+            h.push(d, alt(d));
+        }
+        assert_eq!(h.grade_pct(55_000, alt(55_000)), Some(8));
+        // no gradient before 40 m
+        let mut h = History::new();
+        h.push(0, 1000);
+        h.push(3_900, 1010);
+        assert_eq!(h.grade_pct(3_900, 1010), None);
+        h.push(4_000, 1010);
+        assert_eq!(h.grade_pct(4_000, 1010), Some(2));
     }
 
     #[test]

@@ -15,6 +15,7 @@ the hardware layer is a rewrite based on [c606-oss](https://github.com/HighwaySt
 - [docs/DEV_PROCESS.md](docs/DEV_PROCESS.md): development and test process (PC, simulator, QEMU, hardware bench, CI).
 - [docs/REVERSE_NOTES.md](docs/REVERSE_NOTES.md): reverse engineering notes (hardware, eFuses, partitions,
   pinout read over JTAG, first run of c606-oss).
+- [docs/NRF_FIRMWARE.md](docs/NRF_FIRMWARE.md): the nRF co-processor's firmware (image, ANT, barometer filter).
 - [docs/pins_live.txt](docs/pins_live.txt): raw output of `tools/read_pins.py` on the vendor firmware.
 
 ## Firmware

@@ -401,6 +401,12 @@ calls read as `__divdf3`...) and `tools/ghidra/DecompileRefs.java` (decompiles t
 pool constants). Ghidra prints the float literals of the pools wrong when they are integers (`1.4013e-45` is 1):
 read the pool words (`DAT_...`) from the image.
 
+## nRF firmware (2026-10-21)
+
+The nRF's application is in the vendor storage partition (`/APP/*/N51_V1.602_A.bin`, XOR-encrypted): nRF52810,
+ANT SoftDevice, barometer SPL06-001 whose pressure it filters (trimmed mean + Butterworth, ~2 s late) before the
+`F1 03` frames. All in **docs/NRF_FIRMWARE.md**; extraction with `tools/nrf_image.py`.
+
 ## Safety rules
 
 - **Never** write eFuses (irreversible).
