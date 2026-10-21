@@ -176,7 +176,12 @@ pub async fn run(bt: BT<'static>, mut device: impl companion::Device) {
     let (rx, tx) = app_service(&mut table);
     let server: Server<'_> = AttributeServer::new(table);
     let seen = Seen::default();
-    let _ = join3(runner.run_with_handler(&seen), app(&stack, &server, &rx, &tx, &mut device), async {
+    let host = async {
+        if let Err(e) = runner.run_with_handler(&seen).await {
+            warn!("ble: host stopped: {e:?}");
+        }
+    };
+    let _ = join3(host, app(&stack, &server, &rx, &tx, &mut device), async {
         let mut paired = Paired::default();
         loop {
             let t = targets(&paired);
@@ -600,6 +605,10 @@ const ATT_VALUE_MAX: usize = 512;
 /// Advertising interval while waiting for the app: slow, the radio is shared with the sensors (and may disturb the
 /// GNSS); the app finds the device within a few seconds.
 const ADVERTISE: Duration = Duration::from_millis(1000);
+/// Advertising is started again after this long without the app. A connection that fails before it is accepted
+/// (`Connection Failed to be Established`, seen with a busy main loop) never comes out of `accept` (trouble-host 0.7),
+/// and the controller stopped advertising when it was made: the device was invisible until a reset.
+const ADVERTISE_AGAIN: Duration = Duration::from_secs(10);
 
 /// What the companion app did: a file arriving or received, settings changed (for the screen).
 pub static APP: Signal<CriticalSectionRawMutex, companion::Event> = Signal::new();
@@ -670,7 +679,10 @@ async fn app(
             )
             .await;
         let conn = match advertised {
-            Ok(advertiser) => advertiser.accept().await,
+            Ok(advertiser) => match with_timeout(ADVERTISE_AGAIN, advertiser.accept()).await {
+                Ok(conn) => conn,
+                Err(_) => continue,
+            },
             Err(e) => {
                 warn!("ble: advertising: {e:?}");
                 Timer::after(Duration::from_secs(5)).await;
