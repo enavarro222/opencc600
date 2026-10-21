@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-night.svg">
-    <img src="docs/logo.svg" alt="OpenCC600" width="200">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-wide-night.svg">
+    <img src="docs/logo-wide.svg" alt="OpenCC600" width="360">
   </picture>
 </p>
 
