@@ -171,12 +171,17 @@ rest when a ride starts (sensors seen, route loaded) and picks standard views:
   to tune on real rides.
 - **Effort** (a power meter paired; the HR alone is on Essential): 3 s power (big), zone bar, then by priority avg
   power, HR, cadence, speed, time.
-- **Map** (route loaded), **Climbs** (route with climbs), **Altitude** (no route: altitude, gradient, D+/D-, last 5 km).
+- **Map** (route loaded), **Altitude** (altitude, gradient, D+/D-, last 5 km), **Climbs** (route with climbs, in place
+  of Altitude). Climbs, out of a climb: altitude, gradient and D+ of the ride on top, then the climbs (the last one
+  done, the next one with its distance, the following ones). In a climb: distance and D+ left to its top, gradient
+  measured, its profile coloured by gradient with the rider on it, the gradients of the next 500 m. The climbs are
+  found by the app when the route is built (crate `climbs` of musette) and travel in the route file (OCRT v2); a
+  route without climbs (flat, or sent before v2) keeps Altitude.
 
 | Usage | With route | Without route |
 |---|---|---|
-| Explore | Map · Essential · Climbs (+ Effort if power) | Essential · Altitude (+ Effort if power) |
-| Train | Effort · Essential · Map · Climbs | Effort · Essential · Altitude |
+| Explore | Map · Essential · Climbs or Altitude (+ Effort if power) | Essential · Altitude (+ Effort if power) |
+| Train | (Effort ·) Essential · Map · Climbs or Altitude | (Effort ·) Essential · Altitude |
 
 A loaded route always brings the Map (4 pages at most). A sensor missing at start takes no slot (the next field moves up). A sensor lost mid-ride keeps its slot with
 "--" plus a banner: the layout never moves during a ride. Customising (swapping a view from the catalogue) stays
@@ -230,7 +235,7 @@ Status on 2026-10-20 (updated by the bring-up work; altitude is worked on in par
       `tools/prototype_shots.py` and `tools/compare_screens.py`): home (GPS acquisition, pages, rides to upload),
       menu, ride pages Essential and Altitude (gradient, last 5 km), auto-scroll, GPS banners, pause and pause menu,
       finish confirmed, end screen, a ride paused at power-off or interrupted offered again at power-on, the last
-      finished ride resumable (no upload yet: always the newest). Not yet: sensors, Wi-Fi sync, Climbs page, auto
+      finished ride resumable (no upload yet: always the newest). Not yet: sensors, Wi-Fi sync, auto
       pause, start reminder, beeps; the menus show the device status instead.
 - [ ] **Beeps** (once the buzzer is understood): key feedback (can be turned off), alerts — off route, sensor lost,
       low battery, recording started/stopped. Every beep comes with a message on screen.

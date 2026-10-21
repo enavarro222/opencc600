@@ -671,7 +671,9 @@ async fn main(spawner: Spawner) -> ! {
         let s = settings();
         // the Effort page with a power meter paired (the heart rate alone is on Essential)
         let effort = s.power != settings::Sensor::None;
-        ui.set_context(route.is_some(), s.usage == settings::Usage::Train, effort);
+        // Climbs in place of Altitude when the route has climbs (a route of version 1 has none)
+        let climbs = route.as_ref().is_some_and(|r| r.climbs().len() > 0);
+        ui.set_context(route.is_some(), climbs, s.usage == settings::Usage::Train, effort);
         // the switch to a point every 5 s, said once a ride (the top bar keeps a mark)
         match ride_info {
             Some(r) if r.sparse && !sparse_told => {
@@ -1779,7 +1781,7 @@ fn map_for(route_file: Option<&[u8]>) -> Option<route::map::Map<'static>> {
 fn bench_map(fb: &mut FrameBuffer, r: &route::Route<'_>, m: Option<&route::map::Map<'_>>, view: &ui::View) {
     let p = r.points().nth(r.info.count as usize / 3).unwrap();
     let mut ui = ui::Ui::new();
-    ui.set_context(true, false, false);
+    ui.set_context(true, false, false, false);
     let mut v = *view;
     v.route = Some(ui::RouteView {
         name: ui::fonts::Line::new(format_args!("{}", r.name())),

@@ -29,7 +29,7 @@ LABEL = UPPER + DIGITS + "/·'’()%"
 
 # private use code points of the icons, in the order of `crate::fonts::icon`
 ICONS = ["play", "pause", "stop", "left", "right", "power", "check", "cross", "dot", "menu", "down", "chevron", "cycle",
-         "undo", "ring", "zoom", "off_route"]
+         "undo", "ring", "zoom", "off_route", "summit", "foot"]
 ICON_BASE = 0xE000
 ICON_CHARS = "".join(chr(ICON_BASE + i) for i in range(len(ICONS)))
 
@@ -62,7 +62,7 @@ SPECS = [
 # icon width, in cap heights
 ICON_W = {"play": 0.9, "pause": 0.95, "stop": 0.9, "left": 0.9, "right": 0.9, "power": 1.08, "check": 1.1, "cross": 0.85,
           "dot": 0.62, "menu": 1.0, "down": 0.95, "chevron": 0.5, "cycle": 1.05, "undo": 1.05, "ring": 0.85, "zoom": 1.0,
-          "off_route": 1.2}
+          "off_route": 1.2, "summit": 1.25, "foot": 0.9}
 SS = 8  # supersampling of the icons
 
 
@@ -136,6 +136,19 @@ def icon(name: str, cap: int, bold: bool) -> tuple[int, list[int]]:
         for k in (1, 2):
             x = u + k * (c[0] - r - u) / 3
             dr.ellipse([x - u * 0.45, H / 2 - u * 0.45, x + u * 0.45, H / 2 + u * 0.45], fill=255)
+    elif name == "summit":
+        # a mountain, a flag on its top
+        apex = (W * 0.42, H * 0.38)
+        dr.polygon([(0, H), apex, (W, H)], fill=255)
+        u = t * 0.6
+        dr.rectangle([apex[0] - u / 2, 0, apex[0] + u / 2, apex[1] + u], fill=255)
+        dr.polygon([(apex[0], 0), (apex[0] + W * 0.42, H * 0.12), (apex[0], H * 0.26)], fill=255)
+    elif name == "foot":
+        # an arrow down to the ground
+        u = t * 0.8
+        dr.rectangle([0, H - u, W, H], fill=255)
+        dr.rectangle([W / 2 - u / 2, 0, W / 2 + u / 2, H * 0.5], fill=255)
+        dr.polygon([(W * 0.08, H * 0.42), (W * 0.92, H * 0.42), (W / 2, H - u * 1.8)], fill=255)
     elif name == "ring":
         r = W / 2 - t * 0.35
         c = (W / 2, H / 2)

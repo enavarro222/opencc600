@@ -85,13 +85,18 @@ fn view() -> View {
 }
 
 fn save(name: &str, ui: &Ui, v: &View, theme: &Theme) {
+    save_with(name, ui, v, &test_route(), theme);
+}
+
+/// [`save`] with the route of `file`.
+fn save_with(name: &str, ui: &Ui, v: &View, file: &[u8], theme: &Theme) {
     let mut fb = Fb(vec![Rgb565::BLACK; 240 * 320]);
-    let file = test_route();
-    let r = route::Route::parse(&file).unwrap();
+    let r = route::Route::parse(file).unwrap();
     ui::draw(&mut fb, ui, v, v.route.map(|_| &r), None, theme).unwrap();
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("screens");
-    std::fs::create_dir_all(&dir).unwrap();
-    let file = std::fs::File::create(dir.join(format!("{name}.png"))).unwrap();
+    let path = dir.join(format!("{name}.png"));
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let file = std::fs::File::create(path).unwrap();
     let mut enc = png::Encoder::new(std::io::BufWriter::new(file), 240, 320);
     enc.set_color(png::ColorType::Rgb);
     let mut w = enc.write_header().unwrap();
@@ -299,7 +304,7 @@ fn every_screen() {
     }
     // with a route: home, then the map at each zoom, the whole route before the fix, off the route
     let mut ui = Ui::new();
-    ui.set_context(true, false, false);
+    ui.set_context(true, false, false, false);
     let home = with_route(view(), false);
     save("route-home", &ui, &home, &ui::DAY);
     ui.key(Key::BottomRight, Press::Click, 0, &home);
@@ -427,7 +432,7 @@ fn effort_pages() {
     for (theme, suffix) in [(ui::DAY, ""), (ui::NIGHT, "-night")] {
         for (v, name) in [(&power_and_hr, "effort-power"), (&power_only, "effort-power-only"), (&lost, "effort-power-lost")] {
             let mut ui = Ui::new();
-            ui.set_context(false, true, true);
+            ui.set_context(false, false, true, true);
             ui.key(Key::BottomRight, Press::Click, 0, v);
             ui.tick(0, Some(true), v);
             assert_eq!(ui.page(), Some(ui::Page::Effort));
@@ -480,5 +485,121 @@ fn sensor_screens() {
         ui.key(BottomLeft, Press::Click, 0, &v);
         ui.key(BottomRight, Press::Click, 0, &empty);
         shot(&ui, &empty, "sensor-scan-empty");
+    }
+}
+
+/// 16 km winding north, three climbs: 2 km at 5 % from km 1, 6 km at 7 % (steeper in the middle) from km 5, 1.5 km
+/// at 4 % from km 13.
+fn climbs_route() -> Vec<u8> {
+    let mut gpx = String::from("<gpx><trk><name>Trois montées</name><trkseg>");
+    let (lat0, lon0) = (43.45_f64, 2.05_f64);
+    let km_lat = 1.0 / 111.319;
+    let km_lon = km_lat / lat0.to_radians().cos();
+    let mut ele = 300.0;
+    for i in 0..=1600 {
+        let km = i as f64 / 100.0;
+        let grade = match km {
+            k if (1.0..3.0).contains(&k) => 0.05,
+            k if (3.0..4.0).contains(&k) => -0.04,
+            k if (5.0..7.0).contains(&k) => 0.06,
+            k if (7.0..9.0).contains(&k) => 0.09,
+            k if (9.0..11.0).contains(&k) => 0.06,
+            k if (11.0..12.5).contains(&k) => -0.08,
+            k if (13.0..14.5).contains(&k) => 0.04,
+            _ => 0.0,
+        };
+        if i > 0 {
+            ele += grade * 10.0;
+        }
+        gpx += &format!(
+            "<trkpt lat=\"{:.6}\" lon=\"{:.6}\"><ele>{:.1}</ele></trkpt>",
+            lat0 + km * km_lat,
+            lon0 + 0.3 * (km * 1.3).sin() * km_lon,
+            ele
+        );
+    }
+    gpx += "</trkseg></trk></gpx>";
+    route::build(&route::parse_gpx(&gpx).unwrap(), 3.0)
+}
+
+/// The climbs page: before the first climb, on the way to the second one, in it, all done; a route without climbs
+/// keeps Altitude.
+#[test]
+fn climbs_page() {
+    let file = climbs_route();
+    let r = route::Route::parse(&file).unwrap();
+    assert_eq!(r.climbs().len(), 3, "{:?}", r.climbs().collect::<Vec<_>>());
+    let at = |along_dm: u32, ride: bool| View {
+        route: Some(ui::RouteView {
+            name: Line::new(format_args!("{}", r.name())),
+            length_dm: r.info.length_dm,
+            ascent_m: r.info.ascent_m,
+            me: None,
+            heading_cdeg: None,
+            progress: ride.then_some(route::Progress { along_dm, off_dm: 0, segment: 0 }),
+        }),
+        grade_pct: Some(8),
+        ..view()
+    };
+    for (theme, suffix) in [(ui::DAY, ""), (ui::NIGHT, "-night")] {
+        for (along_dm, ride, name) in [
+            (0, false, "climbs-start"),
+            (40_000, true, "climbs-list"),
+            (82_000, true, "climbs-in"),
+            (155_000, true, "climbs-done"),
+        ] {
+            let v = at(along_dm, ride);
+            let mut ui = Ui::new();
+            ui.set_context(true, true, false, false);
+            ui.key(Key::BottomRight, Press::Click, 0, &v);
+            ui.tick(0, Some(true), &v);
+            while ui.page() != Some(ui::Page::Climbs) {
+                ui.key(Key::BottomLeft, Press::Click, 0, &v);
+            }
+            save_with(&format!("{name}{suffix}"), &ui, &v, &file, &theme);
+        }
+        // 4 pages on the home screen
+        let mut ui = Ui::new();
+        ui.set_context(true, true, false, true);
+        save_with(&format!("climbs-home{suffix}"), &ui, &at(0, false), &file, &theme);
+    }
+}
+
+/// The climbs page on a real route: `ROUTE_GPX=route.gpx cargo test -p ui --test screens climbs_of_a_gpx --
+/// --ignored`. For each climb, the list 500 m before its foot, then the climb at 10, 50 and 90 % of it, in
+/// `target/tmp/screens/gpx/`.
+#[test]
+#[ignore]
+fn climbs_of_a_gpx() {
+    let path = std::env::var("ROUTE_GPX").expect("ROUTE_GPX");
+    let file = route::build(&route::parse_gpx(&std::fs::read_to_string(path).unwrap()).unwrap(), 3.0);
+    let r = route::Route::parse(&file).unwrap();
+    let mut ui = Ui::new();
+    ui.set_context(true, true, false, false);
+    let v = View { grade_pct: None, ..view() };
+    ui.key(Key::BottomRight, Press::Click, 0, &v);
+    ui.tick(0, Some(true), &v);
+    while ui.page() != Some(ui::Page::Climbs) {
+        ui.key(Key::BottomLeft, Press::Click, 0, &v);
+    }
+    for (i, c) in r.climbs().enumerate() {
+        println!("climb {}: at {} m, {} m, +{} m", i + 1, c.start_dm / 10, c.length_dm() / 10, c.gain_m);
+        let at = |along_dm: u32| View {
+            route: Some(ui::RouteView {
+                name: Line::new(format_args!("{}", r.name())),
+                length_dm: r.info.length_dm,
+                ascent_m: r.info.ascent_m,
+                me: None,
+                heading_cdeg: None,
+                progress: Some(route::Progress { along_dm, off_dm: 0, segment: 0 }),
+            }),
+            ..v
+        };
+        let before = c.start_dm.saturating_sub(5_000);
+        save_with(&format!("gpx/climb{:02}-list", i + 1), &ui, &at(before), &file, &ui::DAY);
+        for pct in [10, 50, 90] {
+            let along = c.start_dm + c.length_dm() * pct / 100;
+            save_with(&format!("gpx/climb{:02}-{pct}", i + 1), &ui, &at(along), &file, &ui::DAY);
+        }
     }
 }

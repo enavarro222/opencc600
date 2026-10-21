@@ -58,6 +58,8 @@ pub struct Theme {
     /// Area under an altitude profile, and the rider's point on it.
     pub profile: Rgb565,
     pub me: Rgb565,
+    /// The next climb on the climbs page.
+    pub next: Rgb565,
     /// The route on the map, ahead and done.
     pub route: Rgb565,
     pub done: Rgb565,
@@ -103,6 +105,7 @@ pub const DAY: Theme = Theme {
     attention: rgb(0xF59F00),
     profile: rgb(0xD6D6D2),
     me: rgb(0x1D4ED8),
+    next: rgb(0xFFF4E0),
     route: rgb(0xD9480F),
     done: rgb(0x9A9A9A),
     // forest, water, residential, contour, major contour, stream, river, path, track, service, minor, major
@@ -130,6 +133,7 @@ pub const NIGHT: Theme = Theme {
     attention: rgb(0xF59F00),
     profile: rgb(0x3A3A3E),
     me: rgb(0x6EA8FF),
+    next: rgb(0x1E1A12),
     route: rgb(0xFF7A45),
     done: rgb(0x5A5A5E),
     map: [
@@ -173,6 +177,19 @@ impl Theme {
             9.. => rgb(0x7D1A1A),
         }
     }
+
+    /// Colour of a stretch of a climb by its gradient, and of the text on it: grey under 1 %, yellow under 3 %, then
+    /// as [`Theme::grade`].
+    fn slope(&self, pct: i32) -> (Rgb565, Rgb565) {
+        let dark = rgb(0x111111);
+        match pct {
+            ..1 => (rgb(0xBFC5CC), dark),
+            1..3 => (rgb(0xF2C94C), dark),
+            3..6 => (rgb(0xF08C00), dark),
+            6..9 => (rgb(0xD9302C), rgb(0xFFFFFF)),
+            9.. => (rgb(0x7D1A1A), rgb(0xFFFFFF)),
+        }
+    }
 }
 
 /// Draws the whole screen; on [`Screen::Status`] the content is left blank for the firmware. `route`: the route
@@ -202,6 +219,7 @@ pub fn draw<D: DrawTarget<Color = Rgb565>>(
         Screen::SensorScan => sensor_scan(d, ui, v, t)?,
         Screen::Ride => match ui.page() {
             Some(Page::Altitude) => ride_altitude(d, v, t)?,
+            Some(Page::Climbs) => ride_climbs(d, v, route, t)?,
             Some(Page::Map) => crate::map::draw(d, ui.zoom_m(), v, route, map, t)?,
             Some(Page::Effort) => ride_effort(d, v, t)?,
             Some(Page::Essential) | None => ride_essential(d, v, t)?,
@@ -250,6 +268,15 @@ pub(crate) fn kmh(mm_s: Option<u32>) -> Fmt {
             Fmt::new(format_args!("{},{}", tenths / 10, tenths % 10))
         }
         None => Fmt::new(format_args!("{NONE}")),
+    }
+}
+
+/// A distance along the route: in metres under 1 km (by 10 m), then in km with one decimal (docs/PRODUCT.md).
+pub(crate) fn distance(dm: u32) -> Fmt {
+    if dm < 10_000 {
+        Fmt::new(format_args!("{} m", dm / 100 * 10))
+    } else {
+        Fmt::new(format_args!("{},{} km", dm / 10_000, dm / 1_000 % 10))
     }
 }
 
@@ -432,30 +459,17 @@ fn ride_altitude<D: DrawTarget<Color = Rgb565>>(
     )?;
     hline(d, BIG, t)?;
     hline(d, ROW, t)?;
-    vline(d, 79, BIG + 1, ROW - 1, t)?;
-    vline(d, 159, BIG + 1, ROW - 1, t)?;
-    let small = t.label(&fonts::LABEL_SMALL);
     let value = t.style(&fonts::VALUE);
-    let grade = match v.grade_pct {
-        Some(g) => Fmt::new(format_args!("{g} %")),
-        None => Fmt::new(format_args!("{NONE}")),
-    };
-    let grade_style = value.colored(v.grade_pct.map_or(t.fg, |g| t.grade(g)));
-    let cells = [
-        ("PENTE", grade, grade_style, "0 %"),
-        ("D+ M", int(Some(v.ride.ascent_m)), value, "000"),
-        ("D- M", int(Some(v.ride.descent_m)), value, "000"),
-    ];
-    for (i, (label, val, style, min)) in cells.iter().enumerate() {
-        let x0 = [0, 80, 160][i];
-        cell(
-            d,
-            rect(x0, BIG + 1, x0 + 78, ROW - 1),
-            (&small, label),
-            (style, val.as_str(), min),
-            8,
-        )?;
-    }
+    thirds(
+        d,
+        t,
+        (BIG + 1, ROW - 1),
+        &[
+            grade(v, t),
+            ("D+ M", int(Some(v.ride.ascent_m)), value, "000"),
+            ("D- M", int(Some(v.ride.descent_m)), value, "000"),
+        ],
+    )?;
     fonts::text(
         d,
         &t.label(&fonts::LABEL_TINY),
@@ -465,6 +479,297 @@ fn ride_altitude<D: DrawTarget<Color = Rgb565>>(
         Align::Left,
     )?;
     profile(d, rect(8, 214, 232, BOTTOM - 2), v.recent.points(), true, t)
+}
+
+/// A cell of [`thirds`]: label, value, its style and smallest slot.
+type Third = (&'static str, Fmt, Style, &'static str);
+
+/// The gradient measured, in its colour.
+fn grade(v: &View, t: &Theme) -> Third {
+    let value = t.style(&fonts::VALUE);
+    let text = match v.grade_pct {
+        Some(g) => Fmt::new(format_args!("{g} %")),
+        None => Fmt::new(format_args!("{NONE}")),
+    };
+    ("PENTE", text, value.colored(v.grade_pct.map_or(t.fg, |g| t.grade(g))), "0 %")
+}
+
+/// Three cells side by side from `y0` to `y1`, rules between them.
+fn thirds<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    t: &Theme,
+    (y0, y1): (i32, i32),
+    cells: &[Third; 3],
+) -> Result<(), D::Error> {
+    vline(d, 79, y0, y1, t)?;
+    vline(d, 159, y0, y1, t)?;
+    let small = t.label(&fonts::LABEL_SMALL);
+    for (i, (label, val, style, min)) in cells.iter().enumerate() {
+        let x0 = [0, 80, 160][i];
+        cell(d, rect(x0, y0, x0 + 78, y1), (&small, label), (style, val.as_str(), min), 8)?;
+    }
+    Ok(())
+}
+
+/// Page Climbs (a route with climbs): in a climb, what is left of it ([`climb_live`]); else the altitude, the
+/// gradient and the D+ of the ride (Altitude's place), then the climbs: the last one done, the next one, the
+/// following ones.
+fn ride_climbs<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    v: &View,
+    route: Option<&route::Route<'_>>,
+    t: &Theme,
+) -> Result<(), D::Error> {
+    const ROW: i32 = 93;
+    let Some(r) = route else { return Ok(()) };
+    // before the first fix: from the start
+    let at = v.route.and_then(|rv| rv.progress).map_or(0, |p| p.along_dm);
+    let count = r.climbs().len();
+    if let Some((i, c)) = r.climbs().enumerate().find(|(_, c)| (c.start_dm..c.end_dm).contains(&at)) {
+        return climb_live(d, v, r, (i, count), c, at, t);
+    }
+    let value = t.style(&fonts::VALUE);
+    thirds(
+        d,
+        t,
+        (TOP + 1, ROW - 1),
+        &[
+            ("ALTITUDE M", int(v.altitude_dm.map(|a| a / 10)), value, "000"),
+            grade(v, t),
+            ("D+ M", int(Some(v.ride.ascent_m)), value, "000"),
+        ],
+    )?;
+    hline(d, ROW, t)?;
+    let next = r.climbs().position(|c| c.start_dm >= at);
+    let left = next.map_or(0, |n| count - n);
+    let title = match left {
+        0 => Fmt::new(format_args!("MONTÉES · TOUTES FAITES")),
+        1 => Fmt::new(format_args!("MONTÉES · 1 RESTANTE")),
+        n => Fmt::new(format_args!("MONTÉES · {n} RESTANTES")),
+    };
+    fonts::text(d, &t.label(&fonts::LABEL), title.as_str(), MARGIN, ROW + 13, Align::Left)?;
+    // the last one done, then the next ones (all done: the last ones)
+    let first = match next {
+        Some(n) => n.saturating_sub(1),
+        None => count.saturating_sub(4),
+    };
+    let mut y = ROW + 24;
+    for (i, c) in r.climbs().enumerate().skip(first) {
+        let is_next = Some(i) == next;
+        let h = if is_next { 48 } else { 38 };
+        if y + h > BOTTOM {
+            break;
+        }
+        climb_row(d, (i, c), at, is_next, rect(0, y, W - 1, y + h - 1), t)?;
+        y += h;
+        if y < BOTTOM {
+            hline(d, y - 1, t)?;
+        }
+    }
+    Ok(())
+}
+
+/// A climb of the list: its gradient's colour on the left, its number, length, gradient and gain, how far it is.
+fn climb_row<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    (i, c): (usize, route::Climb),
+    at: u32,
+    is_next: bool,
+    area: Rectangle,
+    t: &Theme,
+) -> Result<(), D::Error> {
+    let (y0, h) = (area.top_left.y, area.size.height as i32);
+    let cy = y0 + h / 2;
+    let done = c.end_dm <= at;
+    if is_next {
+        fill(d, area, t.next)?;
+    }
+    let pct = (c.grade_pm() as i32 + 5) / 10;
+    let bar = if is_next { 34 } else { 26 };
+    let (color, _) = t.slope(pct);
+    fill(d, rect(10, cy - bar / 2, 15, cy + bar / 2 - 1), if done { mix(color, t.bg) } else { color })?;
+    let bg = if is_next { t.next } else { t.bg };
+    let ink = if done { t.mute } else { t.fg };
+    let (name_font, detail_font): (&'static Font, &'static Font) =
+        if is_next { (&fonts::HEADING_SMALL, &fonts::SUB) } else { (&fonts::BODY_BOLD, &fonts::NOTE) };
+    let mut buf = [0; 4];
+    let name = if done {
+        Fmt::new(format_args!("{} Montée {}", char_str(icon::CHECK, &mut buf), i + 1))
+    } else {
+        Fmt::new(format_args!("Montée {}", i + 1))
+    };
+    let len = c.length_dm();
+    let detail = Fmt::new(format_args!(
+        "{},{} km · {},{} % · {} m",
+        len / 10_000,
+        len / 1_000 % 10,
+        c.grade_pm() / 10,
+        c.grade_pm() % 10,
+        c.gain_m
+    ));
+    let gap = if is_next { 6 } else { 4 };
+    let (nc, dc) = (name_font.cap as i32, detail_font.cap as i32);
+    let top = cy - (nc + gap + dc) / 2;
+    fonts::text(d, &Style::new(name_font, ink, bg), name.as_str(), 22, top + nc / 2, Align::Left)?;
+    let detail_ink = if is_next { t.fg } else { t.mute };
+    fonts::text(
+        d,
+        &Style::new(detail_font, detail_ink, bg),
+        detail.as_str(),
+        22,
+        top + nc + gap + dc / 2,
+        Align::Left,
+    )?;
+    if done {
+        return Ok(());
+    }
+    let away = distance(c.start_dm - at.min(c.start_dm));
+    if is_next {
+        let (lc, vc) = (fonts::LABEL_SMALL.cap as i32, fonts::STAT.cap as i32);
+        let top = cy - (lc + 5 + vc) / 2;
+        fonts::text(d, &Style::new(&fonts::LABEL_SMALL, t.mute, bg), "DANS", W - MARGIN, top + lc / 2, Align::Right)?;
+        // by the advance: a changing distance keeps its right edge
+        fonts::value(d, &Style::new(&fonts::STAT, t.fg, bg), away.as_str(), "", W - MARGIN, top + lc + 5 + vc / 2, Align::Right)?;
+    } else {
+        fonts::value(d, &Style::new(&fonts::BODY_BOLD, t.fg, bg), away.as_str(), "", W - MARGIN, cy, Align::Right)?;
+    }
+    Ok(())
+}
+
+/// Columns of the profile of a climb.
+const CLIMB_COLS: usize = 224;
+/// Lengths of the stretches of a climb's profile, decimetres: the shortest that cuts it in 10 at most (more on a climb
+/// over 20 km). Not under 250 m: the route's elevations are within 2 m, a gradient over 100 m would be ±4 % off.
+const STRETCHES_DM: [u32; 4] = [2_500, 5_000, 10_000, 20_000];
+
+/// In a climb (`i` of `count`), as Garmin's ClimbPro: its number and size; its profile cut in stretches of a round
+/// length, each coloured by its gradient and labelled with it, the part done grey, the rider on it, the altitudes
+/// of the foot and the top; then the distance, the gain and the average gradient left to the top, and the gradient
+/// measured.
+fn climb_live<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    v: &View,
+    r: &route::Route<'_>,
+    (i, count): (usize, usize),
+    c: route::Climb,
+    at: u32,
+    t: &Theme,
+) -> Result<(), D::Error> {
+    const HEAD: i32 = TOP + 13;
+    const LOW: i32 = 185;
+    const MID: i32 = 232;
+    // its number and size in the top left corner, empty above a climb's foot
+    let title = fonts::text(
+        d,
+        &t.style(&fonts::BODY_BOLD),
+        Fmt::new(format_args!("Montée {}/{count}", i + 1)).as_str(),
+        MARGIN,
+        HEAD,
+        Align::Left,
+    )?;
+    let len = c.length_dm();
+    let size = Fmt::new(format_args!(
+        "{},{} km · {},{} % · {} m",
+        len / 10_000,
+        len / 1_000 % 10,
+        c.grade_pm() / 10,
+        c.grade_pm() % 10,
+        c.gain_m
+    ));
+    let sized = fonts::text(d, &t.mute(&fonts::SUB), size.as_str(), MARGIN, HEAD + 19, Align::Left)?;
+    // the profile, from the foot to the top
+    let mut ele = [0i32; CLIMB_COLS + 1];
+    r.elevations(c.start_dm, c.end_dm, &mut ele);
+    let (lo, hi) = ele.iter().fold((i32::MAX, i32::MIN), |(lo, hi), &e| (lo.min(e), hi.max(e)));
+    // room for the summit over the profile, for the foot and the stretches' length under it
+    let (x0, top, bottom) = (8, HEAD + 10, LOW - 20);
+    let span = (hi - lo).max(200) as i64;
+    // under the corner's text: a climb steep from its foot is drawn lower
+    let text_right = (title.top_left.x + title.size.width as i32).max(sized.top_left.x + sized.size.width as i32) + 6 - x0;
+    let text_bottom = sized.top_left.y + sized.size.height as i32 + 4;
+    let under = ele[..=(text_right.clamp(0, CLIMB_COLS as i32) as usize)].iter().max().map_or(0, |&e| e - lo).max(1) as i64;
+    let height = ((bottom - top) as i64).min((bottom - text_bottom) as i64 * span / under);
+    let y_of = |e: i32| bottom - ((e - lo) as i64 * height / span) as i32;
+    let col_of = |dm: u32| ((dm - c.start_dm) as u64 * CLIMB_COLS as u64 / len.max(1) as u64) as i32;
+    let me = col_of(at);
+    let step = STRETCHES_DM.into_iter().find(|s| len.div_ceil(*s) <= 10).unwrap_or(STRETCHES_DM[3]);
+    let n = len.div_ceil(step) as usize;
+    let small = t.mute(&fonts::NOTE);
+    for k in 0..n {
+        let (a, b) = (c.start_dm + k as u32 * step, (c.start_dm + (k as u32 + 1) * step).min(c.end_dm));
+        let mut ends = [0i32; 2];
+        r.elevations(a, b, &mut ends);
+        // percent, rounded
+        let rise = (ends[1] - ends[0]) as i64 * 100;
+        let pct = ((rise + rise.signum() * (b - a) as i64 / 2) / (b - a).max(1) as i64) as i32;
+        let (color, ink) = t.slope(pct);
+        let (ca, cb) = (col_of(a), col_of(b));
+        for x in ca..=cb.min(CLIMB_COLS as i32) {
+            let fill_c = if x < me { t.profile } else { color };
+            fill(d, rect(x0 + x, y_of(ele[x as usize]), x0 + x, bottom), fill_c)?;
+        }
+        // a separation between stretches, and the gradient in the stretch when it is wide enough
+        if k > 0 {
+            fill(d, rect(x0 + ca, y_of(ele[ca as usize]), x0 + ca, bottom), t.bg)?;
+        }
+        // the gradient in the stretch, in the wider of its parts done and to come, where the profile holds it
+        let label = Fmt::new(format_args!("{pct}"));
+        let lw = fonts::NOTE_BOLD.width(label.as_str(), 0) + 4;
+        let (done, ahead) = ((ca, me.clamp(ca, cb)), (me.clamp(ca, cb), cb));
+        let ((pa, pb), (bg, fg)) = if done.1 - done.0 > ahead.1 - ahead.0 {
+            (done, (t.profile, t.mute))
+        } else {
+            (ahead, (color, ink))
+        };
+        let (lx0, lx1) = ((pa + pb - lw) / 2, (pa + pb + lw) / 2);
+        let low = (lx0.max(0)..=lx1.min(CLIMB_COLS as i32)).map(|x| y_of(ele[x as usize])).max().unwrap_or(bottom);
+        if pb - pa >= lw && low <= bottom - 20 {
+            fonts::text(d, &Style::new(&fonts::NOTE_BOLD, fg, bg), label.as_str(), x0 + (pa + pb) / 2, bottom - 9, Align::Center)?;
+        }
+    }
+    // the altitudes of the top, over it, and of the foot, under it; the stretches' length
+    let mut buf = [0; 4];
+    let summit = Fmt::new(format_args!("{} {} m", char_str(icon::SUMMIT, &mut buf), ele[CLIMB_COLS] / 10));
+    fonts::text(d, &small, summit.as_str(), x0 + CLIMB_COLS as i32, HEAD, Align::Right)?;
+    let foot = Fmt::new(format_args!("{} {} m", char_str(icon::FOOT, &mut buf), ele[0] / 10));
+    fonts::text(d, &small, foot.as_str(), x0, LOW - 10, Align::Left)?;
+    let each = if step < 10_000 {
+        Fmt::new(format_args!("bandes de {} m", step / 10))
+    } else {
+        Fmt::new(format_args!("bandes de {} km", step / 10_000))
+    };
+    fonts::text(d, &small, each.as_str(), x0 + CLIMB_COLS as i32, LOW - 10, Align::Right)?;
+    disc(d, (x0 + me) as f32, y_of(ele[me as usize]) as f32, 5.0, t.me, t.bg)?;
+    hline(d, LOW, t)?;
+    // what is left to the top
+    let mut here_top = [0; 2];
+    r.elevations(at, c.end_dm, &mut here_top);
+    let left_dm = c.end_dm - at;
+    let gain_dm = (here_top[1] - here_top[0]).max(0);
+    let avg_pm = gain_dm as u64 * 1_000 / left_dm.max(1) as u64;
+    let avg_pct = ((avg_pm + 5) / 10) as i8;
+    let value = t.style(&fonts::VALUE);
+    let small_label = t.label(&fonts::LABEL_SMALL);
+    let (measured_label, measured, measured_style, _) = grade(v, t);
+    let cells = [
+        // in metres under 1 km (docs/PRODUCT.md)
+        if left_dm < 10_000 {
+            ("RESTE M", Fmt::new(format_args!("{}", left_dm / 100 * 10)), value, "000")
+        } else {
+            ("RESTE KM", Fmt::new(format_args!("{},{}", left_dm / 10_000, left_dm / 1_000 % 10)), value, "0,0")
+        },
+        ("RESTE D+ M", int(Some(gain_dm / 10)), value, "000"),
+        ("PENTE MOY. RESTE", Fmt::new(format_args!("{avg_pct} %")), value.colored(t.grade(avg_pct)), "0 %"),
+        (measured_label, measured, measured_style, "0 %"),
+    ];
+    hline(d, MID, t)?;
+    vline(d, W / 2 - 1, LOW + 1, BOTTOM - 1, t)?;
+    for (k, (label, val, style, min)) in cells.iter().enumerate() {
+        let (y0, y1) = if k < 2 { (LOW + 1, MID - 1) } else { (MID + 1, BOTTOM - 1) };
+        let (cx0, cx1) = if k % 2 == 0 { (0, W / 2 - 2) } else { (W / 2, W - 1) };
+        cell(d, rect(cx0, y0, cx1, y1), (&small_label, label), (style, val.as_str(), min), 6)?;
+    }
+    Ok(())
 }
 
 /// An altitude profile: the area under it; with `me` (riding), the line and the rider at its end.
@@ -622,10 +927,24 @@ fn home<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) 
         176,
         MARGIN,
     )?;
+    // 4 pages: a smaller font and tighter separators, cut with "…" if still too long
+    let mut names = ui.next_pages().names();
+    let room = W - 2 * MARGIN - fonts::ROW.width("Pages", 0) - 10;
+    let pages_font = if fonts::ROW.width(names.as_str(), 0) <= room {
+        &fonts::ROW
+    } else {
+        let mut tight = Fmt::new(format_args!(""));
+        for (i, name) in names.as_str().split(" · ").enumerate() {
+            let sep = if i > 0 { "·" } else { "" };
+            tight = Fmt::new(format_args!("{}{sep}{name}", tight.as_str()));
+        }
+        names = tight;
+        &fonts::NOTE
+    };
     row(
         d,
         (&label, "Pages"),
-        (&value, ui.next_pages().names().as_str()),
+        (&t.style(pages_font), fit(pages_font, names.as_str(), room).as_str()),
         203,
         MARGIN,
     )?;

@@ -60,4 +60,13 @@ fn info(file: &[u8]) {
     println!("climb     +{} m / -{} m, {:.0} to {:.0} m", i.ascent_m, i.descent_m, i.min_ele_dm as f64 / 10.0, i.max_ele_dm as f64 / 10.0);
     let [x0, y0, x1, y1] = i.bbox;
     println!("extent    {:.1} x {:.1} km", (x1 - x0) as f64 / 10_000.0, (y1 - y0) as f64 / 10_000.0);
+    println!("climbs    {}", r.climbs().len());
+    for c in r.climbs() {
+        let km = |dm: u32| dm as f64 / 10_000.0;
+        let pct = |pm| pm as f64 / 10.0;
+        println!(
+            "  at {:.1} km: {:.1} km, +{} m, {:.1} % (max {:.1} %)",
+            km(c.start_dm), km(c.length_dm()), c.gain_m, pct(c.grade_pm()), pct(c.max_grade_pm as u32)
+        );
+    }
 }

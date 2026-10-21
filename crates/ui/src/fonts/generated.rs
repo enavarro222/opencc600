@@ -4,7 +4,7 @@
 
 use super::{Font, Glyph};
 
-/// Barlow Condensed Bold, 84 px: 35 glyphs, 5 kerning pairs, 41104 bytes.
+/// Barlow Condensed Bold, 84 px: 37 glyphs, 5 kerning pairs, 44851 bytes.
 pub static HUGE: Font = Font {
     px: 84,
     ascent: 84,
@@ -46,6 +46,8 @@ pub static HUGE: Font = Font {
         Glyph { c: '\u{e00e}', adv: 3520, x: 0, y: 59, w: 50, h: 59, off: 35793 },
         Glyph { c: '\u{e00f}', adv: 4096, x: 0, y: 59, w: 59, h: 59, off: 37268 },
         Glyph { c: '\u{e010}', adv: 4864, x: 0, y: 59, w: 71, h: 59, off: 39009 },
+        Glyph { c: '\u{e011}', adv: 5056, x: 0, y: 59, w: 74, h: 59, off: 41104 },
+        Glyph { c: '\u{e012}', adv: 3712, x: 0, y: 59, w: 53, h: 59, off: 43287 },
     ],
     kerning: &[
         (',', '-', -16),
@@ -57,7 +59,7 @@ pub static HUGE: Font = Font {
     bitmaps: include_bytes!("huge.bin"),
 };
 
-/// Barlow Condensed Bold, 78 px: 35 glyphs, 1 kerning pairs, 35716 bytes.
+/// Barlow Condensed Bold, 78 px: 37 glyphs, 1 kerning pairs, 38989 bytes.
 pub static ALT: Font = Font {
     px: 78,
     ascent: 78,
@@ -99,6 +101,8 @@ pub static ALT: Font = Font {
         Glyph { c: '\u{e00e}', adv: 3328, x: 0, y: 55, w: 47, h: 55, off: 31095 },
         Glyph { c: '\u{e00f}', adv: 3840, x: 0, y: 55, w: 55, h: 55, off: 32388 },
         Glyph { c: '\u{e010}', adv: 4544, x: 0, y: 55, w: 66, h: 55, off: 33901 },
+        Glyph { c: '\u{e011}', adv: 4736, x: 0, y: 55, w: 69, h: 55, off: 35716 },
+        Glyph { c: '\u{e012}', adv: 3520, x: 0, y: 55, w: 50, h: 55, off: 37614 },
     ],
     kerning: &[
         ('-', '-', -344),
@@ -106,7 +110,7 @@ pub static ALT: Font = Font {
     bitmaps: include_bytes!("alt.bin"),
 };
 
-/// Barlow Condensed Bold, 34 px: 35 glyphs, 1 kerning pairs, 6891 bytes.
+/// Barlow Condensed Bold, 34 px: 37 glyphs, 1 kerning pairs, 7515 bytes.
 pub static VALUE: Font = Font {
     px: 34,
     ascent: 34,
@@ -148,6 +152,8 @@ pub static VALUE: Font = Font {
         Glyph { c: '\u{e00e}', adv: 1408, x: 0, y: 24, w: 20, h: 24, off: 6015 },
         Glyph { c: '\u{e00f}', adv: 1664, x: 0, y: 24, w: 24, h: 24, off: 6255 },
         Glyph { c: '\u{e010}', adv: 1984, x: 0, y: 24, w: 29, h: 24, off: 6543 },
+        Glyph { c: '\u{e011}', adv: 2048, x: 0, y: 24, w: 30, h: 24, off: 6891 },
+        Glyph { c: '\u{e012}', adv: 1536, x: 0, y: 24, w: 22, h: 24, off: 7251 },
     ],
     kerning: &[
         ('-', '-', -150),
@@ -155,7 +161,7 @@ pub static VALUE: Font = Font {
     bitmaps: include_bytes!("value.bin"),
 };
 
-/// Barlow Condensed Bold, 30 px: 156 glyphs, 832 kerning pairs, 19959 bytes.
+/// Barlow Condensed Bold, 30 px: 158 glyphs, 832 kerning pairs, 20432 bytes.
 pub static TITLE: Font = Font {
     px: 30,
     ascent: 30,
@@ -318,6 +324,8 @@ pub static TITLE: Font = Font {
         Glyph { c: '\u{e00e}', adv: 1280, x: 0, y: 21, w: 18, h: 21, off: 19286 },
         Glyph { c: '\u{e00f}', adv: 1472, x: 0, y: 21, w: 21, h: 21, off: 19475 },
         Glyph { c: '\u{e010}', adv: 1728, x: 0, y: 21, w: 25, h: 21, off: 19696 },
+        Glyph { c: '\u{e011}', adv: 1792, x: 0, y: 21, w: 26, h: 21, off: 19959 },
+        Glyph { c: '\u{e012}', adv: 1344, x: 0, y: 21, w: 19, h: 21, off: 20232 },
     ],
     kerning: &[
         ('"', '-', -44),
@@ -1156,7 +1164,7 @@ pub static TITLE: Font = Font {
     bitmaps: include_bytes!("title.bin"),
 };
 
-/// Barlow Condensed Bold, 26 px: 156 glyphs, 832 kerning pairs, 15739 bytes.
+/// Barlow Condensed Bold, 26 px: 158 glyphs, 832 kerning pairs, 16129 bytes.
 pub static STAT: Font = Font {
     px: 26,
     ascent: 26,
@@ -1319,6 +1327,8 @@ pub static STAT: Font = Font {
         Glyph { c: '\u{e00e}', adv: 1152, x: 0, y: 19, w: 16, h: 19, off: 15187 },
         Glyph { c: '\u{e00f}', adv: 1344, x: 0, y: 19, w: 19, h: 19, off: 15339 },
         Glyph { c: '\u{e010}', adv: 1600, x: 0, y: 19, w: 23, h: 19, off: 15520 },
+        Glyph { c: '\u{e011}', adv: 1664, x: 0, y: 19, w: 24, h: 19, off: 15739 },
+        Glyph { c: '\u{e012}', adv: 1216, x: 0, y: 19, w: 17, h: 19, off: 15967 },
     ],
     kerning: &[
         ('"', '-', -38),
@@ -2157,7 +2167,7 @@ pub static STAT: Font = Font {
     bitmaps: include_bytes!("stat.bin"),
 };
 
-/// Barlow Condensed Bold, 25 px: 156 glyphs, 832 kerning pairs, 13639 bytes.
+/// Barlow Condensed Bold, 25 px: 158 glyphs, 832 kerning pairs, 13946 bytes.
 pub static HEADING: Font = Font {
     px: 25,
     ascent: 25,
@@ -2320,6 +2330,8 @@ pub static HEADING: Font = Font {
         Glyph { c: '\u{e00e}', adv: 1024, x: 0, y: 17, w: 14, h: 17, off: 13205 },
         Glyph { c: '\u{e00f}', adv: 1216, x: 0, y: 17, w: 17, h: 17, off: 13324 },
         Glyph { c: '\u{e010}', adv: 1408, x: 0, y: 17, w: 20, h: 17, off: 13469 },
+        Glyph { c: '\u{e011}', adv: 1472, x: 0, y: 17, w: 21, h: 17, off: 13639 },
+        Glyph { c: '\u{e012}', adv: 1088, x: 0, y: 17, w: 15, h: 17, off: 13818 },
     ],
     kerning: &[
         ('"', '-', -37),
@@ -3158,7 +3170,7 @@ pub static HEADING: Font = Font {
     bitmaps: include_bytes!("heading.bin"),
 };
 
-/// Barlow Condensed Bold, 22 px: 156 glyphs, 793 kerning pairs, 11515 bytes.
+/// Barlow Condensed Bold, 22 px: 158 glyphs, 793 kerning pairs, 11787 bytes.
 pub static HEADING_SMALL: Font = Font {
     px: 22,
     ascent: 22,
@@ -3321,6 +3333,8 @@ pub static HEADING_SMALL: Font = Font {
         Glyph { c: '\u{e00e}', adv: 960, x: 0, y: 16, w: 14, h: 16, off: 11123 },
         Glyph { c: '\u{e00f}', adv: 1088, x: 0, y: 16, w: 16, h: 16, off: 11235 },
         Glyph { c: '\u{e010}', adv: 1280, x: 0, y: 16, w: 19, h: 16, off: 11363 },
+        Glyph { c: '\u{e011}', adv: 1344, x: 0, y: 16, w: 20, h: 16, off: 11515 },
+        Glyph { c: '\u{e012}', adv: 960, x: 0, y: 16, w: 14, h: 16, off: 11675 },
     ],
     kerning: &[
         ('"', '-', -32),
@@ -4120,7 +4134,7 @@ pub static HEADING_SMALL: Font = Font {
     bitmaps: include_bytes!("heading_small.bin"),
 };
 
-/// Barlow Condensed SemiBold, 21 px: 156 glyphs, 660 kerning pairs, 9756 bytes.
+/// Barlow Condensed SemiBold, 21 px: 158 glyphs, 660 kerning pairs, 10004 bytes.
 pub static MENU: Font = Font {
     px: 21,
     ascent: 21,
@@ -4283,6 +4297,8 @@ pub static MENU: Font = Font {
         Glyph { c: '\u{e00e}', adv: 896, x: 0, y: 15, w: 13, h: 15, off: 9410 },
         Glyph { c: '\u{e00f}', adv: 1024, x: 0, y: 15, w: 15, h: 15, off: 9508 },
         Glyph { c: '\u{e010}', adv: 1216, x: 0, y: 15, w: 18, h: 15, off: 9621 },
+        Glyph { c: '\u{e011}', adv: 1280, x: 0, y: 15, w: 19, h: 15, off: 9756 },
+        Glyph { c: '\u{e012}', adv: 960, x: 0, y: 15, w: 14, h: 15, off: 9899 },
     ],
     kerning: &[
         ('"', '-', -32),
@@ -4949,7 +4965,7 @@ pub static MENU: Font = Font {
     bitmaps: include_bytes!("menu.bin"),
 };
 
-/// Barlow Condensed Bold, 19 px: 156 glyphs, 791 kerning pairs, 8159 bytes.
+/// Barlow Condensed Bold, 19 px: 158 glyphs, 791 kerning pairs, 8341 bytes.
 pub static BANNER: Font = Font {
     px: 19,
     ascent: 19,
@@ -5112,6 +5128,8 @@ pub static BANNER: Font = Font {
         Glyph { c: '\u{e00e}', adv: 768, x: 0, y: 13, w: 11, h: 13, off: 7898 },
         Glyph { c: '\u{e00f}', adv: 896, x: 0, y: 13, w: 13, h: 13, off: 7970 },
         Glyph { c: '\u{e010}', adv: 1088, x: 0, y: 13, w: 16, h: 13, off: 8055 },
+        Glyph { c: '\u{e011}', adv: 1088, x: 0, y: 13, w: 16, h: 13, off: 8159 },
+        Glyph { c: '\u{e012}', adv: 832, x: 0, y: 13, w: 12, h: 13, off: 8263 },
     ],
     kerning: &[
         ('"', '-', -28),
@@ -5909,7 +5927,7 @@ pub static BANNER: Font = Font {
     bitmaps: include_bytes!("banner.bin"),
 };
 
-/// Barlow Condensed Bold, 18 px: 156 glyphs, 769 kerning pairs, 7908 bytes.
+/// Barlow Condensed Bold, 18 px: 158 glyphs, 769 kerning pairs, 8090 bytes.
 pub static KEY: Font = Font {
     px: 18,
     ascent: 18,
@@ -6072,6 +6090,8 @@ pub static KEY: Font = Font {
         Glyph { c: '\u{e00e}', adv: 768, x: 0, y: 13, w: 11, h: 13, off: 7647 },
         Glyph { c: '\u{e00f}', adv: 896, x: 0, y: 13, w: 13, h: 13, off: 7719 },
         Glyph { c: '\u{e010}', adv: 1088, x: 0, y: 13, w: 16, h: 13, off: 7804 },
+        Glyph { c: '\u{e011}', adv: 1088, x: 0, y: 13, w: 16, h: 13, off: 7908 },
+        Glyph { c: '\u{e012}', adv: 832, x: 0, y: 13, w: 12, h: 13, off: 8012 },
     ],
     kerning: &[
         ('"', '-', -26),
@@ -6847,7 +6867,7 @@ pub static KEY: Font = Font {
     bitmaps: include_bytes!("key.bin"),
 };
 
-/// Barlow Condensed Bold, 18 px: 156 glyphs, 769 kerning pairs, 7908 bytes.
+/// Barlow Condensed Bold, 18 px: 158 glyphs, 769 kerning pairs, 8090 bytes.
 pub static BODY_BOLD: Font = Font {
     px: 18,
     ascent: 18,
@@ -7010,6 +7030,8 @@ pub static BODY_BOLD: Font = Font {
         Glyph { c: '\u{e00e}', adv: 768, x: 0, y: 13, w: 11, h: 13, off: 7647 },
         Glyph { c: '\u{e00f}', adv: 896, x: 0, y: 13, w: 13, h: 13, off: 7719 },
         Glyph { c: '\u{e010}', adv: 1088, x: 0, y: 13, w: 16, h: 13, off: 7804 },
+        Glyph { c: '\u{e011}', adv: 1088, x: 0, y: 13, w: 16, h: 13, off: 7908 },
+        Glyph { c: '\u{e012}', adv: 832, x: 0, y: 13, w: 12, h: 13, off: 8012 },
     ],
     kerning: &[
         ('"', '-', -26),
@@ -7785,7 +7807,7 @@ pub static BODY_BOLD: Font = Font {
     bitmaps: include_bytes!("body_bold.bin"),
 };
 
-/// Barlow Condensed SemiBold, 18 px: 156 glyphs, 560 kerning pairs, 6884 bytes.
+/// Barlow Condensed SemiBold, 18 px: 158 glyphs, 560 kerning pairs, 7040 bytes.
 pub static ROW: Font = Font {
     px: 18,
     ascent: 18,
@@ -7948,6 +7970,8 @@ pub static ROW: Font = Font {
         Glyph { c: '\u{e00e}', adv: 704, x: 0, y: 12, w: 10, h: 12, off: 6668 },
         Glyph { c: '\u{e00f}', adv: 832, x: 0, y: 12, w: 12, h: 12, off: 6728 },
         Glyph { c: '\u{e010}', adv: 960, x: 0, y: 12, w: 14, h: 12, off: 6800 },
+        Glyph { c: '\u{e011}', adv: 1024, x: 0, y: 12, w: 15, h: 12, off: 6884 },
+        Glyph { c: '\u{e012}', adv: 768, x: 0, y: 12, w: 11, h: 12, off: 6974 },
     ],
     kerning: &[
         ('"', '-', -28),
@@ -8514,7 +8538,7 @@ pub static ROW: Font = Font {
     bitmaps: include_bytes!("row.bin"),
 };
 
-/// Barlow Condensed SemiBold, 17 px: 156 glyphs, 539 kerning pairs, 6533 bytes.
+/// Barlow Condensed SemiBold, 17 px: 158 glyphs, 539 kerning pairs, 6689 bytes.
 pub static ROW_SMALL: Font = Font {
     px: 17,
     ascent: 17,
@@ -8677,6 +8701,8 @@ pub static ROW_SMALL: Font = Font {
         Glyph { c: '\u{e00e}', adv: 704, x: 0, y: 12, w: 10, h: 12, off: 6317 },
         Glyph { c: '\u{e00f}', adv: 832, x: 0, y: 12, w: 12, h: 12, off: 6377 },
         Glyph { c: '\u{e010}', adv: 960, x: 0, y: 12, w: 14, h: 12, off: 6449 },
+        Glyph { c: '\u{e011}', adv: 1024, x: 0, y: 12, w: 15, h: 12, off: 6533 },
+        Glyph { c: '\u{e012}', adv: 768, x: 0, y: 12, w: 11, h: 12, off: 6623 },
     ],
     kerning: &[
         ('"', '-', -26),
@@ -9222,7 +9248,7 @@ pub static ROW_SMALL: Font = Font {
     bitmaps: include_bytes!("row_small.bin"),
 };
 
-/// Barlow Condensed Medium, 18 px: 156 glyphs, 461 kerning pairs, 6514 bytes.
+/// Barlow Condensed Medium, 18 px: 158 glyphs, 461 kerning pairs, 6670 bytes.
 pub static BODY: Font = Font {
     px: 18,
     ascent: 18,
@@ -9385,6 +9411,8 @@ pub static BODY: Font = Font {
         Glyph { c: '\u{e00e}', adv: 704, x: 0, y: 12, w: 10, h: 12, off: 6298 },
         Glyph { c: '\u{e00f}', adv: 832, x: 0, y: 12, w: 12, h: 12, off: 6358 },
         Glyph { c: '\u{e010}', adv: 960, x: 0, y: 12, w: 14, h: 12, off: 6430 },
+        Glyph { c: '\u{e011}', adv: 1024, x: 0, y: 12, w: 15, h: 12, off: 6514 },
+        Glyph { c: '\u{e012}', adv: 768, x: 0, y: 12, w: 11, h: 12, off: 6604 },
     ],
     kerning: &[
         ('"', '-', -30),
@@ -9852,7 +9880,7 @@ pub static BODY: Font = Font {
     bitmaps: include_bytes!("body.bin"),
 };
 
-/// Barlow Condensed Medium, 16 px: 156 glyphs, 404 kerning pairs, 5531 bytes.
+/// Barlow Condensed Medium, 16 px: 158 glyphs, 404 kerning pairs, 5663 bytes.
 pub static NOTE_LARGE: Font = Font {
     px: 16,
     ascent: 16,
@@ -10015,6 +10043,8 @@ pub static NOTE_LARGE: Font = Font {
         Glyph { c: '\u{e00e}', adv: 640, x: 0, y: 11, w: 9, h: 11, off: 5348 },
         Glyph { c: '\u{e00f}', adv: 768, x: 0, y: 11, w: 11, h: 11, off: 5398 },
         Glyph { c: '\u{e010}', adv: 896, x: 0, y: 11, w: 13, h: 11, off: 5459 },
+        Glyph { c: '\u{e011}', adv: 960, x: 0, y: 11, w: 14, h: 11, off: 5531 },
+        Glyph { c: '\u{e012}', adv: 704, x: 0, y: 11, w: 10, h: 11, off: 5608 },
     ],
     kerning: &[
         ('"', '-', -27),
@@ -10425,7 +10455,7 @@ pub static NOTE_LARGE: Font = Font {
     bitmaps: include_bytes!("note_large.bin"),
 };
 
-/// Barlow Condensed SemiBold, 15 px: 156 glyphs, 445 kerning pairs, 5359 bytes.
+/// Barlow Condensed SemiBold, 15 px: 158 glyphs, 445 kerning pairs, 5491 bytes.
 pub static SUB: Font = Font {
     px: 15,
     ascent: 15,
@@ -10588,6 +10618,8 @@ pub static SUB: Font = Font {
         Glyph { c: '\u{e00e}', adv: 640, x: 0, y: 11, w: 9, h: 11, off: 5176 },
         Glyph { c: '\u{e00f}', adv: 768, x: 0, y: 11, w: 11, h: 11, off: 5226 },
         Glyph { c: '\u{e010}', adv: 896, x: 0, y: 11, w: 13, h: 11, off: 5287 },
+        Glyph { c: '\u{e011}', adv: 960, x: 0, y: 11, w: 14, h: 11, off: 5359 },
+        Glyph { c: '\u{e012}', adv: 704, x: 0, y: 11, w: 10, h: 11, off: 5436 },
     ],
     kerning: &[
         ('"', '-', -23),
@@ -11039,7 +11071,7 @@ pub static SUB: Font = Font {
     bitmaps: include_bytes!("sub.bin"),
 };
 
-/// Barlow Condensed Medium, 15 px: 156 glyphs, 399 kerning pairs, 5216 bytes.
+/// Barlow Condensed Medium, 15 px: 158 glyphs, 399 kerning pairs, 5348 bytes.
 pub static NOTE: Font = Font {
     px: 15,
     ascent: 15,
@@ -11202,6 +11234,8 @@ pub static NOTE: Font = Font {
         Glyph { c: '\u{e00e}', adv: 640, x: 0, y: 11, w: 9, h: 11, off: 5033 },
         Glyph { c: '\u{e00f}', adv: 768, x: 0, y: 11, w: 11, h: 11, off: 5083 },
         Glyph { c: '\u{e010}', adv: 896, x: 0, y: 11, w: 13, h: 11, off: 5144 },
+        Glyph { c: '\u{e011}', adv: 960, x: 0, y: 11, w: 14, h: 11, off: 5216 },
+        Glyph { c: '\u{e012}', adv: 704, x: 0, y: 11, w: 10, h: 11, off: 5293 },
     ],
     kerning: &[
         ('"', '-', -25),
@@ -11607,7 +11641,7 @@ pub static NOTE: Font = Font {
     bitmaps: include_bytes!("note.bin"),
 };
 
-/// Barlow Condensed Bold, 15 px: 156 glyphs, 511 kerning pairs, 5605 bytes.
+/// Barlow Condensed Bold, 15 px: 158 glyphs, 511 kerning pairs, 5737 bytes.
 pub static NOTE_BOLD: Font = Font {
     px: 15,
     ascent: 15,
@@ -11770,6 +11804,8 @@ pub static NOTE_BOLD: Font = Font {
         Glyph { c: '\u{e00e}', adv: 640, x: 0, y: 11, w: 9, h: 11, off: 5422 },
         Glyph { c: '\u{e00f}', adv: 768, x: 0, y: 11, w: 11, h: 11, off: 5472 },
         Glyph { c: '\u{e010}', adv: 896, x: 0, y: 11, w: 13, h: 11, off: 5533 },
+        Glyph { c: '\u{e011}', adv: 960, x: 0, y: 11, w: 14, h: 11, off: 5605 },
+        Glyph { c: '\u{e012}', adv: 704, x: 0, y: 11, w: 10, h: 11, off: 5682 },
     ],
     kerning: &[
         ('"', '-', -22),
@@ -12287,7 +12323,7 @@ pub static NOTE_BOLD: Font = Font {
     bitmaps: include_bytes!("note_bold.bin"),
 };
 
-/// Barlow Condensed SemiBold, 14 px: 156 glyphs, 395 kerning pairs, 4131 bytes.
+/// Barlow Condensed SemiBold, 14 px: 158 glyphs, 395 kerning pairs, 4217 bytes.
 pub static BAR: Font = Font {
     px: 14,
     ascent: 14,
@@ -12450,6 +12486,8 @@ pub static BAR: Font = Font {
         Glyph { c: '\u{e00e}', adv: 576, x: 0, y: 9, w: 8, h: 9, off: 4004 },
         Glyph { c: '\u{e00f}', adv: 640, x: 0, y: 9, w: 9, h: 9, off: 4040 },
         Glyph { c: '\u{e010}', adv: 768, x: 0, y: 9, w: 11, h: 9, off: 4081 },
+        Glyph { c: '\u{e011}', adv: 768, x: 0, y: 9, w: 11, h: 9, off: 4131 },
+        Glyph { c: '\u{e012}', adv: 576, x: 0, y: 9, w: 8, h: 9, off: 4181 },
     ],
     kerning: &[
         ('"', '-', -22),
@@ -12851,7 +12889,7 @@ pub static BAR: Font = Font {
     bitmaps: include_bytes!("bar.bin"),
 };
 
-/// Barlow Condensed SemiBold, 13 px: 81 glyphs, 136 kerning pairs, 2291 bytes.
+/// Barlow Condensed SemiBold, 13 px: 83 glyphs, 136 kerning pairs, 2377 bytes.
 pub static LABEL: Font = Font {
     px: 13,
     ascent: 13,
@@ -12939,6 +12977,8 @@ pub static LABEL: Font = Font {
         Glyph { c: '\u{e00e}', adv: 576, x: 0, y: 9, w: 8, h: 9, off: 2164 },
         Glyph { c: '\u{e00f}', adv: 640, x: 0, y: 9, w: 9, h: 9, off: 2200 },
         Glyph { c: '\u{e010}', adv: 768, x: 0, y: 9, w: 11, h: 9, off: 2241 },
+        Glyph { c: '\u{e011}', adv: 768, x: 0, y: 9, w: 11, h: 9, off: 2291 },
+        Glyph { c: '\u{e012}', adv: 576, x: 0, y: 9, w: 8, h: 9, off: 2341 },
     ],
     kerning: &[
         ('\'', '-', -20),
@@ -13081,7 +13121,7 @@ pub static LABEL: Font = Font {
     bitmaps: include_bytes!("label.bin"),
 };
 
-/// Barlow Condensed SemiBold, 12 px: 81 glyphs, 127 kerning pairs, 1896 bytes.
+/// Barlow Condensed SemiBold, 12 px: 83 glyphs, 127 kerning pairs, 1964 bytes.
 pub static LABEL_SMALL: Font = Font {
     px: 12,
     ascent: 12,
@@ -13169,6 +13209,8 @@ pub static LABEL_SMALL: Font = Font {
         Glyph { c: '\u{e00e}', adv: 512, x: 0, y: 8, w: 7, h: 8, off: 1796 },
         Glyph { c: '\u{e00f}', adv: 576, x: 0, y: 8, w: 8, h: 8, off: 1824 },
         Glyph { c: '\u{e010}', adv: 704, x: 0, y: 8, w: 10, h: 8, off: 1856 },
+        Glyph { c: '\u{e011}', adv: 704, x: 0, y: 8, w: 10, h: 8, off: 1896 },
+        Glyph { c: '\u{e012}', adv: 512, x: 0, y: 8, w: 7, h: 8, off: 1936 },
     ],
     kerning: &[
         ('\'', '-', -18),
@@ -13302,7 +13344,7 @@ pub static LABEL_SMALL: Font = Font {
     bitmaps: include_bytes!("label_small.bin"),
 };
 
-/// Barlow Condensed SemiBold, 11 px: 81 glyphs, 110 kerning pairs, 1744 bytes.
+/// Barlow Condensed SemiBold, 11 px: 83 glyphs, 110 kerning pairs, 1812 bytes.
 pub static LABEL_TINY: Font = Font {
     px: 11,
     ascent: 11,
@@ -13390,6 +13432,8 @@ pub static LABEL_TINY: Font = Font {
         Glyph { c: '\u{e00e}', adv: 512, x: 0, y: 8, w: 7, h: 8, off: 1644 },
         Glyph { c: '\u{e00f}', adv: 576, x: 0, y: 8, w: 8, h: 8, off: 1672 },
         Glyph { c: '\u{e010}', adv: 704, x: 0, y: 8, w: 10, h: 8, off: 1704 },
+        Glyph { c: '\u{e011}', adv: 704, x: 0, y: 8, w: 10, h: 8, off: 1744 },
+        Glyph { c: '\u{e012}', adv: 512, x: 0, y: 8, w: 7, h: 8, off: 1784 },
     ],
     kerning: &[
         ('\'', '-', -17),
@@ -13506,7 +13550,7 @@ pub static LABEL_TINY: Font = Font {
     bitmaps: include_bytes!("label_tiny.bin"),
 };
 
-/// Barlow Condensed Bold, 44 px: 17 glyphs, 0 kerning pairs, 7584 bytes.
+/// Barlow Condensed Bold, 44 px: 19 glyphs, 0 kerning pairs, 8623 bytes.
 pub static MARK: Font = Font {
     px: 44,
     ascent: 44,
@@ -13530,6 +13574,8 @@ pub static MARK: Font = Font {
         Glyph { c: '\u{e00e}', adv: 1856, x: 0, y: 31, w: 26, h: 31, off: 6126 },
         Glyph { c: '\u{e00f}', adv: 2176, x: 0, y: 31, w: 31, h: 31, off: 6529 },
         Glyph { c: '\u{e010}', adv: 2560, x: 0, y: 31, w: 37, h: 31, off: 7010 },
+        Glyph { c: '\u{e011}', adv: 2688, x: 0, y: 31, w: 39, h: 31, off: 7584 },
+        Glyph { c: '\u{e012}', adv: 1984, x: 0, y: 31, w: 28, h: 31, off: 8189 },
     ],
     kerning: &[
     ],

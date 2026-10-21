@@ -102,6 +102,8 @@ pub enum Page {
     Essential,
     /// Altitude, gradient, D+ / D-, the last 5 km.
     Altitude,
+    /// The climbs of the route; in one, what is left of it (a route with climbs, in place of Altitude).
+    Climbs,
     /// 3 s power, then average power, heart rate, cadence, speed, time (a power meter paired).
     Effort,
 }
@@ -112,22 +114,24 @@ impl Page {
             Page::Map => "Carte",
             Page::Essential => "Essentiel",
             Page::Altitude => "Altitude",
+            Page::Climbs => "Montées",
             Page::Effort => "Effort",
         }
     }
 }
 
 /// The ride pages for what the device has (docs/PRODUCT.md, "Data pages"): to explore, the map first when a route
-/// is loaded, else Essential then Altitude; Effort last with a power meter paired (`effort`); to
-/// train, Effort first. The climbs page comes with the climbs of the route.
-pub fn pages(route: bool, train: bool, effort: bool) -> Pages {
+/// is loaded, then Essential and Altitude, or Climbs in its place when the route has climbs (`climbs`); Effort
+/// last with a power meter paired (`effort`); to train, Effort first.
+pub fn pages(route: bool, climbs: bool, train: bool, effort: bool) -> Pages {
     use Page::*;
     let effort = effort.then_some(Effort);
+    let height = Some(if route && climbs { Climbs } else { Altitude });
     let list = match (route, train) {
-        (true, false) => [Some(Map), Some(Essential), effort, None],
-        (true, true) => [effort, Some(Essential), Some(Map), None],
-        (false, false) => [Some(Essential), Some(Altitude), effort, None],
-        (false, true) => [effort, Some(Essential), Some(Altitude), None],
+        (true, false) => [Some(Map), Some(Essential), height, effort],
+        (true, true) => [effort, Some(Essential), Some(Map), height],
+        (false, false) => [Some(Essential), height, effort, None],
+        (false, true) => [effort, Some(Essential), height, None],
     };
     // the missing Effort takes no slot
     let mut list = list.into_iter().flatten();
@@ -593,8 +597,9 @@ pub struct Ui {
     banner: Option<Banner>,
     /// Map zoom, index in [`ZOOMS_M`], or the whole route after them.
     zoom: u8,
-    /// What picks the pages: a route is loaded, the usage is training.
+    /// What picks the pages: a route is loaded, it has climbs, the usage is training.
     route: bool,
+    climbs: bool,
     train: bool,
     effort: bool,
     /// The GNSS had a fix during this ride ("lost" rather than "searching").
@@ -633,6 +638,7 @@ impl Ui {
             banner: None,
             zoom: 2,
             route: false,
+            climbs: false,
             train: false,
             effort: false,
             had_fix: false,
@@ -665,12 +671,13 @@ impl Ui {
         self.scroll_ms = s as u64 * 1000;
     }
 
-    /// What picks the ride pages (at the next start): a route is loaded, the usage setting is training, a power meter
-    /// is paired. The pages of a ride follow a route sent or removed and a sensor paired or
+    /// What picks the ride pages (at the next start): a route is loaded, it has climbs, the usage setting is training,
+    /// a power meter is paired. The pages of a ride follow a route sent or removed and a sensor paired or
     /// forgotten during it (and a ride resumed at power-on, before the route was read), the page shown kept.
-    pub fn set_context(&mut self, route: bool, train: bool, effort: bool) {
-        let changed = route != self.route || effort != self.effort;
+    pub fn set_context(&mut self, route: bool, climbs: bool, train: bool, effort: bool) {
+        let changed = route != self.route || climbs != self.climbs || effort != self.effort;
         self.route = route;
+        self.climbs = climbs;
         self.train = train;
         self.effort = effort;
         if changed && !self.pages.is_empty() {
@@ -684,7 +691,7 @@ impl Ui {
 
     /// The pages a ride would have now.
     pub fn next_pages(&self) -> Pages {
-        pages(self.route, self.train, self.effort)
+        pages(self.route, self.climbs, self.train, self.effort)
     }
 
     /// The map's scale bar, metres.
@@ -1586,7 +1593,7 @@ mod tests {
         let mut ui = Ui::new();
         ui.found_paused_ride();
         assert_eq!(ui.page(), Some(Page::Essential));
-        ui.set_context(true, false, false);
+        ui.set_context(true, false, false, false);
         assert_eq!(ui.page(), Some(Page::Essential), "the page shown stays");
         press(&mut ui, BottomRight); // resume
         let mut pages = [None; 3];
@@ -1596,7 +1603,7 @@ mod tests {
         }
         assert!(pages.contains(&Some(Page::Map)), "{pages:?}");
         // the route removed during the ride: no map page any more
-        ui.set_context(false, false, false);
+        ui.set_context(false, false, false, false);
         assert!((0..4).all(|_| {
             press(&mut ui, BottomLeft);
             ui.page() != Some(Page::Map)
@@ -1834,20 +1841,37 @@ mod tests {
 
     #[test]
     fn page_names() {
-        assert_eq!(pages(false, false, false).names().as_str(), "Essentiel · Altitude");
-        assert_eq!(pages(true, false, false).names().as_str(), "Carte · Essentiel");
-        assert_eq!(pages(true, true, false).names().as_str(), "Essentiel · Carte");
-        assert_eq!(pages(false, false, true).names().as_str(), "Essentiel · Altitude · Effort");
-        assert_eq!(pages(true, false, true).names().as_str(), "Carte · Essentiel · Effort");
-        assert_eq!(pages(true, true, true).names().as_str(), "Effort · Essentiel · Carte");
-        assert_eq!(pages(false, true, true).names().as_str(), "Effort · Essentiel · Altitude");
+        // route, climbs, train, effort
+        let names = |r, c, tr, e| pages(r, c, tr, e).names();
+        assert_eq!(names(false, false, false, false).as_str(), "Essentiel · Altitude");
+        assert_eq!(names(true, false, false, false).as_str(), "Carte · Essentiel · Altitude");
+        assert_eq!(names(true, true, false, false).as_str(), "Carte · Essentiel · Montées");
+        assert_eq!(names(true, false, true, false).as_str(), "Essentiel · Carte · Altitude");
+        assert_eq!(names(true, true, true, false).as_str(), "Essentiel · Carte · Montées");
+        assert_eq!(names(false, false, false, true).as_str(), "Essentiel · Altitude · Effort");
+        assert_eq!(names(true, false, false, true).as_str(), "Carte · Essentiel · Altitude · Effort");
+        assert_eq!(names(true, true, false, true).as_str(), "Carte · Essentiel · Montées · Effort");
+        assert_eq!(names(true, true, true, true).as_str(), "Effort · Essentiel · Carte · Montées");
+        assert_eq!(names(false, false, true, true).as_str(), "Effort · Essentiel · Altitude");
+        // climbs without a route followed (set aside): Altitude
+        assert_eq!(names(false, true, false, false).as_str(), "Essentiel · Altitude");
+    }
+
+    #[test]
+    fn a_route_with_climbs_swaps_altitude_for_climbs_during_the_ride() {
+        let mut ui = Ui::new();
+        ui.found_paused_ride();
+        ui.set_context(true, false, false, false);
+        assert_eq!(ui.next_pages().names().as_str(), "Carte · Essentiel · Altitude");
+        ui.set_context(true, true, false, false);
+        assert_eq!(ui.next_pages().names().as_str(), "Carte · Essentiel · Montées");
     }
 
     #[test]
     fn a_power_meter_paired_during_the_ride_brings_effort() {
         let mut ui = Ui::new();
         ui.found_paused_ride();
-        ui.set_context(false, false, true);
+        ui.set_context(false, false, false, true);
         assert_eq!(ui.page(), Some(Page::Essential), "the page shown stays");
         assert_eq!(ui.next_pages().names().as_str(), "Essentiel · Altitude · Effort");
     }

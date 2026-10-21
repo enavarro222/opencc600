@@ -35,6 +35,8 @@ pub mod icon {
     pub const RING: char = '\u{e00e}';
     pub const ZOOM: char = '\u{e00f}';
     pub const OFF_ROUTE: char = '\u{e010}';
+    pub const SUMMIT: char = '\u{e011}';
+    pub const FOOT: char = '\u{e012}';
 }
 
 pub struct Font {

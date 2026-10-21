@@ -95,7 +95,7 @@ pub fn run(gpx_path: &str, out: &str, every_s: u32, map_path: Option<&str>) {
     let tz = settings::Settings::default().tz;
 
     let mut ui = Ui::new();
-    ui.set_context(true, false);
+    ui.set_context(true, r.climbs().len() > 0, false, false);
     let mut nav = Nav::default();
     let mut history = History::new();
     let mut ride = RideView::default();
