@@ -22,3 +22,6 @@ target/
 
 # Python
 __pycache__/
+
+# Private working notes
+docs/WIP.md

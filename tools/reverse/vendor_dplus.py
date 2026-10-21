@@ -2,7 +2,7 @@
 """Replays the vendor ascent / descent state machine (decompiled from ota_1, docs/REVERSE_NOTES.md) on the
 altitude of vendor FIT files, and compares with their session totals and with a plain 2 m hysteresis.
 
-usage: vendor_dplus.py FILE.fit...     (vendor rides, e.g. dump/fits/*.fit from tools/vendor_fit.py)
+usage: vendor_dplus.py FILE.fit...     (vendor rides, e.g. dump/fits/*.fit from tools/reverse/vendor_fit.py)
 """
 import sys
 from garmin_fit_sdk import Decoder, Stream

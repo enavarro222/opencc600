@@ -75,12 +75,8 @@ C606 hardware according to c606-oss:
   ESP-only reset it stays off, and no known ESP32 command starts it. The same stream carries accelerometer (`F1 01`),
   gyro (`F1 02`) and magnetometer calibration (`F1 00`) → an IMU behind the C606 nRF (the CC600 sends none of these frames, see the nRF link section).
   *(To check on the CC600: same frames, actual rate.)*
-- **Buzzer**: the CC600 beeps, but nothing is known yet about how. c606-oss documents no buzzer and no beep command.
-  The live pinout (JTAG snapshot taken while not beeping) shows no PWM on the ESP32 except the backlight (GPIO45),
-  so it is either driven by the **nRF** (like keys and power; candidate: the undocumented ESP32→nRF
-  `E2 01 XX` "LED/misc" command, XX < 0x1c), or by an ESP32 GPIO configured only while beeping.
-  *(To find: FCC internal photos of 2ALZG-309 (where the buzzer sits), `beep`/`buzzer` strings in the vendor app,
-  a JTAG pin snapshot / UART2 TX breakpoint during a vendor beep.)*
+- **Buzzer**: driven by the nRF, command `E2 01 XX` (c606-oss documents none). Sounds in the nRF link section
+  below.
 - 4 GB eMMC mounted as FAT on `/sdcard`
 
 Recovery: holding all three buttons hard-resets the ESP32.
@@ -94,7 +90,7 @@ Recovery: holding all three buttons hard-resets the ESP32.
 
 ## Live pinout read over JTAG
 
-`tools/read_pins.py` attaches OpenOCD (Espressif build, `board/esp32s3-builtin.cfg`) to the running vendor firmware
+`tools/reverse/read_pins.py` attaches OpenOCD (Espressif build, `board/esp32s3-builtin.cfg`) to the running vendor firmware
 without a reset, halts the CPUs for about one second, dumps the GPIO matrix / IO_MUX / GPIO / UART / LCD_CAM
 registers and resumes. Read-only. Raw output: [pins_live.txt](pins_live.txt).
 Needs OpenOCD's `60-openocd.rules` udev rule for non-root USB access.
@@ -194,8 +190,8 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   temperature? to check by warming the case).
 - **Buzzer = nRF command `E2 01 XX`** (type 2, cmd 0x10, `E2 01 XX 00 00 00 00 00`), every value acknowledged.
   The vendor firmware has a `BUZZER FUNC TEST` / `PRESS B KEY TEST BUZZER` factory test and `Key Tones` /
-  `Prompt Tones` settings. Scan of 00..1B recorded with the PC microphone (`tools/sound_probe.py`, piezo
-  fundamentals 1.5–7 kHz).
+  `Prompt Tones` settings. Scan of 00..1B recorded with the PC microphone (`tools/sound_probe.py`, removed since
+  with the firmware's scan mode: `git show 8b69898:tools/sound_probe.py`; piezo fundamentals 1.5–7 kHz).
   Heard: 00 and 01 the same short beep, 02 "ti-dou-di", 17 "tou-di-dou"; 13, 18, 19 silent by ear.
 
   | `E2 01 XX` | notes (name ms; `→` legato, `· N ms ·` silence) | total |
@@ -349,7 +345,7 @@ Same framing, CRC and messages as the C606 documented by c606-oss, with these di
   sides shows the Xtensa build of littlefs reads the flash correctly.
 - **Ride files are compressed FIT**: `".ZIP"` + the 14-byte FIT header + `{u16 LE length, zlib stream}*` + the
   2-byte FIT CRC. Inflated, header + records + CRC is a valid FIT file (all 24 rides decode, CRC OK; ~30 % smaller
-  stored). `tools/vendor_fit.py` does the conversion.
+  stored). `tools/reverse/vendor_fit.py` does the conversion.
 
 ## Vendor altitude and D+ (2026-10-19)
 
@@ -386,7 +382,7 @@ elsewhere.
 
 Also: VAM from 1 s differences above 0.1 m (× 3600), and an instant value written to a ring buffer.
 
-**Checked against the vendor files**: `tools/vendor_dplus.py` replays this state machine on the recorded
+**Checked against the vendor files**: `tools/reverse/vendor_dplus.py` replays this state machine on the recorded
 `enhanced_altitude` and gets the vendor `total_ascent` / `total_descent` to **1.0 % / 0.6 % (median)** over 23
 rides. The rest comes from the 0.2 m rounding of the file. A plain 2 m hysteresis on the same series gives 3 %
 less in total, up to 10 % on a ride.
@@ -395,9 +391,9 @@ Black-box observations that led there: records hold `enhanced_altitude` (+ `alti
 **no pressure**; altitude in 0.2 m steps, little smoothing (RMS of the second difference 0.15–0.25 m at 1 Hz);
 altitude jumps > 5 m only across pauses or power-offs, plus one −12 m in 1 s mid-ride (1780739728, 5 h 30 min).
 
-**Tools**: `tools/esp_image_elf.py` (app image → ELF), Ghidra 12.1.4 headless with
-`tools/ghidra/AddRomSymbols.java` (ESP32-S3 ROM names from esp-rom-sys `ld/esp32s3/rom/*.ld`: the soft-float
-calls read as `__divdf3`...) and `tools/ghidra/DecompileRefs.java` (decompiles the users of strings or literal
+**Tools**: `tools/reverse/esp_image_elf.py` (app image → ELF), Ghidra 12.1.4 headless with
+`tools/reverse/ghidra/AddRomSymbols.java` (ESP32-S3 ROM names from esp-rom-sys `ld/esp32s3/rom/*.ld`: the soft-float
+calls read as `__divdf3`...) and `tools/reverse/ghidra/DecompileRefs.java` (decompiles the users of strings or literal
 pool constants). Ghidra prints the float literals of the pools wrong when they are integers (`1.4013e-45` is 1):
 read the pool words (`DAT_...`) from the image.
 
@@ -405,7 +401,7 @@ read the pool words (`DAT_...`) from the image.
 
 The nRF's application is in the vendor storage partition (`/APP/*/N51_V1.602_A.bin`, XOR-encrypted): nRF52810,
 ANT SoftDevice, barometer SPL06-001 whose pressure it filters (trimmed mean + Butterworth, ~2 s late) before the
-`F1 03` frames. All in **docs/NRF_FIRMWARE.md**; extraction with `tools/nrf_image.py`.
+`F1 03` frames. All in **docs/NRF_FIRMWARE.md**; extraction with `tools/reverse/nrf_image.py`.
 
 ## Safety rules
 

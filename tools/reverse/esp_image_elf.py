@@ -3,7 +3,7 @@
 
 The app image is a header, then segments `{u32 load address, u32 length, data}`; each becomes a PT_LOAD
 segment and a section at its address (DROM 0x3C.., IROM 0x42.., DRAM 0x3FC.., IRAM 0x403..), so the string and
-literal-pool addresses resolve. No symbols: the ROM ones are added by tools/ghidra/AddRomSymbols.java.
+literal-pool addresses resolve. No symbols: the ROM ones are added by tools/reverse/ghidra/AddRomSymbols.java.
 
 usage: esp_image_elf.py APP.bin OUT.elf     (e.g. ota_1 cut out of dump/flash_full_16MB_*.bin)
 """

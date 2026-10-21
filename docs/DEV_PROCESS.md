@@ -1,115 +1,82 @@
 # opencc600 — development and test process
 
 Goal: test and validate **as automatically as possible**, including the behaviour on the **real CC600**,
-not only on a PC. Context: [PRODUCT.md](PRODUCT.md) (stack, crates), [REVERSE_NOTES.md](REVERSE_NOTES.md) (hardware).
+not only on a PC. Context: [PRODUCT.md](PRODUCT.md) (crates), [REVERSE_NOTES.md](REVERSE_NOTES.md) (hardware).
 
 ## The rule that makes it possible
 
-Everything is `no_std` Rust behind traits. Only `cc600-board` touches esp-hal; `core`, `ui`, `fit`, `nrf-link`
-and `gnss` never do. So ~90 % of the code runs in `cargo test` on a PC, and the same binary logic runs in the
-simulator, in QEMU and on the device.
+Everything except `firmware/` is `no_std` Rust with no hardware dependency (`nrf-link`, `gnss`, `altitude`,
+`sensors`, `ride-store`, `fit`, `recorder`, `ui`, `companion`), so most of the code runs in `cargo test` on a PC.
+`firmware/` only wires them to esp-hal and Embassy. Each layer below catches what the previous one cannot.
 
-Each layer below catches what the previous one cannot.
+## 1. PC — `cargo test` at the repo root
 
-## 1. PC — every commit, seconds
+- **Protocols** from byte fixtures: nRF frames, CRC16 and handshake (`nrf-link`, with `proptest`), NMEA and
+  `$PAIR` (`gnss`, an anonymised capture in `crates/gnss/tests/fixtures/`), BLE GATT measurements and ANT+ pages
+  (`sensors`), the Musette session with frames cut in BLE-sized writes (`companion`).
+- **FIT output**: every file written by the tests is decoded again by `fitparser`, an independent decoder (header,
+  CRCs, field numbers, scales). `tools/check_fit.py` does the same with the official Garmin SDK on real rides.
+- **Power-cut fuzzing**: the RAM-backed flash "cuts the power" at **every** flash operation in turn, half-applied
+  program / erase included, then the ride is recovered and checked (`ride-store/tests/power_cut.rs`,
+  `recorder/tests/rides.rs`, recovery included). This is the test behind "a ride is never lost". Room management
+  when the storage is full: `ride-store/tests/room.rs`.
+- **Altitude and D+**: the Kalman filter on synthetic rides with the measured sensor noise
+  (`altitude/tests/filter.rs`); ascent / descent counts on profiles that fool naive counters
+  (`recorder/tests/climb.rs`). The vendor's algorithm, replayed on its own rides with
+  `tools/reverse/vendor_dplus.py`, is the comparison point (see [ALTITUDE.md](ALTITUDE.md)).
+- **Screens**: `cargo test -p ui --test screens` draws every screen with sample values and fails on a glyph missing
+  from the fonts, a key label wider than its box or text out of the screen. The PNGs land in `target/tmp/screens/`
+  (the README's screenshots come from there); `tools/compare_screens.py` puts them next to the clickable
+  prototype's (`tools/prototype_shots.py`).
+- **A ride along a route through the real UI**: `cargo run -p route-tool -- sim IN.gpx OUT_DIR` writes the screens
+  as PNG.
+- Fixtures must not leak real positions: synthetic or anonymised tracks only (`dump/` and `*.log` are git-ignored).
 
-- **Unit tests**: maths (distance, averages, zones), route handling, corridor clipping, UTC/RTC.
-- **Protocol tests**: nRF frames + CRC16 + handshake, NMEA / `$PAIR`, BLE GATT profiles (Heart Rate,
-  Cycling Speed & Cadence, Cycling Power) — parsed from byte fixtures.
-- **FIT output**: every FIT file written in tests is decoded again by an independent FIT decoder and checked.
-- **Property tests** (`proptest`): random key and event sequences ("monkey"); invariants: no panic, the ride being
-  recorded is never corrupted.
-- **UX rules as tests** (from PRODUCT.md):
-  - every state of the screen state machine shows a label for each of the 3 keys, or marks it inactive;
-  - every transition flagged `irreversible` goes through a confirmation state.
-  Checked by walking all states, not by hand.
-- **Altitude / D+**: the filter is fed recorded or synthetic pressure + temperature series; checks: no D+ on a flat
-  ride with sensor noise and slow weather drift, known D+ on a synthetic climb, temperature steps do not create
-  fake climbs.
-- **D+ against the vendor firmware**: the vendor FIT files already on the device (`/littlefs/FITS/FIT/`) carry
-  per-record altitude and `total_ascent`. Their altitude series is replayed through our filter and the D+ must be
-  within a small tolerance of the vendor's. Better: record a few rides with raw nRF pressure frames logged and the
-  vendor FIT side by side (two units, or c606-oss with logging + the vendor on the same ride). Only the altitude /
-  pressure / time columns become fixtures, no positions.
-- **Power-cut fuzzing**: the storage fake (RAM-backed flash) "cuts the power" at **every** write in turn, then
-  reboots the logic and checks that the ride is recovered. This is the test behind "a ride is never lost".
-  *Exists*: `crates/ride-store/tests/power_cut.rs` (988 cuts, half-applied program / erase, checked against a
-  deliberately non-atomic append).
+Host tests need `BINDGEN_EXTRA_CLANG_ARGS` for littlefs2-sys (see the Firmware section of the README); never leave
+it set when building the firmware.
 
-## 2. Simulator — every commit
+## 2. Device (HIL) — pytest over USB
 
-`sim` renders the real `ui` crate with `embedded-graphics-simulator`.
+The CC600 on USB-C, everything through that single cable (native USB-Serial/JTAG, eFuses open):
 
-- **Golden images**: each screen in each state is rendered headless to PNG and compared with the committed
-  reference (`insta`-style review). The PNGs double as the screen spec.
-- **Scenario replay**: a scenario = GNSS NMEA stream + nRF frames (keys, battery) + sensor data + timed key
-  presses, played faster than real time. Assertions on the FIT file, the totals and the screens.
-  Cases: GNSS loss in a forest, sensor dropout, route changed mid-ride, power off then resume a ride.
-- **Interactive mode** (SDL window, 3 keyboard keys) to try screens by hand.
-- Scenario fixtures must not leak real home positions: synthetic or anonymised tracks only
-  (`*.log` and dumps stay git-ignored).
+- **Flash** `ota_0` only, with `tools/flash_ota0.py`, which refuses any other offset (never the bootloader, the
+  partition table or the eFuses). The vendor firmware stays in `ota_1` as a fallback.
+- **USB test hook** in the normal build: keys (`key <0-2> <click|long>`; the keys are on the nRF, there is no GPIO
+  to poke), `sound off` (tests run next to people), `fix` (positions in place of the receiver's), `route
+  begin/data/end`, `set` / `get`, `storage fill`, `gnss cold`... (list in the README, `tools/serial_log.py`). The
+  link loses ~5 % of the lines when the log is busy: the host numbers each command and resends it until the
+  firmware logs `usb ack <seq>`; a repeated number runs once.
+- **Framework**: pytest in `tests/hil/` (`uv run --project tests/hil pytest tests/hil`). The `dut` fixture resets
+  the device and mutes it; `dut.press(1)`, `dut.send(...)` (acknowledged, resent), `dut.expect(regex)` on the log,
+  `dut.read_storage()` (esptool read of the storage partition, mounted on the PC with littlefs-python; the device
+  resets afterwards). Assertions go on what the device stored (FIT files checked with the Garmin FIT SDK) rather
+  than on log lines, which can be lost.
+- **Tests**: a ride with pauses and one interrupted by a reset (`test_ride`), a route ridden with positions sent over
+  USB (`test_route`, `tools/replay_gpx.py`), BLE sensors against `tools/fake_sensor.py` on the PC
+  (`test_ble_sensors`), ANT+ search and channels without a sensor (`test_ant_sensors`), the Musette link with the PC
+  playing the app (`test_companion`), automatic power off (`test_auto_off`), a full storage
+  (`test_storage_full`), a silent GNSS receiver powered on again (`test_gnss`). The tests that change the route or
+  the pairings put them back afterwards.
+- **Crash recovery of the ride store**: `tools/hil_storage.py` with the `hil-storage` firmware build (back-to-back
+  appends, reset 1–8 s after each boot, every byte checked against a known pattern). First run, 2026-10-19: 30
+  resets, 1057 appends, 11 rides closed, nothing lost. A real battery cut needs the case open: out of scope; a
+  reset is not a brown-out.
+- **GNSS**: a fix indoors in ~6 s by a window, enough for smoke tests; `tools/ttff.py` measures the time to first
+  fix after forced restarts.
 
-## 3. Reference traces from c606-oss — once, then every commit
+Pitfalls: the nRF stream stops on a real power cut and only a physical long press on key 0 restarts it, so tests
+never really power off (`power off dry`).
 
-The case is never opened, so no logic analyzer: traces are recorded **from the ESP32 side**.
-c606-oss is run on the CC600 with logging added on its UART2 (nRF), UART0 (GNSS) and LCD command writes;
-the byte streams become fixtures. The Rust drivers, on `embedded-hal-mock` / fake UARTs, must produce the same
-sequences (panel init, nRF handshake, `$PAIR` setup) and parse the recorded answers. This checks the rewrite
-is faithful before flashing anything.
+## 3. Field
 
-## 4. QEMU (Espressif fork, ESP32-S3) — every commit
+- Real rides, the trip log on when needed (`set trip_log on`: one line a second in `/logs/*.csv`), pulled with
+  `tools/pull_rides.py` or Musette and compared with another bike computer.
+- **Every real bug becomes a test** (PC if possible, HIL otherwise) before it is fixed.
 
-Runs the **real firmware binary** for what the PC cannot show: Xtensa build, boot, RAM and stack limits,
-Embassy tasks, flash writes. The nRF and GNSS UARTs are fed from scenario files through QEMU serial ports.
-The LCD_CAM i80 panel is not emulated: the QEMU build uses a framebuffer backend instead, and its screenshots are
-compared with the simulator's (a difference means a porting issue, not a logic issue).
-*(To check: which esp-hal peripherals the Espressif QEMU fork covers well enough.)*
+## Not done yet
 
-## 5. Hardware bench (HIL) — nightly and before each release
-
-One CC600 dedicated to tests, on USB-C to a self-hosted CI runner. Everything goes through that single cable
-(native USB-Serial/JTAG, eFuses open):
-
-- **Flash** `ota_0` only, with our script that refuses any other offset (never bootloader, partition table, eFuses).
-  The vendor firmware stays in `ota_1` as a fallback.
-- **Logs** over USB serial (`defmt` / `esp-println`), **on-target tests** with `embedded-test` + probe-rs
-  (built-in JTAG).
-- **Test commands** over USB serial:
-  - inject key events (the keys are on the nRF, so there is no GPIO to poke). *Exists*: `[<seq>] key <0-2>
-    <click|long>` and `sound <on|off>` (mute the buzzer, tests run next to people), in the normal build. The link
-    loses ~5 % of the received lines (and of the log lines) when the log is busy: the host numbers each command
-    and resends it until the firmware logs `usb ack <seq>`; a repeated number runs once;
-  - dump the framebuffer as PNG → compared with the simulator golden image;
-  - load a route, start/stop a ride, read back a FIT file.
-- **Framework** *(exists, 2026-10-19)*: pytest in `tests/hil/` (`uv run --project tests/hil pytest tests/hil`).
-  The `dut` fixture resets the device and mutes it; `dut.press(1)`, `dut.send(...)` (acknowledged, resent),
-  `dut.expect(regex)` on the log, `dut.read_storage()` (esptool read of the storage partition, mounted on the PC
-  with littlefs-python; the device resets afterwards). Assertions go on what the device stored (FIT files checked
-  with the Garmin FIT SDK) rather than on log lines, which can be lost. Tests: a ride with a pause, a ride
-  interrupted by a reset and closed at the next boot. Existing tools looked at: `pytest-embedded` (Espressif,
-  ESP-IDF oriented), `embedded-test` + probe-rs (on-target unit tests, for drivers later), labgrid (full labs,
-  power switching: when we have a switchable USB hub).
-- **Crash recovery**: reset at random points during recording, check the ride at the next boot.
-  *Exists for the ride store*: `tools/hil_storage.py` with the `hil-storage` firmware build (back-to-back appends,
-  reset 1–8 s after each boot, every byte checked against a known pattern). First run, 2026-10-19: 30 resets,
-  1057 appends, 11 rides closed, nothing lost. A real battery cut needs the case open → out of scope for now; a reset is not a brown-out.
-- **Sensors**: a second board (ESP32 or nRF dev kit) scripted to act as BLE heart-rate / cadence / power sensors,
-  so BLE is tested without a rider.
-- **GNSS**: fix works indoors (~6 s), enough for smoke tests; real rides cover the rest.
-
-## 6. Field
-
-- Panic info and logs kept on the device (RTC memory / a flash slot, the vendor `coredump` partition exists),
-  uploaded with the ride sync.
-- **Every real bug becomes a scenario** (step 2) before it is fixed.
-
-## CI summary
-
-| When | What |
-|---|---|
-| Every push / PR | `fmt`, `clippy`, host tests + property tests, golden images, scenario replays, power-cut fuzzing, reference traces, target build with size check (≤ 0x420000), QEMU smoke run |
-| Nightly | long property / monkey runs, full HIL suite on the bench |
-| Release | full HIL suite + a real ride |
-
-The simulator and the headless renderer are command-line tools, so a coding agent can also run a scenario,
-look at the PNGs and iterate on a screen without a device.
+- **CI**: nothing runs automatically. The plan: `fmt`, `clippy`, host tests and a firmware build with a size check
+  (≤ 0x420000) on every push; the HIL suite on a dedicated device on a self-hosted runner before each release.
+- **Panic info kept on the device** (RTC memory or the vendor `coredump` partition), sent with the ride sync.
+- Considered and set aside for now: QEMU (the i80 panel is not emulated), an SDL simulator (`route-tool sim` and the
+  screens test cover the need), traces recorded from c606-oss (the drivers were checked on the device directly).

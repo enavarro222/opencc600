@@ -55,7 +55,7 @@ RTC, barometer, light sensor, buzzer and ANT+, and is reached only over UART2. D
 - Storage: 7.8 MB littlefs `storage` partition (0x860000), 68 % used by the vendor (24 rides = 4.1 MB, its logs,
   settings, A-GNSS data). **Decided 2026-10-19: we take the whole partition** (option b), after a verified backup
   (`dump/storage.orig.bin`, identical to the device) and the 24 rides extracted as standard FIT
-  (`tools/vendor_fit.py`). Going back to the vendor = `tools/flash_ota0.py --restore-vendor --storage
+  (`tools/reverse/vendor_fit.py`). Going back to the vendor = `tools/flash_ota0.py --restore-vendor --storage
   dump/storage.orig.bin` (rides recorded with our firmware meanwhile stay as FIT files outside, not in the vendor
   history). **Restore checked on the device on 2026-10-19**: the vendor firmware boots with all its rides and
   settings; it only touched its own logs. **Format: littlefs through `littlefs2`** (disk v2.0, the crate pins it),
@@ -88,7 +88,7 @@ RTC, barometer, light sensor, buzzer and ANT+, and is reached only over UART2. D
 - **IMU: on the C606 only.** The C606 nRF streams accelerometer / gyro frames (`F1 01` / `F1 02`, parsed by
   `nrf-link`), so a C606 port gets an IMU. The CC600 one never sent any (see [REVERSE_NOTES.md](REVERSE_NOTES.md));
   whether a chip sits on its board is unknown.
-- **Buzzer**: present, how it is driven is unknown (nRF command or ESP32 GPIO). See [REVERSE_NOTES.md](REVERSE_NOTES.md).
+- **Buzzer**: driven by the nRF command `E2 01 XX`, one short sound per value. See [REVERSE_NOTES.md](REVERSE_NOTES.md).
 
 ## Altitude and elevation gain (D+)
 The vendor firmware gets D+ right thanks to the barometer; ours must be **at least as good**, it is part of the
@@ -120,7 +120,7 @@ core a rider checks after every ride.
    integration with home_trainer_game.
 5. **Ride sync**: over **Wi-Fi when back home**, to the phone or a **configurable cloud**
    (Strava, self-hosted server…). Wi-Fi stays off during the ride.
-6. **Configuration**: in a **companion app** (web app over Web Bluetooth is the current lead, to be decided).
+6. **Configuration**: in the **companion app**, [Musette](https://github.com/enavarro222/musette), over BLE.
    The device menu stays minimal: sync, sensors, and what is needed on the road. See "UI rules" below.
 
 ### UI rules (from the clickable prototype)
@@ -236,11 +236,12 @@ Status on 2026-10-20 (updated by the bring-up work; altitude is worked on in par
       menu, ride pages Essential and Altitude (gradient, last 5 km), auto-scroll, GPS banners, pause and pause menu,
       finish confirmed, end screen, a ride paused at power-off or interrupted offered again at power-on, the last
       finished ride resumable (no upload yet: always the newest). Not yet: sensors, Wi-Fi sync, auto
-      pause, start reminder, beeps; the menus show the device status instead.
-- [ ] **Beeps** (once the buzzer is understood): key feedback (can be turned off), alerts — off route, sensor lost,
-      low battery, recording started/stopped. Every beep comes with a message on screen.
-- [x] **Load a GPX route and display the route line** (no background map yet): `crates/route`, sent over USB by
-      `tools/send_route.py` until the app does it, kept in `/route`. Map page turned to the heading, the part done
+      pause, start reminder, alert and key beeps; the menus show the device status instead.
+- [ ] **Beeps**: key feedback (can be turned off), alerts — off route, sensor lost, low battery, recording
+      started/stopped. Every beep comes with a message on screen. Done: a beep at ride start and at pause / resume,
+      a short melody when the ride is saved, `set sound off` mutes them.
+- [x] **Load a GPX route and display the route line** (no background map yet): the `route-cc600` crate (musette), sent by
+      Musette over BLE or by `tools/send_route.py` over USB, kept in `/route`. Map page turned to the heading, the part done
       in grey, zooms 250 m / 500 m / 1 km on the top key (its scale bar), remaining distance and speed; home
       with the route; off-route banner beyond 50 m. Drawn in 28–47 ms on the device (`bench map`). Tested on the
       device with positions sent over USB (`tools/replay_gpx.py`, `tests/hil/test_route.py`).
@@ -248,10 +249,10 @@ Status on 2026-10-20 (updated by the bring-up work; altitude is worked on in par
       trace" / "Suivre la trace", the ride's pages recomposed at once, home "Parcours libre", the off-route banner
       alternating with "Pas cette trace ? Pause › Menu"; kept in the settings (`follow_route`), a new route is
       followed. Tested on the device (`tests/hil/test_route.py`). Deleting the route from the device: not yet.
-- [x] **Settings kept in flash** (`crates/settings`, `/settings`, one `key=value` line each, written in one
+- [x] **Settings kept in flash** (the `settings-cc600` crate, musette, `/settings`, one `key=value` line each, written in one
       commit): sound, time zone as a POSIX rule with summer time (default `CET-1CEST,M3.5.0,M10.5.0/3`, used
       for the clock and the FIT `local_timestamp`), theme day / night, backlight, usage (explore / train, for the
-      pages), auto-scroll interval. Changed with `set key value` on the USB test hook until the app does it. FIT
+      pages), auto-scroll interval. Changed from Musette, or with `set key value` on the USB test hook. FIT
       `serial_number` from the MAC address.
 - [ ] **GPS fix as early as possible**: the GNSS is powered and configured first thing at boot, before the UI and
       the storage checks, and stays on from the home screen (not only when a ride starts). Hot start: last position
@@ -315,54 +316,31 @@ Each one: what we know, why it matters, how to find out. Details in [REVERSE_NOT
 - …
 
 ## Technical plan
-0. **Bring-up spike, first risk to clear**: an `esp-hal` image written to `ota_0` boots under the **vendor
-   second-stage bootloader and partition table** (both left untouched), with the 2 MB quad PSRAM.
-   Done when: backlight on + log line on the USB serial.
-   **Done 2026-10-19** (`firmware/`, esp-hal 1.2.2 + esp-rtos 0.4): the vendor bootloader loads the 101 KB image
-   from 0x20000, PSRAM comes up in quad mode (2 MB, set explicitly: `PsramMode::Auto` probes octal first),
-   LEDC backlight on GPIO45, `log` output over the USB-Serial/JTAG. The vendor bootloader prints its own log
-   (partition table, segments) on the same port. Flashed with `tools/flash_ota0.py`.
-1. Toolchain: Rust Xtensa fork via `espup` (ESP32-S3 is Xtensa), `espflash` to build the image,
-   `esptool` to write `ota_0` (see the workflow below). Pinned in `rust-toolchain.toml`.
-2. Cargo workspace:
+Rust `no_std` on esp-hal + Embassy (esp-rtos), image in `ota_0` under the vendor bootloader and partition table
+(both left untouched). Toolchain: the Rust Xtensa fork via `espup`, pinned in `firmware/rust-toolchain.toml`;
+`espflash save-image` builds the app image, `tools/flash_ota0.py` writes it.
 
-   | Crate | `no_std` | Content |
-   |---|---|---|
-   | `core` | yes | ride logic, screens state machine, sensors model, altitude/D+ filter, UTC/RTC, sync protocol; no hardware dependency |
-   | `ui` | yes | screens drawn with `embedded-graphics` |
-   | `fit` | yes | FIT writer *(exists)* |
-   | `recorder` | yes | ride recording on `ride-store`, totals, recovery after a power cut *(exists)* |
-   | `nrf-link` | yes | nRF frames, CRC16, handshake, keys, battery, pressure/temperature, RTC, ANT+ |
-   | `gnss` | yes | NMEA parsing, `$PAIR` commands |
-   | `cc600-board` | yes | esp-hal wiring: i80 panel, UARTs, backlight, flash, radio |
-   | `firmware` | yes | the binary flashed to `ota_0` |
-   | `sim` | no (PC) | SDL simulator, headless renderer, scenario player, fakes |
+Everything except `firmware/` is hardware independent and tested on a PC (see [DEV_PROCESS.md](DEV_PROCESS.md)):
 
-   Drivers and core only see traits (`embedded-hal`, `embedded-io-async`, `embedded-storage` and our own
-   `SensorSource`, `SyncTransport`, …), so everything above `cc600-board` runs on a PC.
-3. Bring-up order on the device: panel *(done 2026-10-19: `firmware/src/panel.rs`, framebuffer in PSRAM
-   flushed in 40-line DMA bands)* → nRF link *(keys, battery, RTC read, barometer, light sensor, buzzer, power off, RTC write done
-   2026-10-19: `crates/nrf-link`; RTC set from the GNSS on a valid fix: done, to check with a real fix)* → storage
-   *(done 2026-10-19: our littlefs on the whole partition, `crates/ride-store`, power-cut tested on a PC at every
-   flash operation and on the device with random resets)* → GNSS *(done 2026-10-19: `crates/gnss`, UART DMA robust
-   to flash writes, output trimmed with `$PAIR062`, powered by the nRF only when silent; constellation choice: after
-   the power measurements)* → FIT recording *(done 2026-10-19: `crates/fit`, `crates/recorder`, HIL tests in
-   `tests/hil`)* → data screens and settings → BLE / ANT+ sensors → Wi-Fi sync.
-4. Then sync / configuration / differentiating features, following the MVP.
+| Crate | Content |
+|---|---|
+| `nrf-link` | nRF frames, CRC16, handshake, keys, battery, barometer, light, RTC, buzzer, ANT+ |
+| `gnss` | NMEA parsing, Airoha `$PAIR` commands |
+| `altitude` | barometric altitude, its bias estimated from the GNSS altitude (Kalman filter) |
+| `sensors` | BLE GATT measurements and ANT+ pages decoded (heart rate, speed / cadence, power) |
+| `ride-store` | littlefs ride files that survive a power cut, room management |
+| `fit` | FIT activity file writer |
+| `recorder` | ride recording on `ride-store`, totals and D+, averages, climbs, recovery after a power cut |
+| `ui` | screens, what the 3 keys do on each, drawing with `embedded-graphics` on the 240x320 panel |
+| `companion` | the link with Musette (sans-IO): frames in, answers out, files and settings received |
+| `route-tool` | PC only: GPX to route file, route info, a GPX ridden through the real UI |
+| `firmware` | the binary: esp-hal wiring (i80 panel, UARTs, flash, BLE with `trouble-host`), Embassy tasks, the USB test hook |
 
-### Planned dependencies
-- Base: `esp-hal`, `esp-rtos`, `esp-alloc`, `esp-storage`, `esp-backtrace`, `embassy-executor` / `-time` / `-sync`, `defmt`
-- Radio: `esp-radio`, `trouble-host` (BLE host), `embassy-net` + `reqwless` (HTTP) + `embedded-tls` or `esp-mbedtls`
-- Display: `embedded-graphics`, `embedded-graphics-simulator` (PC)
-- Data: `nmea`, `littlefs2` (or `sequential-storage` / `ekv`, see storage above)
-- Update: an OTA path with a safe fallback (`embassy-boot` or ESP-IDF style OTA slots) — needed as soon as
-  other people install the firmware
-- Tests: `proptest`, `insta`, `embedded-hal-mock`, `embedded-test`
+From [musette](https://github.com/enavarro222/musette) (MIT), pinned by git rev in `Cargo.toml`:
+`protocol-cc600` (the BLE protocol), `route-cc600` (the route file), `settings-cc600` (the settings file).
 
-### Open technical choices
-- UI: `embedded-graphics` + our own small widgets (lean) vs Slint (full framework, heavier on RAM).
-- ~~Storage~~: decided, littlefs (`littlefs2`) on the whole partition, see "Hardware constraints".
-- Status of `esp-radio` BLE (central role, GATT client) to check early with a heart-rate strap and a power meter.
+Still open: Wi-Fi sync (`esp-radio` + an HTTP client), an OTA update path with a safe fallback once other people
+install the firmware.
 
 ## Flash and rollback workflow (checked on 2026-10-19)
 - Build: `cargo build --release`, then `espflash save-image --chip esp32s3 --flash-size 16mb` to get an app image
@@ -374,5 +352,5 @@ Each one: what we know, why it matters, how to find out. Details in [REVERSE_NOT
 - Keep a full 16 MB flash dump of the device before the first write.
 - Recovery: holding the 3 keys hard-resets the ESP32; the ROM download mode is reachable over USB at any time.
 - Tools: `esptool` (e.g. `uv tool install esptool`), OpenOCD Espressif build (`openocd-esp32` release,
-  linux-amd64) with its `60-openocd.rules` udev rule, `tools/read_pins.py` for the live pinout.
+  linux-amd64) with its `60-openocd.rules` udev rule, `tools/reverse/read_pins.py` for the live pinout.
 - **Never** write eFuses, the bootloader (0x0) or the partition table (0x8000).
