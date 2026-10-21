@@ -8,7 +8,7 @@ use alloc::boxed::Box;
 
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use esp_storage::FlashStorage;
-use littlefs2::consts::{U4, U256};
+use littlefs2::consts::{U32, U256};
 use littlefs2::driver::Storage;
 use littlefs2::fs::{Allocation, Filesystem};
 use littlefs2::io::{Error, Result};
@@ -63,8 +63,9 @@ impl Storage for Partition<'_> {
     const READ_SIZE: usize = 16;
     const WRITE_SIZE: usize = 16;
     type CACHE_SIZE = U256;
-    /// In u64 words: 4 × 64 = 256 blocks scanned per allocation pass.
-    type LOOKAHEAD_SIZE = U4;
+    /// In u64 words: 32 × 64 = 2048 blocks, the whole partition, for 256 bytes of RAM. Each time this window runs
+    /// out littlefs walks the whole file system: with 256 blocks, a full partition took 8 walks per failed write.
+    type LOOKAHEAD_SIZE = U32;
     /// Wear levelling: move a metadata pair after this many erases (littlefs recommends 100..1000).
     const BLOCK_CYCLES: isize = 500;
 

@@ -61,6 +61,20 @@ RTC, barometer, light sensor, buzzer and ANT+, and is reached only over UART2. D
   settings; it only touched its own logs. **Format: littlefs through `littlefs2`** (disk v2.0, the crate pins it),
   our own layout `/rides/<start>.part` while recording, `.fit` once closed (`crates/ride-store`, power-cut tested
   at every flash operation on a RAM fake).
+- Room (2026-10-21, `ride_store::room`): the rides first. The logs (`/logs/*.csv`, trip log) take 2 MB at most, in files
+  of 512 KB (the oldest deleted), and never write into the last 1 MB (~8 h of ride). A ride short of room deletes the
+  logs. Below 1 MB left for the rides, a ride records a point every 5 s instead of every second (~40 h in that last MB;
+  "Mémoire presque pleine" said once; the floppy disk of the top bar, grey while a ride records, turns red, and the
+  pause screen says why; the distance and the timer stay exact, the ascent, the maximum speed and the averages are
+  sampled). A ride does not start with less than 64 KB (~2.5 h at a point every 5 s): the "Mémoire pleine" screen lists
+  the rides instead, the ones the app has first then the oldest, to delete one at a time (confirmed, "pas encore
+  envoyée" in amber), then offers to start. The same screen is in the menu ("Sorties enregistrées"). A ride the app
+  acknowledged (`AckActivity`, not implemented yet) is renamed `/rides/<id>.sent.fit` (`ride_store::mark_sent`): the
+  `synced` flag of `ActivityEntry`; resumed, it is `.fit` again. A ride that runs out of room says so in a banner and
+  tries again every minute (a full littlefs walks the whole file system, 84 ms measured, at each allocation). Rides are
+  never deleted by the device on its own. Wear: a ride appends every 10 s, each append copies its last block (~360
+  erases/h, ~750 with the trip log); littlefs spreads them over the free blocks, so with ~100 000 cycles a block the
+  flash outlasts the device unless the storage stays nearly full, which the reserve prevents.
 - BLE + Wi-Fi on the ESP32; ANT+ through the nRF (its firmware is not replaced).
 - 1800 mAh battery: battery life is a requirement (Wi-Fi and backlight are expensive). See [POWER.md](POWER.md).
 - The nRF RTC is not written by c606-oss → wrong time before the first GPS fix. We write it from the GNSS time on a

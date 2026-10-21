@@ -10,7 +10,7 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle, Triangle};
 
 use crate::fonts::{self, Align, Font, Line as Fmt, Style, icon};
-use crate::{BannerKind, Gnss, Hint, Kind, Link, Page, Role, Screen, Ui, View};
+use crate::{BannerKind, Gnss, Hint, Kind, Link, Page, RideCard, Role, Screen, Ui, View};
 
 pub(crate) const W: i32 = 240;
 const H: i32 = 320;
@@ -215,6 +215,8 @@ pub fn draw<D: DrawTarget<Color = Rgb565>>(
         )?,
         Screen::ConfirmStop => confirm_stop(d, v, t)?,
         Screen::Saved => saved(d, v, t)?,
+        Screen::Rides => rides(d, ui, v, t)?,
+        Screen::ConfirmDelete => confirm_delete(d, v, t)?,
     }
     if let Some(b) = ui.banner() {
         banner(d, b, t)?;
@@ -783,6 +785,15 @@ fn battery_color(pct: u8, plugged: bool, t: &Theme) -> Rgb565 {
     }
 }
 
+/// The top bar's battery, icon and percentage, on battery power: amber under 20 %, red under 10 %.
+fn low_battery(pct: u8, t: &Theme) -> Option<Rgb565> {
+    match pct {
+        0..10 => Some(t.danger),
+        10..20 => Some(t.warn),
+        _ => None,
+    }
+}
+
 /// Halfway between two colours.
 fn mix(a: Rgb565, b: Rgb565) -> Rgb565 {
     Rgb565::new(
@@ -1048,6 +1059,17 @@ fn paused<D: DrawTarget<Color = Rgb565>>(
         m,
     )?;
     row(d, (&label, "Moyenne"), (&value, avg.as_str()), 211, m)?;
+    // why the floppy disk of the top bar is red, in place of the note
+    if v.sparse {
+        let c = t.danger;
+        floppy(d, m + 13, 246, c, t.bg)?;
+        fonts::text(d, &t.style(&fonts::NOTE_BOLD).colored(c), "Mémoire presque pleine", m + 20, 246, Align::Left)?;
+        let more = match v.record_hours {
+            Some(h) => Fmt::new(format_args!("1 point toutes les 5 s · {h} h libres")),
+            None => Fmt::new(format_args!("1 point toutes les 5 s")),
+        };
+        return fonts::text(d, &t.mute(&fonts::NOTE), more.as_str(), m + 20, 264, Align::Left).map(|_| ());
+    }
     note_lines(d, &t.mute(&fonts::NOTE), note, m, 246, 18)
 }
 
@@ -1122,6 +1144,79 @@ fn confirm_stop<D: DrawTarget<Color = Rgb565>>(
         128,
         22,
     )
+}
+
+const WEEKDAYS: [&str; 7] = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
+const MONTHS: [&str; 12] = [
+    "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc.",
+];
+
+/// "sam. 12 sept."
+fn ride_date(c: &RideCard) -> Fmt {
+    let weekday = WEEKDAYS.get(c.weekday as usize).copied().unwrap_or("");
+    let month = MONTHS.get(c.month.wrapping_sub(1) as usize).copied().unwrap_or("");
+    Fmt::new(format_args!("{weekday} {} {month}", c.day))
+}
+
+/// "08:47 · 3 h 10 · 74,2 km" ("45 min" under an hour)
+fn ride_line(c: &RideCard) -> Fmt {
+    let (h, min) = (c.timer_s / 3600, c.timer_s / 60 % 60);
+    let time = if h > 0 { Fmt::new(format_args!("{h} h {min:02}")) } else { Fmt::new(format_args!("{min} min")) };
+    Fmt::new(format_args!("{:02}:{:02} · {} · {} km", c.hour, c.minute, time.as_str(), km(c.distance_cm).as_str()))
+}
+
+/// Whether the app has the ride: a ride it does not have is lost once deleted.
+fn sent_bullet<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    c: &RideCard,
+    cy: i32,
+    t: &Theme,
+) -> Result<(), D::Error> {
+    if c.sent {
+        bullet(d, &t.style(&fonts::BODY).colored(t.ok), icon::CHECK, "Envoyée à l'appli", cy, 22)
+    } else {
+        bullet(d, &t.style(&fonts::BODY_BOLD).colored(t.warn), icon::CROSS, "Pas encore envoyée", cy, 22)
+    }
+}
+
+/// The finished rides, one at a time (the ones the app has first, the oldest first).
+fn rides<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) -> Result<(), D::Error> {
+    let r = &v.rides;
+    let title = if ui.making_room() { "MÉMOIRE PLEINE" } else { "SORTIES ENREGISTRÉES" };
+    fonts::text(d, &t.label(&fonts::LABEL), title, MARGIN, 47, Align::Left)?;
+    let Some(card) = r.card else {
+        return fonts::text(d, &t.style(&fonts::BODY), "Aucune sortie enregistrée", MARGIN, 90, Align::Left).map(|_| ());
+    };
+    let pos = Fmt::new(format_args!("{} / {}", ui.ride_item() + 1, r.count));
+    fonts::text(d, &t.mute(&fonts::LABEL), pos.as_str(), W - MARGIN, 47, Align::Right)?;
+    fonts::text(d, &t.style(&fonts::HEADING), ride_date(&card).as_str(), MARGIN, 85, Align::Left)?;
+    fonts::text(d, &t.style(&fonts::BODY), ride_line(&card).as_str(), MARGIN, 117, Align::Left)?;
+    sent_bullet(d, &card, 149, t)?;
+    let note = match (ui.making_room(), r.can_start) {
+        (true, true) => "Place suffisante : tu peux démarrer.",
+        (true, false) => "Pour démarrer, supprime une sortie.\nCelles déjà dans l'appli d'abord.",
+        _ => "Celles déjà dans l'appli d'abord,\npuis la plus ancienne.",
+    };
+    let color = if ui.making_room() && r.can_start { t.ok } else { t.mute };
+    note_lines(d, &t.mute(&fonts::NOTE).colored(color), note, MARGIN, 190, 19)?;
+    if let Some(h) = v.record_hours {
+        let free = Fmt::new(format_args!("{h} h d'enregistrement libres"));
+        fonts::text(d, &t.mute(&fonts::NOTE), free.as_str(), MARGIN, 240, Align::Left)?;
+    }
+    Ok(())
+}
+
+fn confirm_delete<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result<(), D::Error> {
+    fill(d, rect(0, TOP + 1, W - 1, TOP + 6), t.danger)?;
+    fonts::text(d, &t.style(&fonts::HEADING), "Supprimer la sortie ?", 14, 63, Align::Left)?;
+    let Some(card) = v.rides.card else { return Ok(()) };
+    let what = Fmt::new(format_args!("{}\n{}", ride_date(&card).as_str(), ride_line(&card).as_str()));
+    fonts::lines(d, &t.style(&fonts::BODY), what.as_str(), 14, 100, 24, Align::Left)?;
+    sent_bullet(d, &card, 160, t)?;
+    if !card.sent {
+        note_lines(d, &t.mute(&fonts::NOTE), "Elle sera perdue : l'appli\nne l'a pas encore.", 14, 196, 19)?;
+    }
+    Ok(())
 }
 
 fn saved<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result<(), D::Error> {
@@ -1267,20 +1362,57 @@ fn top_bar<D: DrawTarget<Color = Rgb565>>(
             Align::Center,
         )?;
     }
+    // the battery icon 4 px before "100%" (full, written without its space to stay close): it stays put from 100 to
+    // 10 %, 8 px before two digits
+    let right = W - KEY_PAD - fonts::BAR.width("100%", 0) - 4;
+    let mut left = right - BATTERY_W;
     if let Some(p) = v.battery_pct {
-        let pct = Fmt::new(format_args!("{p} %"));
-        fonts::value(d, &bar, pct.as_str(), "", W - KEY_PAD, cy, Align::Right)?;
-        // the icon stays where "100 %" would start
-        let right = W - KEY_PAD - fonts::BAR.width("100 %", 0) - 5;
+        let pct = if p >= 100 { Fmt::new(format_args!("100%")) } else { Fmt::new(format_args!("{p} %")) };
+        let text = match low_battery(p, t) {
+            Some(c) if !v.plugged => bar.colored(c),
+            _ => bar,
+        };
+        fonts::value(d, &text, pct.as_str(), "", W - KEY_PAD, cy, Align::Right)?;
         battery(d, right, cy, p, v.plugged, t)?;
         if v.plugged {
-            bolt(d, right - BATTERY_W - 9, cy, battery_color(p, true, t))?;
+            left -= 9;
+            bolt(d, left, cy, battery_color(p, true, t))?;
         }
+    }
+    // the ride is recorded: a floppy disk before the battery, in its grey; red when the storage is nearly full (a
+    // point every 5 s, the pause screen says so) or a write failed (a banner says so)
+    if matches!(ui.screen(), Screen::Ride | Screen::Paused) {
+        floppy(d, left - 8, cy, record_color(v, t), t.bg)?;
     }
     hline(d, TOP, t)
 }
 
 const BATTERY_W: i32 = 18;
+
+fn record_color(v: &View, t: &Theme) -> Rgb565 {
+    if v.sparse || v.write_failure.is_some() { t.danger } else { t.mute }
+}
+
+/// A floppy disk 14 × 14 px, right edge at `right`, centred on `cy`: its top right corner cut, the shutter at the
+/// top, the label at the bottom.
+fn floppy<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    right: i32,
+    cy: i32,
+    c: Rgb565,
+    bg: Rgb565,
+) -> Result<(), D::Error> {
+    let (l, top, bottom) = (right - 13, cy - 7, cy + 6);
+    fill(d, rect(l, top, right - 3, bottom), c)?;
+    fill(d, rect(right - 2, top + 2, right, bottom), c)?;
+    fill(d, rect(right - 2, top + 1, right - 2, top + 1), c)?;
+    // the shutter, and its window
+    fill(d, rect(l + 3, top, right - 4, top + 4), bg)?;
+    fill(d, rect(right - 7, top + 1, right - 6, top + 3), c)?;
+    // the label
+    fill(d, rect(l + 2, top + 7, right - 2, bottom - 1), bg)?;
+    Ok(())
+}
 
 /// Battery outline with its level, right edge at `right`, centred on `cy`.
 fn battery<D: DrawTarget<Color = Rgb565>>(
@@ -1304,7 +1436,11 @@ fn battery<D: DrawTarget<Color = Rgb565>>(
     )?;
     // at least a pixel while there is charge left
     let level = ((w - 4) * pct.min(100) as i32 / 100).max((pct > 0) as i32);
-    let c = if plugged || pct <= 15 { battery_color(pct, plugged, t) } else { t.mute };
+    let c = match low_battery(pct, t) {
+        _ if plugged => battery_color(pct, plugged, t),
+        Some(c) => c,
+        None => t.mute,
+    };
     if level > 0 {
         fill(
             d,

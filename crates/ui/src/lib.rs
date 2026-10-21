@@ -78,6 +78,11 @@ pub enum Screen {
     Resume,
     ConfirmStop,
     Saved,
+    /// The finished rides, one at a time ([`View::rides`]), to delete some: from the menu, or when a ride cannot start
+    /// for want of room ([`Ui::make_room`]).
+    Rides,
+    /// "Delete this ride?"
+    ConfirmDelete,
 }
 
 /// A ride page, picked when the ride starts ([`pages`]).
@@ -182,6 +187,8 @@ pub enum Command {
     FollowRoute(bool),
     /// Switched on from the charging screen (the long press starts the nRF's sensor stream).
     WakeUp,
+    /// Delete this entry of the rides screen ([`Ui::ride_item`]).
+    DeleteRide(u16),
 }
 
 /// What a sensor is paired for, in the order of the sensors screen.
@@ -322,7 +329,7 @@ pub const AUTO_OFF: &str = "Extinction automatique";
 pub const OFF_ROUTE_HINT_MS: u64 = 4_000;
 
 /// Entries of a menu at most.
-pub const MENU: usize = 4;
+pub const MENU: usize = 5;
 
 /// Entries of the menus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -333,6 +340,7 @@ pub enum Item {
     /// The loaded route is set aside: follow it again.
     FollowRoute,
     Sensors,
+    Rides,
     Status,
     PowerOff,
 }
@@ -343,6 +351,7 @@ impl Item {
             Item::ResumeLast => "\u{e00d} Reprendre la sortie",
             Item::Status => "État du compteur",
             Item::Sensors => "Capteurs",
+            Item::Rides => "Sorties enregistrées",
             Item::FreeRide => "Rouler sans trace",
             Item::FollowRoute => "Suivre la trace",
             Item::PowerOff => "Éteindre (sortie gardée)",
@@ -392,6 +401,47 @@ pub struct View {
     pub route_set_aside: bool,
     /// The nRF's sensor stream (barometer, clock) is missing: it only starts on the nRF's power-on gesture.
     pub stream_lost: bool,
+    /// The ride in progress is no longer written to the storage.
+    pub write_failure: Option<WriteFailure>,
+    /// The ride in progress records a point every 5 s: the storage is nearly full.
+    pub sparse: bool,
+    /// The rides screen's content.
+    pub rides: RidesView,
+}
+
+/// The rides screen's content, filled by the firmware.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RidesView {
+    /// Finished rides on the device.
+    pub count: u16,
+    /// The one selected ([`Ui::ride_item`]).
+    pub card: Option<RideCard>,
+    /// Room enough for a ride to start.
+    pub can_start: bool,
+}
+
+/// A finished ride, as the rides screen tells it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RideCard {
+    /// Start, local time: day of the week (0 = Sunday), day, month (1 = January), hours, minutes.
+    pub weekday: u8,
+    pub day: u8,
+    pub month: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub timer_s: u32,
+    pub distance_cm: u32,
+    /// The companion app has it (acknowledged): deleting it loses nothing.
+    pub sent: bool,
+}
+
+/// Why the ride in progress is no longer written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WriteFailure {
+    /// No room left, even without the logs.
+    Full,
+    /// Another storage error.
+    Error,
 }
 
 /// The route loaded: what the home screen tells, where the map is drawn from.
@@ -492,6 +542,9 @@ pub struct Ui {
     /// The GNSS had a fix during this ride ("lost" rather than "searching").
     had_fix: bool,
     fix: bool,
+    /// The entry of the rides screen, and whether it was opened because a ride could not start.
+    ride_item: u16,
+    making_room: bool,
 }
 
 impl Default for Ui {
@@ -525,6 +578,8 @@ impl Ui {
             effort: false,
             had_fix: false,
             fix: false,
+            ride_item: 0,
+            making_room: false,
         }
     }
 
@@ -612,6 +667,24 @@ impl Ui {
         self.pages = self.next_pages();
     }
 
+    /// No room for the ride asked for: the rides screen, the first entry selected (the firmware lists the ones the
+    /// app has first), to delete some; it offers to start once there is room.
+    pub fn make_room(&mut self) {
+        self.screen = Screen::Rides;
+        self.ride_item = 0;
+        self.making_room = true;
+    }
+
+    /// The entry selected on the rides screen.
+    pub fn ride_item(&self) -> u16 {
+        self.ride_item
+    }
+
+    /// The rides screen was opened because a ride could not start.
+    pub fn making_room(&self) -> bool {
+        self.making_room
+    }
+
     /// The role selected on [`Screen::Sensors`] or paired on [`Screen::SensorScan`].
     pub fn role(&self) -> Role {
         Role::ALL[self.role as usize]
@@ -676,6 +749,7 @@ impl Ui {
                 view.resumable.then_some(Item::ResumeLast),
                 route,
                 Some(Item::Sensors),
+                Some(Item::Rides),
                 Some(Item::Status),
             ],
             // a strap that drops during a ride is paired again from the pause, the route set aside there too
@@ -746,6 +820,11 @@ impl Ui {
                     // the status goes back to its menu, the menu to where it was opened from
                     Some(Item::Status) => (Status, None),
                     Some(Item::Sensors) => (Sensors, None),
+                    Some(Item::Rides) => {
+                        self.ride_item = 0;
+                        self.making_room = false;
+                        (Rides, None)
+                    }
                     // back where the menu was opened from: the change shows there
                     Some(Item::FreeRide) => (self.back, Some(Command::FollowRoute(false))),
                     Some(Item::FollowRoute) => (self.back, Some(Command::FollowRoute(true))),
@@ -810,6 +889,19 @@ impl Ui {
                 (Ride, Some(Command::ResumeLast))
             }
             (Saved, BottomRight, Click) => (Home, None),
+            (Rides, TopLeft, Click) => (if self.making_room { Home } else { Menu }, None),
+            (Rides, BottomLeft, Click) if view.rides.count > 1 => {
+                self.ride_item = (self.ride_item + 1) % view.rides.count;
+                (Rides, None)
+            }
+            (Rides, BottomRight, Click) if self.making_room && view.rides.can_start => {
+                self.making_room = false;
+                self.start_ride();
+                (Ride, Some(Command::Start))
+            }
+            (Rides, BottomRight, Click) if view.rides.card.is_some() => (ConfirmDelete, None),
+            (ConfirmDelete, TopLeft | BottomLeft, Click) => (Rides, None),
+            (ConfirmDelete, BottomRight, Click) => (Rides, Some(Command::DeleteRide(self.ride_item))),
             (s, _, _) => (s, None),
         };
         self.screen = screen;
@@ -834,6 +926,8 @@ impl Ui {
         if self.screen == Charging {
             self.charge_step = ((now_ms / CHARGE_STEP_MS) % CHARGE_STEPS as u64) as u8;
         }
+        // a ride deleted: the next one takes its place, the last one when it was the last
+        self.ride_item = self.ride_item.min(view.rides.count.saturating_sub(1));
         // still: no speed (GNSS or wheel), no pedalling; without a fix (indoors, a café) it is still too
         let moving = view.speed_mm_s.is_some_and(|v| v > 0)
             || view.wheel_speed_mm_s.is_some_and(|v| v > 0)
@@ -875,6 +969,14 @@ impl Ui {
                 let left_s = self.auto_off_left(now_ms).unwrap_or(0).div_ceil(1000);
                 Some((AUTO_OFF, Line::new(format_args!("Dans {left_s} s, une touche annule"))))
             }
+            // first: the ride goes on but is no longer recorded
+            (true, ..) if view.write_failure.is_some() => {
+                let title = match view.write_failure {
+                    Some(WriteFailure::Full) => "Mémoire pleine",
+                    _ => "Erreur d'écriture",
+                };
+                Some((title, Line::new(format_args!("La sortie n'est plus enregistrée"))))
+            }
             (true, false, _) if self.had_fix => Some(("GPS perdu", Line::new(format_args!("Distance en attente du GPS")))),
             (true, false, _) => Some(("Recherche du GPS", Line::new(format_args!("La distance part au fix")))),
             // every other [`OFF_ROUTE_HINT_MS`]: the wrong route followed by mistake is set aside from the pause menu
@@ -907,8 +1009,14 @@ impl Ui {
             }
             (None, Some(b)) if b.kind == BannerKind::Attention => {
                 self.banner = None;
-                if let (true, "GPS perdu", Gnss::Fix { used }) = (riding, b.title, view.gnss) {
-                    self.inform("GPS retrouvé", Line::new(format_args!("{used} satellites")), now_ms);
+                match (riding, b.title, view.gnss) {
+                    (true, "GPS perdu", Gnss::Fix { used }) => {
+                        self.inform("GPS retrouvé", Line::new(format_args!("{used} satellites")), now_ms)
+                    }
+                    (true, "Mémoire pleine" | "Erreur d'écriture", _) => {
+                        self.inform("Enregistrement repris", Line::new(format_args!("")), now_ms)
+                    }
+                    _ => {}
                 }
             }
             _ => {}
@@ -982,6 +1090,19 @@ impl Ui {
                 Hint::new("\u{e003} Annuler"),
                 Hint::new("Annuler"),
                 Hint::new("Terminer \u{e002}").kind(Kind::Select),
+            ],
+            Rides => {
+                let next = if view.rides.count > 1 { Hint::new("Suivante \u{e00a}") } else { NOTHING };
+                match view.rides.card {
+                    _ if self.making_room && view.rides.can_start => [BACK, next, Hint::new("Démarrer").kind(Kind::Go)],
+                    Some(_) => [BACK, next, Hint::new("Supprimer…").kind(Kind::Danger)],
+                    None => [BACK, NOTHING, NOTHING],
+                }
+            }
+            ConfirmDelete => [
+                Hint::new("\u{e003} Annuler"),
+                Hint::new("Annuler"),
+                Hint::new("Supprimer").kind(Kind::Danger),
             ],
             // no key acts while the ride is being saved
             Saved if view.saving => [NOTHING, NOTHING, NOTHING],
@@ -1340,6 +1461,62 @@ mod tests {
     }
 
     #[test]
+    fn deleting_rides_from_the_menu() {
+        let card = RideCard { day: 12, month: 9, timer_s: 3600, ..Default::default() };
+        let mut v = View { rides: RidesView { count: 3, card: Some(card), can_start: true }, ..view() };
+        let mut ui = Ui::new();
+        ui.key(BottomLeft, Click, 0, &v); // menu: sensors, rides, status
+        ui.key(BottomLeft, Click, 0, &v);
+        assert_eq!(ui.menu(&v).0[ui.item as usize], Some(Item::Rides));
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), None);
+        assert_eq!(ui.screen(), Screen::Rides);
+        // from the menu, never "start": delete, confirmed
+        assert_eq!(ui.hints(&v)[2].text, "Supprimer…");
+        ui.key(BottomLeft, Click, 0, &v);
+        ui.key(BottomLeft, Click, 0, &v);
+        assert_eq!(ui.ride_item(), 2);
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), None);
+        assert_eq!(ui.screen(), Screen::ConfirmDelete);
+        assert_eq!(ui.key(TopLeft, Click, 0, &v), None, "cancelled");
+        ui.key(BottomRight, Click, 0, &v);
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::DeleteRide(2)));
+        assert_eq!(ui.screen(), Screen::Rides);
+        // the last one deleted: the new last one is selected
+        v.rides.count = 2;
+        ui.tick(0, None, &v);
+        assert_eq!(ui.ride_item(), 1);
+        // none left
+        v.rides = RidesView { count: 0, card: None, can_start: true };
+        ui.tick(0, None, &v);
+        assert_eq!(ui.hints(&v)[2], NOTHING);
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), None);
+        assert_eq!(ui.screen(), Screen::Rides);
+        ui.key(TopLeft, Click, 0, &v);
+        assert_eq!(ui.screen(), Screen::Menu);
+    }
+
+    #[test]
+    fn a_ride_refused_for_want_of_room_starts_once_some_is_deleted() {
+        let card = RideCard { sent: true, ..Default::default() };
+        let mut v = View { rides: RidesView { count: 5, card: Some(card), can_start: false }, ..view() };
+        let mut ui = Ui::new();
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::Start));
+        ui.make_room();
+        assert_eq!((ui.screen(), ui.ride_item(), ui.making_room()), (Screen::Rides, 0, true));
+        ui.key(BottomRight, Click, 0, &v);
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::DeleteRide(0)));
+        v.rides.count = 4;
+        v.rides.can_start = true;
+        assert_eq!(ui.hints(&v)[2].text, "Démarrer");
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::Start));
+        assert_eq!(ui.screen(), Screen::Ride);
+        // back from the screen opened by a refusal: home
+        ui.make_room();
+        ui.key(TopLeft, Click, 0, &v);
+        assert_eq!(ui.screen(), Screen::Home);
+    }
+
+    #[test]
     fn a_paused_ride_found_at_power_on() {
         let mut ui = Ui::new();
         ui.found_paused_ride();
@@ -1392,6 +1569,28 @@ mod tests {
         );
         ui.tick(300 + INFO_MS, Some(true), &view());
         assert_eq!(ui.banner(), None);
+    }
+
+    #[test]
+    fn a_ride_no_longer_recorded_says_so_first() {
+        let mut ui = Ui::new();
+        press(&mut ui, BottomRight);
+        let full = View {
+            write_failure: Some(WriteFailure::Full),
+            gnss: Gnss::Searching { in_view: 0, progress: 0 },
+            ..view()
+        };
+        ui.tick(0, Some(true), &full);
+        let b = ui.banner().unwrap();
+        assert_eq!(
+            (b.kind, b.title, b.detail.as_str()),
+            (BannerKind::Attention, "Mémoire pleine", "La sortie n'est plus enregistrée")
+        );
+        ui.tick(100, Some(true), &View { write_failure: Some(WriteFailure::Error), ..view() });
+        assert_eq!(ui.banner().unwrap().title, "Erreur d'écriture");
+        ui.tick(200, Some(true), &view());
+        let b = ui.banner().unwrap();
+        assert_eq!((b.kind, b.title), (BannerKind::Info, "Enregistrement repris"));
     }
 
     #[test]

@@ -78,6 +78,9 @@ fn view() -> View {
         route: None,
         route_set_aside: false,
         stream_lost: false,
+        write_failure: None,
+        sparse: false,
+        rides: Default::default(),
     }
 }
 
@@ -170,6 +173,48 @@ fn every_screen() {
         shot(&ui, &searching, "home-search");
         shot(&ui, &home, "home");
         shot(&ui, &View { rides_stored: Some(14), record_hours: Some(3), ..home }, "home-storage-low");
+        // a ride refused for want of room
+        let mut refused = Ui::new();
+        refused.inform("Mémoire pleine", ui::fonts::Line::new(format_args!("Envoie les sorties à l'appli")), 0);
+        shot(&refused, &View { rides_stored: Some(60), record_hours: Some(0), ..home }, "home-storage-full");
+        // the rides screen, from a refusal and from the menu, and its confirmation
+        let card = ui::RideCard {
+            weekday: 6,
+            day: 12,
+            month: 9,
+            hour: 8,
+            minute: 47,
+            timer_s: 3 * 3600 + 10 * 60,
+            distance_cm: 7_420_000,
+            sent: false,
+        };
+        let full = View {
+            record_hours: Some(0),
+            rides: ui::RidesView { count: 14, card: Some(ui::RideCard { sent: true, ..card }), can_start: false },
+            ..home
+        };
+        let mut rides = Ui::new();
+        rides.make_room();
+        shot(&rides, &full, "rides-making-room");
+        let room = View {
+            record_hours: Some(3),
+            rides: ui::RidesView { can_start: true, count: 13, ..full.rides },
+            ..full
+        };
+        shot(&rides, &room, "rides-room-made");
+        let mut rides = Ui::new();
+        let listed = View { record_hours: Some(41), rides: ui::RidesView { card: Some(card), ..full.rides }, ..home };
+        rides.key(Key::BottomLeft, Press::Click, 0, &listed);
+        let mut menu = rides;
+        shot(&menu, &View { resumable: true, ..with_route(listed, false) }, "menu-five");
+        // without a route: resume, sensors, rides, status
+        menu.key(Key::BottomLeft, Press::Click, 0, &listed);
+        menu.key(Key::BottomLeft, Press::Click, 0, &listed);
+        menu.key(Key::BottomRight, Press::Click, 0, &listed);
+        assert_eq!(menu.screen(), ui::Screen::Rides);
+        shot(&menu, &listed, "rides");
+        menu.key(Key::BottomRight, Press::Click, 0, &listed);
+        shot(&menu, &listed, "rides-confirm-delete");
         key(&mut ui, BottomLeft);
         shot(&ui, &home, "menu");
         key(&mut ui, TopLeft);
@@ -191,8 +236,19 @@ fn every_screen() {
         ui.tick(2, Some(true), &v);
         shot(&ui, &v, "ride-gps-found");
         ui.tick(2 + ui::INFO_MS, Some(true), &v);
+        let full = View { write_failure: Some(ui::WriteFailure::Full), ..v };
+        ui.tick(3 + ui::INFO_MS, Some(true), &full);
+        shot(&ui, &full, "ride-storage-full");
+        ui.tick(4 + ui::INFO_MS, Some(true), &v);
+        shot(&ui, &v, "ride-recording-again");
+        ui.tick(4 + 2 * ui::INFO_MS, Some(true), &v);
+        shot(&ui, &View { sparse: true, record_hours: Some(6), ..v }, "ride-sparse");
+        shot(&ui, &View { battery_pct: Some(18), ..v }, "ride-battery-low");
+        shot(&ui, &View { battery_pct: Some(7), ..v }, "ride-battery-very-low");
+        shot(&ui, &View { battery_pct: Some(100), ..v }, "ride-battery-full");
         key(&mut ui, BottomRight);
         shot(&ui, &home, "paused");
+        shot(&ui, &View { sparse: true, record_hours: Some(6), ..home }, "paused-sparse");
         key(&mut ui, TopLeft);
         shot(&ui, &home, "pause-menu");
         key(&mut ui, TopLeft);

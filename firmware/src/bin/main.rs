@@ -13,7 +13,7 @@
 #![deny(clippy::large_stack_frames)]
 
 use core::cell::{Cell, RefCell};
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -45,6 +45,7 @@ use esp_hal::usb::usb_serial_jtag::{UsbSerialJtag, UsbSerialJtagRx};
 use esp_rtos::embassy::InterruptExecutor;
 use esp_storage::FlashStorage;
 use littlefs2::fs::{Allocation, Filesystem};
+use littlefs2::io::Error;
 use log::{debug, info, warn};
 use nrf_link::{Decoder, KeyAction, Message, RtcTime, command};
 use opencc600_firmware::{ant, ble};
@@ -54,6 +55,7 @@ use opencc600_firmware::gnss_uart::{self, GnssUart};
 use opencc600_firmware::hil_storage;
 use opencc600_firmware::panel::{self, FrameBuffer, Panel};
 use opencc600_firmware::storage;
+use ride_store::room;
 use static_cell::StaticCell;
 
 extern crate alloc;
@@ -257,6 +259,13 @@ async fn main(spawner: Spawner) -> ! {
     // the ride in progress, else the last one saved (the "saved" screen)
     let mut ride_shown = ride.as_deref().map(Ride::info).unwrap_or_default();
     let mut trip_log: Option<TripLog> = None;
+    // the finished rides while the rides screen is shown, and what it shows
+    let mut stored: Option<Vec<StoredRide>> = None;
+    let mut rides_view = ui::RidesView::default();
+    // the ride's switch to a point every 5 s, told once
+    let mut sparse_told = false;
+    // the blocks the test hook's filler file leaves free (`storage fill`), while it is written
+    let mut fill_left: Option<usize> = None;
     // the free space, for the hours of riding left on the home screen: read again now and then
     let mut storage_read = Instant::now();
     // the route (`/route`) and where the rider is on it
@@ -333,6 +342,7 @@ async fn main(spawner: Spawner) -> ! {
         let mut view = view_of(&STATUS.lock(Cell::get), &ride_shown, resumable);
         // the route as last shown: the menu offers to set it aside or follow it
         (view.route, view.route_set_aside) = route_shown;
+        view.rides = rides_view;
         // the automatic power off asked by the last tick
         let mut commands: Vec<ui::Command> = auto_off.take().into_iter().collect();
         // the logo until the nRF's sensor stream shows up (at least 1.5 s), or is known missing
@@ -396,12 +406,28 @@ async fn main(spawner: Spawner) -> ! {
                     Timer::after(Duration::from_secs(2)).await;
                     warn!("still powered 2 s after power_off");
                 }
-                (ui::Command::Start, None, Ok(fs)) => {
-                    ride = Ride::start(fs, &state);
-                    if ride.is_none() && now_unix(&state).is_none() {
-                        let detail = ui::fonts::Line::new(format_args!("Attends le GPS"));
-                        ui.inform("Pas encore l'heure", detail, Instant::now().as_millis());
+                (ui::Command::Start, None, Ok(fs)) => match Ride::start(fs, &state) {
+                    Ok(r) => ride = Some(r),
+                    Err(e) => {
+                        let (title, detail) = match e {
+                            StartError::NoTime => {
+                                ("Pas encore l'heure", ui::fonts::Line::new(format_args!("Attends le GPS")))
+                            }
+                            // the rides screen, to delete some
+                            StartError::Full => {
+                                ui.make_room();
+                                continue;
+                            }
+                            StartError::Storage(code) => {
+                                ("Sortie pas démarrée", ui::fonts::Line::new(format_args!("Erreur mémoire {code}")))
+                            }
+                        };
+                        ui.inform(title, detail, Instant::now().as_millis());
                     }
+                },
+                (ui::Command::Start, None, Err(&code)) => {
+                    let detail = ui::fonts::Line::new(format_args!("Mémoire illisible ({code})"));
+                    ui.inform("Sortie pas démarrée", detail, Instant::now().as_millis());
                 }
                 (ui::Command::ResumeLast, None, Ok(fs)) => {
                     if let Some(id) = last_finished.take() {
@@ -446,6 +472,30 @@ async fn main(spawner: Spawner) -> ! {
                 }
                 (ui::Command::Forget(role), _, _) => set_sensor(role, settings::Sensor::None),
                 (ui::Command::WakeUp, _, _) => info!("charging screen: switched on"),
+                (ui::Command::DeleteRide(i), None, Ok(fs)) => {
+                    if let Some(r) = stored.take().and_then(|list| list.into_iter().nth(usize::from(i))) {
+                        match ride_store::remove(fs, r.id) {
+                            Ok(()) => {
+                                info!("ride {}: deleted ({})", r.id, if r.sent { "sent" } else { "not sent" });
+                                let detail = ui::fonts::Line::new(format_args!(""));
+                                ui.inform("Sortie supprimée", detail, Instant::now().as_millis());
+                            }
+                            Err(e) => {
+                                warn!("ride {}: delete failed, littlefs error {}", r.id, e.code());
+                                let detail = ui::fonts::Line::new(format_args!("Erreur mémoire {}", e.code()));
+                                ui.inform("Pas supprimée", detail, Instant::now().as_millis());
+                            }
+                        }
+                        // the end screen's "resume" was maybe this one
+                        last_finished = recorder::last_finished(fs).ok().flatten();
+                        let storage_info = storage_summary(fs);
+                        STATUS.lock(|s| {
+                            let mut status = s.get();
+                            status.storage = Some(storage_info);
+                            s.set(status);
+                        });
+                    }
+                }
                 (ui::Command::FollowRoute(follow), _, _) => {
                     follow_route(follow);
                     let now = Instant::now().as_millis();
@@ -482,12 +532,30 @@ async fn main(spawner: Spawner) -> ! {
             // only when asked for (`set trip_log on`): it takes ~5 times what a ride does
             let wanted = settings().trip_log;
             if trip_log.is_none() && wanted {
-                trip_log = TripLog::start(fs, &state);
+                trip_log = TripLog::start(&state);
             } else if !wanted && let Some(mut log) = trip_log.take() {
                 log.flush(fs);
             }
             if let Some(log) = trip_log.as_mut() {
                 log.sample(fs, &state, ride.as_deref().map(Ride::info));
+            }
+            // the free room read again once filled or emptied
+            let filled = if let Some(fill) = STORAGE_FILL.try_take() {
+                fill_left = storage_fill_start(fs, fill);
+                fill_left.is_none()
+            } else if let Some(left) = fill_left {
+                fill_left = storage_fill(fs, left);
+                fill_left.is_none()
+            } else {
+                false
+            };
+            if filled {
+                let storage_info = storage_summary(fs);
+                STATUS.lock(|s| {
+                    let mut status = s.get();
+                    status.storage = Some(storage_info);
+                    s.set(status);
+                });
             }
         }
         if let Ok(fs) = fs.as_ref()
@@ -506,7 +574,27 @@ async fn main(spawner: Spawner) -> ! {
             ride_shown = r;
         }
         let resumable = ride.is_none() && last_finished.is_some();
+        // the rides screen's list: read when it opens, again after a deletion
+        if matches!(ui.screen(), ui::Screen::Rides | ui::Screen::ConfirmDelete) {
+            if stored.is_none()
+                && let Ok(fs) = fs.as_ref()
+            {
+                stored = Some(stored_rides(fs));
+            }
+        } else {
+            stored = None;
+        }
+        let list = stored.as_deref().unwrap_or_default();
+        let selected = list.get(usize::from(ui.ride_item()));
+        SHOWN_RIDE.store(selected.map_or(0, |r| r.id), Ordering::Relaxed);
+        let room = STATUS.lock(Cell::get).storage.and_then(|r| r.ok()).map(|(_, free, _)| free);
+        rides_view = ui::RidesView {
+            count: list.len() as u16,
+            card: selected.map(ride_card),
+            can_start: room.is_some_and(|free| usize::from(free) * storage::BLOCK >= room::RIDE_START_BYTES),
+        };
         let mut view = view_of(&state, &ride_shown, resumable);
+        view.rides = rides_view;
         let route = route_data
             .as_deref()
             .and_then(|d| route::Route::parse(d).ok());
@@ -533,6 +621,16 @@ async fn main(spawner: Spawner) -> ! {
         // the Effort page with a power meter paired (the heart rate alone is on Essential)
         let effort = s.power != settings::Sensor::None;
         ui.set_context(route.is_some(), s.usage == settings::Usage::Train, effort);
+        // the switch to a point every 5 s, said once a ride (the top bar keeps a mark)
+        match ride_info {
+            Some(r) if r.sparse && !sparse_told => {
+                let detail = ui::fonts::Line::new(format_args!("1 point toutes les 5 s"));
+                ui.inform("Mémoire presque pleine", detail, Instant::now().as_millis());
+                sparse_told = true;
+            }
+            None => sparse_told = false,
+            _ => {}
+        }
         auto_off = ui.tick(
             Instant::now().as_millis(),
             ride_info.map(|r| r.running),
@@ -1101,14 +1199,19 @@ impl Status {
     }
 }
 
-/// Finished rides, free blocks, total blocks.
+/// Finished rides, blocks free for the rides (the logs' included: they give way to rides), total blocks.
 fn storage_summary(fs: &Filesystem<'_, storage::Partition<'_>>) -> Result<(u16, u16, u16), i32> {
+    let t = Instant::now();
     let mut rides = 0u16;
     ride_store::finished(fs, |_, _| rides += 1).map_err(|e| e.code())?;
     let free = fs.available_blocks().map_err(|e| e.code())? as u16;
+    let logs = room::logs_bytes(fs).map_err(|e| e.code())?.div_ceil(storage::BLOCK) as u16;
     let total = fs.total_blocks() as u16;
-    info!("storage: {rides} rides, {free} / {total} blocks free");
-    Ok((rides, free, total))
+    info!(
+        "storage: {rides} rides, {free} / {total} blocks free, logs {logs} blocks, read in {} ms",
+        t.elapsed().as_millis()
+    );
+    Ok((rides, free + logs, total))
 }
 
 /// Offset from UTC of the local time (the `tz` setting, summer time included) at Unix time `unix` (now when
@@ -1328,6 +1431,64 @@ static ROUTE_RX: Mutex<CriticalSectionRawMutex, RefCell<Option<Vec<u8>>>> =
     Mutex::new(RefCell::new(None));
 /// The test hook asks for the map benchmark.
 static BENCH_MAP: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+/// The test hook fills the storage (`storage fill N`: the logs deleted, until N blocks are left free) or empties it
+/// again (`storage unfill`, `None`), with [`FILL_FILE`] only.
+static STORAGE_FILL: Signal<CriticalSectionRawMutex, Option<u16>> = Signal::new();
+const FILL_FILE: &str = "/fill.bin";
+/// Blocks written into [`FILL_FILE`] per pass of the main loop (~1.3 s: 80 ms a block, measured).
+const FILL_STEP: usize = 16;
+
+/// Starts a `storage fill` (removes the file first): the blocks it leaves free.
+#[allow(clippy::large_stack_frames, reason = "littlefs path and file handle on the main stack, a test hook")]
+fn storage_fill_start(fs: &Fs<'_>, fill: Option<u16>) -> Option<usize> {
+    let path = littlefs2::path::PathBuf::try_from(FILL_FILE).unwrap();
+    if fs.exists(&path)
+        && let Err(e) = fs.remove(&path)
+    {
+        warn!("storage fill: littlefs error {}", e.code());
+    }
+    let Some(left) = fill else {
+        info!("storage fill: removed");
+        return None;
+    };
+    // the logs first, as a ride short of room would: what is left free is all the room there is
+    if let Err(e) = room::trim_logs(fs, 0, usize::MAX) {
+        warn!("storage fill: littlefs error {} deleting the logs", e.code());
+    }
+    info!("storage fill: until {left} blocks are left free, logs deleted");
+    fs.write(&path, &[]).ok().map(|()| usize::from(left))
+}
+
+/// Writes the next blocks of a `storage fill` (the free blocks read again each time: the file's own block pointers
+/// take some too); `None` once done.
+#[allow(clippy::large_stack_frames, reason = "littlefs path and file handle on the main stack, a test hook")]
+fn storage_fill(fs: &Fs<'_>, left: usize) -> Option<usize> {
+    let path = littlefs2::path::PathBuf::try_from(FILL_FILE).unwrap();
+    // one block for the pointers and the commit
+    let n = fs.available_blocks().unwrap_or(0).saturating_sub(left + 1).min(FILL_STEP);
+    let chunk = [0x55u8; 256];
+    let res = fs.open_file_with_options_and_then(
+        |o| o.write(true).append(true),
+        &path,
+        |file| {
+            for _ in 0..n * storage::BLOCK / chunk.len() {
+                file.write(&chunk)?;
+            }
+            Ok(())
+        },
+    );
+    match res {
+        Ok(()) if n == 0 => {
+            info!("storage fill: done, {} blocks free", fs.available_blocks().unwrap_or(0));
+            None
+        }
+        Ok(()) => Some(left),
+        Err(e) => {
+            info!("storage fill: done, littlefs error {}", e.code());
+            None
+        }
+    }
+}
 /// A route received (`None`: remove the route).
 static ROUTE_RECEIVED: Signal<CriticalSectionRawMutex, Option<Vec<u8>>> = Signal::new();
 
@@ -1526,6 +1687,20 @@ struct RideInfo {
     avg_heart_rate: Option<u8>,
     /// Altitude along the ride (gradient, profiles).
     history: ui::history::History,
+    /// The ride is no longer written.
+    failure: Option<ui::WriteFailure>,
+    /// A point every 5 s: the storage is nearly full.
+    sparse: bool,
+}
+
+/// Why a ride did not start.
+enum StartError {
+    /// No GNSS fix nor RTC time yet.
+    NoTime,
+    /// Less than [`room::RIDE_START_BYTES`] free, without the logs.
+    Full,
+    /// Another littlefs error.
+    Storage(i32),
 }
 
 /// The ride being recorded: one FIT record per GNSS epoch (1 Hz) while the timer runs.
@@ -1538,22 +1713,84 @@ struct Ride {
     last_timestamp: u32,
     /// Altitude along the ride, in RAM (lost when the ride is resumed after a power off).
     history: ui::history::History,
+    /// The last write failed even with the logs' room: when, and why. Nothing is written before [`RETRY_WRITE`].
+    failure: Option<(Instant, ui::WriteFailure)>,
+    /// When the room left was read last (`None`: at the next sample): below [`room::SPARSE_BYTES`] the ride records
+    /// a point every [`recorder::SPARSE_INTERVAL_S`], to its end.
+    room_read: Option<Instant>,
+}
+
+/// Room for the rides: free, and what the logs take (they give way).
+fn ride_room(fs: &Fs<'_>) -> littlefs2::io::Result<usize> {
+    Ok(room::free_bytes(fs)? + room::logs_bytes(fs)?)
+}
+
+/// A finished ride on the rides screen.
+struct StoredRide {
+    id: u32,
+    sent: bool,
+    totals: Option<fit::Totals>,
+}
+
+/// The finished rides, in the order of the rides screen: the ones the app has first, then the oldest first.
+fn stored_rides(fs: &Fs<'_>) -> Vec<StoredRide> {
+    let t = Instant::now();
+    let mut list = Vec::new();
+    if let Err(e) = ride_store::finished_sent(fs, |id, size, sent| list.push((id, size, sent))) {
+        warn!("rides: littlefs error {} listing", e.code());
+    }
+    let mut rides: Vec<StoredRide> = list
+        .into_iter()
+        .map(|(id, size, sent)| StoredRide { id, sent, totals: recorder::finished_totals(fs, id, size).ok() })
+        .collect();
+    rides.sort_by_key(|r| (!r.sent, r.id));
+    info!("rides: {} listed in {} ms", rides.len(), t.elapsed().as_millis());
+    rides
+}
+
+fn ride_card(r: &StoredRide) -> ui::RideCard {
+    let local = nrf_link::RtcTime::from_unix(i64::from(r.id) + i64::from(utc_offset(Some(r.id))));
+    let t = r.totals.unwrap_or_default();
+    ui::RideCard {
+        weekday: local.weekday(),
+        day: local.day,
+        month: local.month,
+        hour: local.hour,
+        minute: local.minute,
+        timer_s: t.timer_ms / 1000,
+        distance_cm: t.distance_cm,
+        sent: r.sent,
+    }
 }
 
 type Fs<'a> = Filesystem<'a, storage::Partition<'a>>;
 
-/// Raw sensor log, always on: one CSV line per GNSS epoch (or every 2 s if the receiver is silent) in
-/// `/logs/<start unix>.csv`, appended every 10 s. For replaying the altitude filter and the GNSS on a PC, and a
-/// first battery-life record. Contains real positions: copy it to `dump/` only.
+/// Raw sensor log, when asked for (`set trip_log on`): one CSV line per GNSS epoch (or every 2 s if the receiver is
+/// silent), appended every 10 s to `/logs/<unix>.csv`, a new file every [`room::LOG_FILE_BYTES`]. The logs give
+/// way to the rides ([`room`]): the oldest are deleted, and the log stops when there is no room. For replaying the
+/// altitude filter and the GNSS on a PC, and a first battery-life record. Contains real positions: copy it to
+/// `dump/` only.
 struct TripLog {
-    path: littlefs2::path::PathBuf,
+    /// The file written, `None` until there is room for a new one.
+    path: Option<littlefs2::path::PathBuf>,
+    /// Written into `path`.
+    file_bytes: usize,
     buf: String,
     last_epoch: Option<gnss::Time>,
     last_line: Instant,
     last_flush: Instant,
     started: Instant,
+    start_unix: u32,
     lines: u32,
+    /// The last write or the room for a new file failed: nothing tried before [`RETRY_WRITE`] (on a full storage,
+    /// each try walks the whole file system).
+    failed_at: Option<Instant>,
+    /// The free room read last (the rides fill it too): below the reserve, the file is closed.
+    room_read: Instant,
 }
+
+/// After a failed write (full storage), the next try waits this long.
+const RETRY_WRITE: Duration = Duration::from_secs(60);
 
 /// What the trip log writes a second (measured: 3.3 MB for a 5 h session).
 const TRIP_LOG_BYTES_PER_S: u32 = 190;
@@ -1564,28 +1801,52 @@ light,ride,gnss_bytes,gnss_silences,gnss_setups,gnss_restarts,gnss_aiding_reques
 keys,ble_links,ble_listening,ant_links\n";
 
 impl TripLog {
-    #[allow(
-        clippy::large_stack_frames,
-        reason = "littlefs file handle and a Status copy on the main stack, once a second at most"
-    )]
-    fn start(fs: &Fs<'_>, s: &Status) -> Option<Self> {
-        let unix = now_unix(s)?;
-        let dir = littlefs2::path!("/logs");
-        if !fs.exists(dir) && fs.create_dir(dir).is_err() {
-            return None;
-        }
-        let path = littlefs2::path::PathBuf::try_from(format!("/logs/{unix}.csv").as_str()).ok()?;
-        info!("trip log: /logs/{unix}.csv");
+    #[allow(clippy::large_stack_frames, reason = "the log (a littlefs path) built on the main stack, once")]
+    fn start(s: &Status) -> Option<Self> {
+        let start_unix = now_unix(s)?;
         let now = Instant::now();
         Some(Self {
-            path,
-            buf: String::from(TRIP_LOG_HEADER),
+            path: None,
+            file_bytes: 0,
+            buf: String::new(),
             last_epoch: None,
             last_line: now,
             last_flush: now,
             started: now,
+            start_unix,
             lines: 0,
+            failed_at: None,
+            room_read: now,
         })
+    }
+
+    /// A new file, with its header, once there is room for it.
+    #[allow(
+        clippy::large_stack_frames,
+        reason = "littlefs file handle on the main stack, once a log file"
+    )]
+    fn new_file(&self, fs: &Fs<'_>) -> Option<littlefs2::path::PathBuf> {
+        let t = Instant::now();
+        match room::for_log(fs) {
+            Ok(true) => {}
+            Ok(false) => {
+                warn!("trip log: no room out of the rides' reserve, off for now");
+                return None;
+            }
+            Err(e) => {
+                warn!("trip log: littlefs error {} making room", e.code());
+                return None;
+            }
+        }
+        let unix = self.start_unix + self.started.elapsed().as_secs() as u32;
+        let path = room::log_path(unix);
+        let res = if fs.exists(room::LOGS) { Ok(()) } else { fs.create_dir(room::LOGS) };
+        if let Err(e) = res.and_then(|()| fs.write(&path, TRIP_LOG_HEADER.as_bytes())) {
+            warn!("trip log: littlefs error {} creating /logs/{unix}.csv", e.code());
+            return None;
+        }
+        info!("trip log: /logs/{unix}.csv ({} ms to make room)", t.elapsed().as_millis());
+        Some(path)
     }
 
     #[allow(
@@ -1663,11 +1924,38 @@ impl TripLog {
         }
     }
 
+    #[allow(
+        clippy::large_stack_frames,
+        reason = "littlefs file handle and path on the main stack, every 10 s"
+    )]
     fn flush(&mut self, fs: &Fs<'_>) {
         self.last_flush = Instant::now();
+        if self.failed_at.is_some_and(|t| t.elapsed() < RETRY_WRITE) {
+            if self.buf.len() > 16 * 1024 {
+                self.buf.clear();
+            }
+            return;
+        }
+        self.failed_at = None;
+        // a walk through the file system (~30 ms): once a minute
+        if self.path.is_some() && self.room_read.elapsed() >= RETRY_WRITE {
+            self.room_read = Instant::now();
+            if room::free_bytes(fs).is_ok_and(|free| free < room::RESERVE_BYTES) {
+                info!("trip log: in the rides' reserve, a new file once there is room");
+                self.path = None;
+            }
+        }
+        if self.path.is_none() {
+            self.path = self.new_file(fs);
+            self.file_bytes = 0;
+        }
+        let Some(path) = self.path.as_ref() else {
+            self.failed_at = Some(Instant::now());
+            return;
+        };
         let res = fs.open_file_with_options_and_then(
-            |o| o.write(true).create(true).append(true),
-            &self.path,
+            |o| o.write(true).append(true),
+            path,
             |file| {
                 let mut rest = self.buf.as_bytes();
                 while !rest.is_empty() {
@@ -1682,12 +1970,19 @@ impl TripLog {
                 if self.lines % 60 < 10 {
                     info!("trip log: {} lines", self.lines);
                 }
+                self.file_bytes += self.buf.len();
                 self.buf.clear();
+                if self.file_bytes >= room::LOG_FILE_BYTES {
+                    self.path = None;
+                }
             }
             Err(e) => {
-                warn!("trip log: littlefs error {}", e.code());
+                // storage full or broken: keep running, a new file (room made first) in a while
+                warn!("trip log: littlefs error {}, tried again in {} s", e.code(), RETRY_WRITE.as_secs());
+                self.failed_at = Some(Instant::now());
+                self.path = None;
                 if self.buf.len() > 16 * 1024 {
-                    self.buf.clear(); // storage full or broken: keep running
+                    self.buf.clear();
                 }
             }
         }
@@ -1699,27 +1994,41 @@ impl Ride {
         clippy::large_stack_frames,
         reason = "littlefs file handles (cache included) on the main stack, once per ride"
     )]
-    fn start(fs: &Fs<'_>, s: &Status) -> Option<Box<Self>> {
+    fn start(fs: &Fs<'_>, s: &Status) -> Result<Box<Self>, StartError> {
         let Some(unix) = now_unix(s) else {
             warn!("ride: no time yet (no GNSS fix, no RTC), not started");
-            return None;
+            return Err(StartError::NoTime);
         };
+        // the logs give way to the rides
+        match room::for_ride(fs) {
+            Ok(free) if free < room::RIDE_START_BYTES => {
+                warn!("ride: {free} bytes free without the logs, not started");
+                return Err(StartError::Full);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                warn!("ride: littlefs error {} making room, not started", e.code());
+                return Err(StartError::Storage(e.code()));
+            }
+        }
         match recorder::Recorder::start(fs, unix, fit::timestamp(unix), serial()) {
             Ok(recorder) => {
                 info!("ride {unix}: started");
                 sound(SOUND_BEEP);
-                Some(Box::new(Self {
+                Ok(Box::new(Self {
                     recorder,
                     odometer: recorder::Odometer::default(),
                     last_epoch: None,
                     clock: recorder::EpochClock::default(),
                     last_timestamp: fit::timestamp(unix),
                     history: ui::history::History::new(),
+                    failure: None,
+                    room_read: None,
                 }))
             }
             Err(e) => {
                 warn!("ride: start failed, littlefs error {}", e.code());
-                None
+                Err(if e == Error::NO_SPACE { StartError::Full } else { StartError::Storage(e.code()) })
             }
         }
     }
@@ -1745,6 +2054,8 @@ impl Ride {
                     clock: recorder::EpochClock::default(),
                     last_timestamp: t.end_time,
                     history: ui::history::History::new(),
+                    failure: None,
+                    room_read: None,
                     recorder,
                 }))
             }
@@ -1757,9 +2068,42 @@ impl Ride {
 
     /// Writes what is buffered, before a power off: the ride (paused) is offered again at power-on.
     fn keep(&mut self, fs: &Fs<'_>) {
-        match self.recorder.flush(fs) {
-            Ok(()) => info!("ride {}: kept for the next power-on", self.recorder.id()),
-            Err(e) => warn!("ride: flush failed, littlefs error {}", e.code()),
+        let res = self.recorder.flush(fs);
+        self.wrote(fs, res);
+        if self.failure.is_none() {
+            info!("ride {}: kept for the next power-on", self.recorder.id());
+        }
+    }
+
+    /// Follows a write: on a full storage the logs' room is taken and what is buffered written again. If that fails
+    /// too (or on another error), the ride is not written for [`RETRY_WRITE`] (the screen says so).
+    fn wrote(&mut self, fs: &Fs<'_>, res: littlefs2::io::Result<()>) {
+        let mut res = res;
+        if res == Err(Error::NO_SPACE) {
+            let t = Instant::now();
+            match room::for_ride(fs) {
+                Ok(free) => {
+                    info!("ride: storage full, {free} bytes free without the logs ({} ms)", t.elapsed().as_millis())
+                }
+                Err(e) => warn!("ride: littlefs error {} making room", e.code()),
+            }
+            res = self.recorder.flush(fs);
+        }
+        match (res, self.failure) {
+            (Ok(()), None) => {}
+            (Ok(()), Some(_)) => {
+                info!("ride: written again");
+                self.failure = None;
+            }
+            (Err(e), _) => {
+                warn!(
+                    "ride: write failed, littlefs error {}, not tried again for {} s",
+                    e.code(),
+                    RETRY_WRITE.as_secs()
+                );
+                let why = if e == Error::NO_SPACE { ui::WriteFailure::Full } else { ui::WriteFailure::Error };
+                self.failure = Some((Instant::now(), why));
+            }
         }
     }
 
@@ -1773,12 +2117,11 @@ impl Ride {
         } else {
             self.recorder.resume(fs, t)
         };
-        match res {
-            Ok(()) => {
-                info!("ride: {}", if running { "paused" } else { "resumed" });
-                sound(SOUND_BEEP);
-            }
-            Err(e) => warn!("ride: pause/resume failed, littlefs error {}", e.code()),
+        self.wrote(fs, res);
+        // the timer follows the key anyway: only the event may be missing from the file
+        info!("ride: {}", if running { "paused" } else { "resumed" });
+        if self.failure.is_none() {
+            sound(SOUND_BEEP);
         }
     }
 
@@ -1817,16 +2160,44 @@ impl Ride {
             cadence: sensors.cadence_rpm,
             power_w: sensors.power_w,
         };
-        if let Err(e) = self.recorder.record(fs, &record) {
-            warn!("ride: record failed, littlefs error {}", e.code());
+        // a point every 5 s once the storage is nearly full (a walk through the file system: once a minute)
+        if self.recorder.interval_s() == 1 && self.room_read.is_none_or(|t| t.elapsed() >= RETRY_WRITE) {
+            self.room_read = Some(Instant::now());
+            if let Ok(left) = ride_room(fs)
+                && left < room::SPARSE_BYTES
+            {
+                info!("ride: {left} bytes left for the rides, a point every {} s", recorder::SPARSE_INTERVAL_S);
+                self.recorder.set_interval(recorder::SPARSE_INTERVAL_S);
+            }
+        }
+        // after a failure, what is buffered is written first, every [`RETRY_WRITE`]; the records meanwhile are lost
+        let failing = match self.failure {
+            Some((at, _)) if at.elapsed() < RETRY_WRITE => true,
+            Some(_) => {
+                let res = self.recorder.flush(fs);
+                self.wrote(fs, res);
+                self.failure.is_some()
+            }
+            None => false,
+        };
+        if !failing {
+            let res = self.recorder.record(fs, &record);
+            self.wrote(fs, res);
         }
         if let (true, Some(alt)) = (self.recorder.summary().running(), record.altitude_dm) {
             self.history.push(distance_cm, alt);
         }
     }
 
-    fn stop(self: Box<Self>, fs: &Fs<'_>, s: &Status) {
+    #[allow(
+        clippy::large_stack_frames,
+        reason = "littlefs file handles and the recorder on the main stack, once per ride"
+    )]
+    fn stop(mut self: Box<Self>, fs: &Fs<'_>, s: &Status) {
         let id = self.recorder.id();
+        // the room for what is buffered and the closing messages
+        let res = self.recorder.flush(fs);
+        self.wrote(fs, res);
         let t = now_unix(s)
             .map_or(self.last_timestamp, fit::timestamp)
             .max(self.last_timestamp);
@@ -1855,6 +2226,8 @@ impl Ride {
             avg_power_w: self.recorder.summary().avg_power_w(),
             avg_heart_rate: self.recorder.summary().avg_heart_rate(),
             history: self.history,
+            failure: self.failure.map(|(_, why)| why),
+            sparse: self.recorder.interval_s() > 1,
         }
     }
 }
@@ -1883,6 +2256,8 @@ static GNSS_POWER_LOST: AtomicU8 = AtomicU8::new(0);
 type Shown = (ui::Screen, Option<ui::Item>, ui::Role, u8, Option<ui::Page>);
 static SCREEN: Mutex<CriticalSectionRawMutex, Cell<Shown>> =
     Mutex::new(Cell::new((ui::Screen::Home, None, ui::Role::HeartRate, 0, None)));
+/// The ride selected on the rides screen (its id, 0 for none), for the test hook: a test deletes its own ride only.
+static SHOWN_RIDE: AtomicU32 = AtomicU32::new(0);
 
 fn sound(id: u8) {
     if SOUND_ON.load(Ordering::Relaxed) {
@@ -1941,6 +2316,9 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
         },
         plugged: s.charger == Some(nrf_link::USB_POWERED),
         stream_lost: stream_lost(),
+        write_failure: ride.failure,
+        sparse: ride.sparse,
+        rides: ui::RidesView::default(),
         gnss: match fix {
             None => ui::Gnss::Off,
             Some(f) if f.valid => ui::Gnss::Fix { used: f.sats_used },
@@ -2054,6 +2432,9 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                         (s @ ui::Screen::Sensors, _, role, ..) => info!("screen {s:?} {role:?}"),
                         (s @ ui::Screen::SensorScan, _, role, i, _) => info!("screen {s:?} {role:?} {i}"),
                         (s @ ui::Screen::Ride, .., Some(page)) => info!("screen {s:?} {page:?}"),
+                        (s @ (ui::Screen::Rides | ui::Screen::ConfirmDelete), ..) => {
+                            info!("screen {s:?} {}", SHOWN_RIDE.load(Ordering::Relaxed))
+                        }
                         (s, ..) => info!("screen {s:?}"),
                     },
                     Some(UsbCommand::BleScan(seconds)) => ble::SCAN.signal(seconds),
@@ -2136,6 +2517,7 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                     },
                     Some(UsbCommand::RouteClear) => ROUTE_RECEIVED.signal(None),
                     Some(UsbCommand::BenchMap) => BENCH_MAP.signal(()),
+                    Some(UsbCommand::StorageFill(fill)) => STORAGE_FILL.signal(fill),
                     Some(UsbCommand::SimFix(Some((lat_e7, lon_e7, speed_mm_s, course_cdeg)))) => {
                         if !sim_fix_active() {
                             info!("usb: simulated position, the receiver's ignored");
@@ -2237,6 +2619,8 @@ enum UsbCommand<'a> {
     RouteClear,
     /// Draws the map page on the route at each zoom and logs the times (the rider placed a third along it).
     BenchMap,
+    /// `storage fill N`, `storage unfill`: see [`STORAGE_FILL`].
+    StorageFill(Option<u16>),
     /// `fix <lat_e7> <lon_e7> [<speed_mm_s> [<course_cdeg>]]`: a position in place of the receiver's, for
     /// [`SIM_FIX_HOLD`] (tools/replay_gpx.py); `fix off` gives the receiver back at once.
     SimFix(Option<(i32, i32, Option<u32>, Option<u16>)>),
@@ -2293,6 +2677,8 @@ fn usb_command(line: &str) -> Option<UsbCommand<'_>> {
         ("route", "end", None) => Some(UsbCommand::RouteEnd),
         ("route", "clear", None) => Some(UsbCommand::RouteClear),
         ("bench", "map", None) => Some(UsbCommand::BenchMap),
+        ("storage", "fill", Some(n)) => Some(UsbCommand::StorageFill(Some(n.parse().ok()?))),
+        ("storage", "unfill", None) => Some(UsbCommand::StorageFill(None)),
         ("ble", "scan", Some(s)) => Some(UsbCommand::BleScan(s.parse().ok().filter(|&s| s > 0)?)),
         ("fix", "off", None) => Some(UsbCommand::SimFix(None)),
         ("fix", lat, Some(lon)) => {
