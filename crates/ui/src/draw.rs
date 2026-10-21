@@ -201,6 +201,7 @@ pub fn draw<D: DrawTarget<Color = Rgb565>>(
         Screen::Ride => match ui.page() {
             Some(Page::Altitude) => ride_altitude(d, v, t)?,
             Some(Page::Map) => crate::map::draw(d, ui.zoom_m(), v, route, map, t)?,
+            Some(Page::Effort) => ride_effort(d, v, t)?,
             Some(Page::Essential) | None => ride_essential(d, v, t)?,
         },
         Screen::Paused => paused(d, v, t, "En pause", "chrono arrêté", PAUSED_NOTE)?,
@@ -310,42 +311,32 @@ fn cell<D: DrawTarget<Color = Rgb565>>(
     Ok(())
 }
 
-/// Page Essential: speed, then time, distance, D+ and heart rate (else the average speed).
-fn ride_essential<D: DrawTarget<Color = Rgb565>>(
+/// The big value on top of the ride pages (speed, power), its cell's bottom edge.
+const BIG: i32 = 139;
+/// The rule between the two rows of small cells under it.
+const MID: i32 = 209;
+
+/// A small cell under the big value: label style, label, value, the value's smallest slot.
+type Small = (Style, &'static str, Fmt, &'static str);
+
+/// The big value on top (its label, value and smallest slot), then four cells in two rows.
+fn big_and_four<D: DrawTarget<Color = Rgb565>>(
     d: &mut D,
-    v: &View,
     t: &Theme,
+    (label, big, min): (&str, &str, &str),
+    cells: &[Small; 4],
 ) -> Result<(), D::Error> {
-    const BIG: i32 = 139;
-    const MID: i32 = 209;
     cell(
         d,
         rect(0, TOP + 1, W - 1, BIG - 1),
-        (&t.label(&fonts::LABEL), "VITESSE KM/H"),
-        (&t.style(&fonts::HUGE), kmh(v.speed_mm_s).as_str(), SPEED),
+        (&t.label(&fonts::LABEL), label),
+        (&t.style(&fonts::HUGE), big, min),
         16,
     )?;
     hline(d, BIG, t)?;
     hline(d, MID, t)?;
     vline(d, W / 2 - 1, BIG + 1, BOTTOM - 1, t)?;
-    let small = t.label(&fonts::LABEL_SMALL);
     let value = t.style(&fonts::VALUE);
-    let last = match v.heart_rate {
-        Some(hr) => (small, "FC BPM", int(Some(hr)), "000"),
-        // no heart rate: the average speed takes its place, its label in the text colour like the prototype
-        None => (
-            small.colored(t.fg),
-            "MOYENNE KM/H",
-            kmh(v.ride.avg_speed_mm_s()),
-            SPEED,
-        ),
-    };
-    let cells = [
-        (small, "DURÉE", duration(v.ride.timer_s), ""),
-        (small, "DISTANCE KM", km(v.ride.distance_cm), "00,0"),
-        (small, "D+ M", int(Some(v.ride.ascent_m)), "000"),
-        last,
-    ];
     for (i, (label, text, val, min)) in cells.iter().enumerate() {
         let (y0, y1) = if i < 2 {
             (BIG + 1, MID - 1)
@@ -366,6 +357,51 @@ fn ride_essential<D: DrawTarget<Color = Rgb565>>(
         )?;
     }
     Ok(())
+}
+
+/// Page Essential: speed, then time, distance, D+ and heart rate (else the average speed).
+fn ride_essential<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    v: &View,
+    t: &Theme,
+) -> Result<(), D::Error> {
+    let small = t.label(&fonts::LABEL_SMALL);
+    let last = match v.heart_rate {
+        Some(hr) => (small, "FC BPM", int(Some(hr)), "000"),
+        // no heart rate: the average speed takes its place, its label in the text colour like the prototype
+        None => (
+            small.colored(t.fg),
+            "MOYENNE KM/H",
+            kmh(v.ride.avg_speed_mm_s()),
+            SPEED,
+        ),
+    };
+    let cells = [
+        (small, "DURÉE", duration(v.ride.timer_s), ""),
+        (small, "DISTANCE KM", km(v.ride.distance_cm), "00,0"),
+        (small, "D+ M", int(Some(v.ride.ascent_m)), "000"),
+        last,
+    ];
+    big_and_four(d, t, ("VITESSE KM/H", kmh(v.speed_mm_s).as_str(), SPEED), &cells)
+}
+
+/// Page Effort (docs/PRODUCT.md), with a power meter paired: 3 s power big, then by priority average power, heart
+/// rate, cadence, speed, time. What shows follows the sensors paired, not their values: a sensor lost keeps its cell
+/// with "–", the layout never moves.
+fn ride_effort<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result<(), D::Error> {
+    let hr = v.sensors.roles[Role::ALL.iter().position(|&r| r == Role::HeartRate).unwrap_or(0)].name.is_some();
+    let small = t.label(&fonts::LABEL_SMALL);
+    let candidates = [
+        Some((small, "MOY. W", int(v.ride.avg_power_w), "000")),
+        hr.then(|| (small, "FC BPM", int(v.heart_rate), "000")),
+        // from the power meter, else a cadence sensor
+        Some((small, "CADENCE", int(v.cadence_rpm), "00")),
+        Some((small, "VITESSE KM/H", kmh(v.speed_mm_s), SPEED)),
+        Some((small, "DURÉE", duration(v.ride.timer_s), "")),
+    ];
+    let mut shown = candidates.into_iter().flatten();
+    let cells = core::array::from_fn(|_| shown.next().unwrap_or((small, "", Fmt::new(format_args!("")), "")));
+    big_and_four(d, t, ("PUISSANCE 3 S · W", int(v.power_3s_w).as_str(), "000"), &cells)
 }
 
 /// Page Altitude: altitude, then gradient, D+ and D-, then the last 5 km.

@@ -89,6 +89,8 @@ pub enum Page {
     Essential,
     /// Altitude, gradient, D+ / D-, the last 5 km.
     Altitude,
+    /// 3 s power, then average power, heart rate, cadence, speed, time (a power meter paired).
+    Effort,
 }
 
 impl Page {
@@ -97,20 +99,26 @@ impl Page {
             Page::Map => "Carte",
             Page::Essential => "Essentiel",
             Page::Altitude => "Altitude",
+            Page::Effort => "Effort",
         }
     }
 }
 
 /// The ride pages for what the device has (docs/PRODUCT.md, "Data pages"): to explore, the map first when a route
-/// is loaded, else Essential then Altitude; to train, Essential first. The climbs and effort pages come with the
-/// climbs of the route and the sensors.
-pub fn pages(route: bool, train: bool) -> Pages {
+/// is loaded, else Essential then Altitude; Effort last with a power meter paired (`effort`); to
+/// train, Effort first. The climbs page comes with the climbs of the route.
+pub fn pages(route: bool, train: bool, effort: bool) -> Pages {
     use Page::*;
+    let effort = effort.then_some(Effort);
     let list = match (route, train) {
-        (true, false) => [Some(Map), Some(Essential), None, None],
-        (true, true) => [Some(Essential), Some(Map), None, None],
-        (false, _) => [Some(Essential), Some(Altitude), None, None],
+        (true, false) => [Some(Map), Some(Essential), effort, None],
+        (true, true) => [effort, Some(Essential), Some(Map), None],
+        (false, false) => [Some(Essential), Some(Altitude), effort, None],
+        (false, true) => [effort, Some(Essential), Some(Altitude), None],
     };
+    // the missing Effort takes no slot
+    let mut list = list.into_iter().flatten();
+    let list = core::array::from_fn(|_| list.next());
     Pages { list }
 }
 
@@ -359,6 +367,8 @@ pub struct View {
     pub heart_rate: Option<u8>,
     pub cadence_rpm: Option<u8>,
     pub power_w: Option<u16>,
+    /// Average power of the last 3 s.
+    pub power_3s_w: Option<u16>,
     /// The speed from a wheel sensor.
     pub wheel_speed_mm_s: Option<u32>,
     pub sensors: Sensors,
@@ -419,6 +429,8 @@ pub struct RideView {
     pub ascent_m: u16,
     pub descent_m: u16,
     pub max_speed_mm_s: u32,
+    pub avg_power_w: Option<u16>,
+    pub avg_heart_rate: Option<u8>,
 }
 
 impl RideView {
@@ -476,6 +488,7 @@ pub struct Ui {
     /// What picks the pages: a route is loaded, the usage is training.
     route: bool,
     train: bool,
+    effort: bool,
     /// The GNSS had a fix during this ride ("lost" rather than "searching").
     had_fix: bool,
     fix: bool,
@@ -509,6 +522,7 @@ impl Ui {
             zoom: 2,
             route: false,
             train: false,
+            effort: false,
             had_fix: false,
             fix: false,
         }
@@ -536,14 +550,15 @@ impl Ui {
         self.scroll_ms = s as u64 * 1000;
     }
 
-    /// What picks the ride pages (at the next start): a route is loaded, the usage setting is training. The pages of
-    /// a ride follow a route sent or removed during it (and a ride resumed at power-on, before the route was read),
-    /// the page shown kept.
-    pub fn set_context(&mut self, route: bool, train: bool) {
-        let route_changed = route != self.route;
+    /// What picks the ride pages (at the next start): a route is loaded, the usage setting is training, a power meter
+    /// is paired. The pages of a ride follow a route sent or removed and a sensor paired or
+    /// forgotten during it (and a ride resumed at power-on, before the route was read), the page shown kept.
+    pub fn set_context(&mut self, route: bool, train: bool, effort: bool) {
+        let changed = route != self.route || effort != self.effort;
         self.route = route;
         self.train = train;
-        if route_changed && !self.pages.is_empty() {
+        self.effort = effort;
+        if changed && !self.pages.is_empty() {
             let shown = self.page();
             self.pages = self.next_pages();
             self.page = (0..self.pages.len())
@@ -554,7 +569,7 @@ impl Ui {
 
     /// The pages a ride would have now.
     pub fn next_pages(&self) -> Pages {
-        pages(self.route, self.train)
+        pages(self.route, self.train, self.effort)
     }
 
     /// The map's scale bar, metres.
@@ -1211,7 +1226,7 @@ mod tests {
         let mut ui = Ui::new();
         ui.found_paused_ride();
         assert_eq!(ui.page(), Some(Page::Essential));
-        ui.set_context(true, false);
+        ui.set_context(true, false, false);
         assert_eq!(ui.page(), Some(Page::Essential), "the page shown stays");
         press(&mut ui, BottomRight); // resume
         let mut pages = [None; 3];
@@ -1221,7 +1236,7 @@ mod tests {
         }
         assert!(pages.contains(&Some(Page::Map)), "{pages:?}");
         // the route removed during the ride: no map page any more
-        ui.set_context(false, false);
+        ui.set_context(false, false, false);
         assert!((0..4).all(|_| {
             press(&mut ui, BottomLeft);
             ui.page() != Some(Page::Map)
@@ -1381,9 +1396,22 @@ mod tests {
 
     #[test]
     fn page_names() {
-        assert_eq!(pages(false, false).names().as_str(), "Essentiel · Altitude");
-        assert_eq!(pages(true, false).names().as_str(), "Carte · Essentiel");
-        assert_eq!(pages(true, true).names().as_str(), "Essentiel · Carte");
+        assert_eq!(pages(false, false, false).names().as_str(), "Essentiel · Altitude");
+        assert_eq!(pages(true, false, false).names().as_str(), "Carte · Essentiel");
+        assert_eq!(pages(true, true, false).names().as_str(), "Essentiel · Carte");
+        assert_eq!(pages(false, false, true).names().as_str(), "Essentiel · Altitude · Effort");
+        assert_eq!(pages(true, false, true).names().as_str(), "Carte · Essentiel · Effort");
+        assert_eq!(pages(true, true, true).names().as_str(), "Effort · Essentiel · Carte");
+        assert_eq!(pages(false, true, true).names().as_str(), "Effort · Essentiel · Altitude");
+    }
+
+    #[test]
+    fn a_power_meter_paired_during_the_ride_brings_effort() {
+        let mut ui = Ui::new();
+        ui.found_paused_ride();
+        ui.set_context(false, false, true);
+        assert_eq!(ui.page(), Some(Page::Essential), "the page shown stays");
+        assert_eq!(ui.next_pages().names().as_str(), "Essentiel · Altitude · Effort");
     }
 
     #[test]

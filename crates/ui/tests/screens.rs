@@ -54,6 +54,7 @@ fn view() -> View {
         heart_rate: None,
         cadence_rpm: None,
         power_w: None,
+        power_3s_w: None,
         wheel_speed_mm_s: None,
         sensors: Default::default(),
         ride: RideView {
@@ -63,6 +64,8 @@ fn view() -> View {
             ascent_m: 812,
             descent_m: 640,
             max_speed_mm_s: 17_400,
+            avg_power_w: None,
+            avg_heart_rate: None,
         },
         recent: profile(50, |i| 5_700 + (i as i16 * 9) + ((i as i16 * 7) % 23) * 4),
         whole: profile(50, |i| {
@@ -216,7 +219,7 @@ fn every_screen() {
     }
     // with a route: home, then the map at each zoom, the whole route before the fix, off the route
     let mut ui = Ui::new();
-    ui.set_context(true, false);
+    ui.set_context(true, false, false);
     let home = with_route(view(), false);
     save("route-home", &ui, &home, &ui::DAY);
     ui.key(Key::BottomRight, Press::Click, 0, &home);
@@ -312,6 +315,38 @@ fn every_screen() {
 }
 
 /// The sensors screens: the roles with a sensor connected, one searching, one unpaired; then a scan.
+#[test]
+fn effort_pages() {
+    use ui::{Link, SensorRow, Sensors};
+    let row = |n: &str| SensorRow { link: Link::Connected, name: Some(Line::new(format_args!("{n}"))) };
+    let power_and_hr = View {
+        heart_rate: Some(142),
+        cadence_rpm: Some(88),
+        power_w: Some(231),
+        power_3s_w: Some(215),
+        sensors: Sensors { roles: [row("H9Z 12381"), SensorRow::default(), row("Assioma")], ..Default::default() },
+        ride: RideView { avg_power_w: Some(198), avg_heart_rate: Some(136), ..view().ride },
+        ..view()
+    };
+    let power_only = View {
+        heart_rate: None,
+        sensors: Sensors { roles: [SensorRow::default(), SensorRow::default(), row("Assioma")], ..Default::default() },
+        ..power_and_hr
+    };
+    // the power meter lost: its cells stay, with "–"
+    let lost = View { power_w: None, power_3s_w: None, cadence_rpm: None, ..power_and_hr };
+    for (theme, suffix) in [(ui::DAY, ""), (ui::NIGHT, "-night")] {
+        for (v, name) in [(&power_and_hr, "effort-power"), (&power_only, "effort-power-only"), (&lost, "effort-power-lost")] {
+            let mut ui = Ui::new();
+            ui.set_context(false, true, true);
+            ui.key(Key::BottomRight, Press::Click, 0, v);
+            ui.tick(0, Some(true), v);
+            assert_eq!(ui.page(), Some(ui::Page::Effort));
+            save(&format!("{name}{suffix}"), &ui, v, &theme);
+        }
+    }
+}
+
 #[test]
 fn sensor_screens() {
     use Key::*;

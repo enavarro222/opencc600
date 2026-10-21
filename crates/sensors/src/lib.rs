@@ -72,3 +72,45 @@ impl Revs {
         *self = Self::default();
     }
 }
+
+/// The average of the last [`Avg3s::SECONDS`] seconds of a value (3 s power): one bucket a second, each the average
+/// of the values that came in it. `None` once nothing came for that long.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Avg3s {
+    /// Second (of `now_ms`), sum, count.
+    buckets: [Option<(u64, u32, u32)>; Self::SECONDS],
+}
+
+impl Avg3s {
+    pub const SECONDS: usize = 3;
+
+    pub const fn new() -> Self {
+        Self { buckets: [None; Self::SECONDS] }
+    }
+
+    /// A value at `now_ms` (any monotonic clock); `None` (no value now) only ages the buckets.
+    pub fn push(&mut self, value: Option<u16>, now_ms: u64) {
+        let second = now_ms / 1000;
+        let Some(v) = value else { return };
+        let slot = &mut self.buckets[(second % Self::SECONDS as u64) as usize];
+        match slot {
+            Some((s, sum, n)) if *s == second => {
+                *sum += v as u32;
+                *n += 1;
+            }
+            _ => *slot = Some((second, v as u32, 1)),
+        }
+    }
+
+    /// The average now, of the buckets of the last [`Self::SECONDS`] seconds.
+    pub fn get(&self, now_ms: u64) -> Option<u16> {
+        let second = now_ms / 1000;
+        let (sum, n) = self
+            .buckets
+            .iter()
+            .flatten()
+            .filter(|(s, _, _)| second.saturating_sub(*s) < Self::SECONDS as u64)
+            .fold((0u32, 0u32), |(sum, n), (_, bs, bn)| (sum + bs / bn, n + 1));
+        (n > 0).then(|| ((sum + n / 2) / n) as u16)
+    }
+}

@@ -104,3 +104,23 @@ fn a_jump_is_not_a_rate() {
     assert_eq!(r.update(30_001, 2048, CRANK, 2000), 1);
     assert_eq!(r.rpm(), Some(60));
 }
+
+#[test]
+fn power_over_the_last_3_seconds() {
+    use sensors::Avg3s;
+    let mut a = Avg3s::default();
+    assert_eq!(a.get(0), None);
+    // second 0: 100 and 200 (avg 150), second 1: 300, second 2: 400
+    a.push(Some(100), 100);
+    a.push(Some(200), 600);
+    a.push(Some(300), 1_200);
+    a.push(Some(400), 2_300);
+    assert_eq!(a.get(2_500), Some(283));
+    // second 3: second 0 leaves
+    a.push(Some(500), 3_100);
+    assert_eq!(a.get(3_200), Some(400));
+    // nothing more: gone after 3 s
+    a.push(None, 5_000);
+    assert_eq!(a.get(5_500), Some(500));
+    assert_eq!(a.get(6_000), None);
+}

@@ -60,6 +60,10 @@ pub struct Summary {
     held: Option<(i32, u32)>,
     ascent_dm: u32,
     descent_dm: u32,
+    /// Sum and count of the powers recorded (0 included: coasting counts, as Garmin's default), and of the heart
+    /// rates.
+    power: (u64, u32),
+    heart_rate: (u64, u32),
     pub records: u32,
 }
 
@@ -88,6 +92,12 @@ impl Summary {
         }
         if let Some(v) = r.speed_mm_s {
             self.max_speed_mm_s = self.max_speed_mm_s.max(v);
+        }
+        if let Some(w) = r.power_w {
+            self.power = (self.power.0 + w as u64, self.power.1 + 1);
+        }
+        if let Some(bpm) = r.heart_rate {
+            self.heart_rate = (self.heart_rate.0 + bpm as u64, self.heart_rate.1 + 1);
         }
         if let Some(pa) = r.pressure_pa {
             let alt = altitude::pressure_altitude_dm(pa);
@@ -118,6 +128,18 @@ impl Summary {
 
     pub fn running(&self) -> bool {
         self.running_since.is_some()
+    }
+
+    /// Average power over the records that have one, watts.
+    pub fn avg_power_w(&self) -> Option<u16> {
+        let (sum, n) = self.power;
+        (n > 0).then(|| ((sum + n as u64 / 2) / n as u64) as u16)
+    }
+
+    /// Average heart rate over the records that have one, bpm.
+    pub fn avg_heart_rate(&self) -> Option<u8> {
+        let (sum, n) = self.heart_rate;
+        (n > 0).then(|| ((sum + n as u64 / 2) / n as u64) as u8)
     }
 
     pub fn totals(&self) -> Totals {

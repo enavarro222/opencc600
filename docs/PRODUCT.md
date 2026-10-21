@@ -155,12 +155,13 @@ rest when a ride starts (sensors seen, route loaded) and picks standard views:
 - **Distances under 1 km are shown in metres** ("850 m", by 10 m), then in km with one decimal ("1,2 km"): the
   ride distance, the remaining distance, the distance to a climb or to the route. The threshold is a constant,
   to tune on real rides.
-- **Effort**: 3 s power (big) or HR if no power meter, zone bar, then by priority avg power, HR, cadence, speed, time.
+- **Effort** (a power meter paired; the HR alone is on Essential): 3 s power (big), zone bar, then by priority avg
+  power, HR, cadence, speed, time.
 - **Map** (route loaded), **Climbs** (route with climbs), **Altitude** (no route: altitude, gradient, D+/D-, last 5 km).
 
 | Usage | With route | Without route |
 |---|---|---|
-| Explore | Map · Essential · Climbs | Essential · Altitude (+ Effort if HR/power) |
+| Explore | Map · Essential · Climbs (+ Effort if power) | Essential · Altitude (+ Effort if power) |
 | Train | Effort · Essential · Map · Climbs | Effort · Essential · Altitude |
 
 A loaded route always brings the Map (4 pages at most). A sensor missing at start takes no slot (the next field moves up). A sensor lost mid-ride keeps its slot with

@@ -529,7 +529,10 @@ async fn main(spawner: Spawner) -> ! {
         view.route = route.as_ref().map(|r| nav.update(r, fix));
         view.route_set_aside = route.is_none() && route_data.is_some();
         route_shown = (view.route, view.route_set_aside);
-        ui.set_context(route.is_some(), settings().usage == settings::Usage::Train);
+        let s = settings();
+        // the Effort page with a power meter paired (the heart rate alone is on Essential)
+        let effort = s.power != settings::Sensor::None;
+        ui.set_context(route.is_some(), s.usage == settings::Usage::Train, effort);
         auto_off = ui.tick(
             Instant::now().as_millis(),
             ride_info.map(|r| r.running),
@@ -1220,6 +1223,9 @@ fn sensors_view() -> ui::Sensors {
     out
 }
 
+/// The power of the last 3 s, fed by each frame drawn.
+static POWER_3S: Mutex<CriticalSectionRawMutex, Cell<sensors::Avg3s>> = Mutex::new(Cell::new(sensors::Avg3s::new()));
+
 /// The sensor values now: the BLE ones, else the ANT+ ones.
 fn sensor_values() -> ble::Current {
     let (b, a) = (ble::current(), ant::current());
@@ -1450,7 +1456,7 @@ fn map_for(route_file: Option<&[u8]>) -> Option<route::map::Map<'static>> {
 fn bench_map(fb: &mut FrameBuffer, r: &route::Route<'_>, m: Option<&route::map::Map<'_>>, view: &ui::View) {
     let p = r.points().nth(r.info.count as usize / 3).unwrap();
     let mut ui = ui::Ui::new();
-    ui.set_context(true, false);
+    ui.set_context(true, false, false);
     let mut v = *view;
     v.route = Some(ui::RouteView {
         name: ui::fonts::Line::new(format_args!("{}", r.name())),
@@ -1516,6 +1522,8 @@ struct RideInfo {
     ascent_m: u16,
     descent_m: u16,
     max_speed_mm_s: u32,
+    avg_power_w: Option<u16>,
+    avg_heart_rate: Option<u8>,
     /// Altitude along the ride (gradient, profiles).
     history: ui::history::History,
 }
@@ -1844,6 +1852,8 @@ impl Ride {
             ascent_m: t.ascent_m,
             descent_m: t.descent_m,
             max_speed_mm_s: t.max_speed_mm_s,
+            avg_power_w: self.recorder.summary().avg_power_w(),
+            avg_heart_rate: self.recorder.summary().avg_heart_rate(),
             history: self.history,
         }
     }
@@ -1950,6 +1960,13 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
         heart_rate: sensors.heart_rate,
         cadence_rpm: sensors.cadence_rpm,
         power_w: sensors.power_w,
+        power_3s_w: POWER_3S.lock(|c| {
+            let now = Instant::now().as_millis();
+            let mut a = c.get();
+            a.push(sensors.power_w, now);
+            c.set(a);
+            a.get(now)
+        }),
         wheel_speed_mm_s: sensors.speed_mm_s,
         sensors: sensors_view(),
         ride: ui::RideView {
@@ -1959,6 +1976,8 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
             ascent_m: ride.ascent_m,
             descent_m: ride.descent_m,
             max_speed_mm_s: ride.max_speed_mm_s,
+            avg_power_w: ride.avg_power_w,
+            avg_heart_rate: ride.avg_heart_rate,
         },
         recent: ride.history.recent(),
         whole: ride.history.whole(),
