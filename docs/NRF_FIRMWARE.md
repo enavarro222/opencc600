@@ -87,5 +87,5 @@ climbing; files in `dump/ride_1021/`. The three tracks agree in time to 1 s. Lag
 | CC600 FIT altitude (our Kalman) | 5 s (≤ 1 s more than the pressure) |
 
 Of the CC600's 5 s, ~2 s are the nRF filter; the rest is not explained (the case's vent? to measure with a step
-in pressure, e.g. a bag squeezed around the unit). The displayed gradient adds its own window on top (100–200 m
-back, ~3 s at climbing speed): ~8 s against the Bryton's ~2 s.
+in pressure, e.g. a bag squeezed around the unit). The displayed gradient adds its own window on top: over 100–200 m back, it lagged the Bryton's by ~19 s on this
+ride; over the last 40 m since (`GRADE_BACK_CM`), ~9 s when the ride is replayed.

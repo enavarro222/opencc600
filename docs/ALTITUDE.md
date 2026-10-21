@@ -1,7 +1,7 @@
 # Altitude and elevation gain (D+)
 
 How opencc600 combines the barometer and the GNSS altitude. Code: `crates/altitude` (filter), `crates/recorder`
-(D+), `firmware/src/bin/main.rs` (wiring). Requirements: [PRODUCT.md](PRODUCT.md#altitude-and-elevation-gain-d).
+(D+), `firmware/src/bin/main.rs` (wiring). Requirement: a D+ at least as good as the vendor's ([PRODUCT.md](PRODUCT.md#product)).
 
 ## 1. The two sensors
 
@@ -80,7 +80,7 @@ Steep descents (−3 m/s) and drops (2 m in 0.4 s) are much faster than on the r
   with the same noise.
 - **Lag.** The filter follows the barometer through the vertical speed, limited by `accel_sigma`. A 2 m drop lags
   by up to 2.0 m for a moment at 0.3 m/s², 1.4 m at 1 m/s², 0.8 m at 3 m/s², then is caught up. 1 m/s² is the
-  compromise. The vertical speed is not meant for the gradient display, which should be Δh/Δd over 50–100 m.
+  compromise. The vertical speed is not meant for the gradient display, which is Δh/Δd over the last 40 m.
 
 The D+ does not go through the filter (section 4): a sudden drop counts at once, at the 1 Hz of the records.
 

@@ -22,20 +22,20 @@ measurement unless marked so.
 |---|---|---|---|
 | ESP32-S3 CPU (240 MHz, dual core) | us | runs at max clock, **never sleeps** today | async idle, lower clock, light sleep |
 | 2 MB quad PSRAM | us | on, 80 MHz | keep it, but avoid needless traffic (framebuffer copies) |
-| Backlight (GPIO45, LEDC 20 kHz) | us | 50 % fixed today | ambient light sensor (`F1 04`), timeout, dimming |
-| ST7789 panel | us | full redraws at ≤ 5 Hz today | redraw only on change, 1 Hz data screens, panel sleep / idle mode |
+| Backlight (GPIO45, LEDC 20 kHz) | us | fixed level (the `backlight` setting) | ambient light sensor (`F1 04`), timeout, dimming |
+| ST7789 panel | us | full frame redrawn when the view changes, ≤ 5 Hz | redraw only on change, 1 Hz data screens, panel sleep / idle mode |
 | AG3352Q GNSS | us (power through the nRF, `$PAIR`) | 4 constellations, 1 Hz, ~2.6 KB/s of NMEA | constellations, sentences, power modes, off when not recording |
 | nRF co-processor | its own firmware | sensor stream 5 Hz once started, ANT+ | little; its UART traffic wakes the ESP32 |
-| BLE (ESP32) | us | not used yet | connection parameters, scan windows |
+| BLE (ESP32) | us | sensors and the Musette link, always on | connection parameters, scan windows |
 | Wi-Fi (ESP32) | us | not used yet | only for the sync at home, short sessions |
 | Flash writes | us | ride appends, sector erases | batch writes (trade-off with crash loss) |
 | Buzzer | us (through the nRF) | short sounds | negligible |
 
-## What we already know (2026-10-19)
+## What we already know
 
 - The ESP32-S3 runs at **240 MHz**. Embassy already idles the CPU between events (`waiti`), but there is no
   light sleep and no clock scaling.
-- The bring-up screen redraws on every state change (up to 5 Hz) and the full 150 KB frame is sent each time
+- The screen is redrawn whenever what it shows changes (up to 5 Hz), and the full 150 KB frame is sent each time
   (11 ms of bus + CPU copy per frame, see REVERSE_NOTES.md).
 - The GNSS output is trimmed to what we use (GGA, RMC, GSV every 5 s); the Airoha `$PAIRSAT` reports (~1.2 KB/s)
   are still sent and thrown away.
@@ -103,7 +103,7 @@ Each lever below gets an A/B measurement before it becomes a default. Results go
 - Vendor battery life on this unit, same scenario (reference to beat).
 - nRF and GNSS current in each state; whether the nRF can lower its sensor stream rate.
 - Is method 2 (USB current at full charge) reliable on this charger?
-- Is the panel readable in sunlight with the backlight off? (also in PRODUCT.md, open questions)
+- Is the panel readable in sunlight with the backlight off? (PRODUCT.md, open questions)
 - Ambient light sensor range: tag 600 seems to saturate near 2600 under a phone torch; what does it read in
   direct sunlight? (PRODUCT.md, open questions)
 - Is the nRF power-on command every 5 s needed? (PRODUCT.md, open questions)

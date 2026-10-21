@@ -1,7 +1,7 @@
 # opencc600 — development and test process
 
 Goal: test and validate **as automatically as possible**, including the behaviour on the **real CC600**,
-not only on a PC. Context: [PRODUCT.md](PRODUCT.md) (crates), [REVERSE_NOTES.md](REVERSE_NOTES.md) (hardware).
+not only on a PC. Context: the [README](../README.md#firmware) (crates), [REVERSE_NOTES.md](REVERSE_NOTES.md) (hardware).
 
 ## The rule that makes it possible
 
@@ -66,6 +66,18 @@ The CC600 on USB-C, everything through that single cable (native USB-Serial/JTAG
 
 Pitfalls: the nRF stream stops on a real power cut and only a physical long press on key 0 restarts it, so tests
 never really power off (`power off dry`).
+
+## Flash and rollback
+
+- Build with `cargo build --release` in `firmware/`, then `espflash save-image --chip esp32s3 --flash-size 16mb` for
+  an app image.
+- `tools/flash_ota0.py` writes `ota_0` (0x20000) only and erases `otadata`, after checking the device has the known
+  CC600 partition layout; it saves the original otadata once (`dump/otadata.orig.bin`).
+- **Back to the vendor firmware**: `tools/flash_ota0.py --restore-vendor` writes that otadata back, so the
+  bootloader loads `ota_1` (V1.407); `--storage dump/storage.orig.bin` puts its storage partition back too.
+- Keep a full 16 MB flash dump of the device before the first write (REVERSE_NOTES.md, "Flash layout").
+- Recovery: holding the 3 keys hard-resets the ESP32; the ROM download mode is reachable over USB at any time.
+- **Never** write the eFuses, the bootloader (0x0) or the partition table (0x8000).
 
 ## 3. Field
 

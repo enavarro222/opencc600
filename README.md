@@ -74,7 +74,7 @@ formats and the protocol are shared crates in the MIT [musette](https://github.c
 repository.
 
 ## Roadmap
-MVP checklist with details in [docs/PRODUCT.md](docs/PRODUCT.md#mvp).
+MVP status in [docs/PRODUCT.md](docs/PRODUCT.md#mvp).
 
 Next:
 - **Battery life** ([docs/POWER.md](docs/POWER.md)): battery-run log, reference run against the vendor firmware,
@@ -99,10 +99,12 @@ Later:
 Deliberately out of scope: global maps and on-device routing.
 
 ## Docs
-- [docs/PRODUCT.md](docs/PRODUCT.md): decisions, constraints, product questions, technical plan, flash / rollback workflow.
+- [docs/PRODUCT.md](docs/PRODUCT.md): principles, hardware constraints, UI rules, ride pages, features, MVP status,
+  open questions.
 - [docs/ALTITUDE.md](docs/ALTITUDE.md): barometric altitude and D+, the Kalman filter on the GNSS, the vendor's D+.
 - [docs/POWER.md](docs/POWER.md): battery life target, consumers, how we measure without opening the case, levers.
-- [docs/DEV_PROCESS.md](docs/DEV_PROCESS.md): development and test process (PC, simulator, QEMU, hardware bench, CI).
+- [docs/DEV_PROCESS.md](docs/DEV_PROCESS.md): development and test process (PC, device over USB, field), flash and
+  rollback.
 - [docs/REVERSE_NOTES.md](docs/REVERSE_NOTES.md): reverse engineering notes (hardware, eFuses, partitions,
   pinout read over JTAG, first run of c606-oss).
 - [docs/NRF_FIRMWARE.md](docs/NRF_FIRMWARE.md): the nRF co-processor's firmware (image, ANT, barometer filter).
