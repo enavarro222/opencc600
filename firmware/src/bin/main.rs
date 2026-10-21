@@ -491,6 +491,29 @@ async fn main(spawner: Spawner) -> ! {
                     // the keys pressed meanwhile did nothing on the screen: dropped, not acted on later
                     while NRF_KEYS.try_receive().is_ok() {}
                 }
+                // a ride started by mistake: its file goes, a resumed ride with what it had before
+                (ui::Command::Discard, Some(_), Ok(fs)) => {
+                    let id = ride.take().unwrap().recorder.id();
+                    let now = Instant::now().as_millis();
+                    match ride_store::remove_unfinished(fs, id) {
+                        Ok(()) => {
+                            info!("ride {id}: discarded");
+                            ui.inform("Sortie effacée", ui::fonts::Line::new(format_args!("")), now);
+                        }
+                        // the file stays: offered again at the next power-on
+                        Err(e) => {
+                            warn!("ride {id}: discard failed, littlefs error {}", e.code());
+                            let detail = ui::fonts::Line::new(format_args!("Erreur mémoire {}", e.code()));
+                            ui.inform("Pas effacée", detail, now);
+                        }
+                    }
+                    let storage_info = storage_summary(fs);
+                    STATUS.lock(|s| {
+                        let mut status = s.get();
+                        status.storage = Some(storage_info);
+                        s.set(status);
+                    });
+                }
                 // the scan follows the scan screen (below)
                 (ui::Command::Scan(_) | ui::Command::StopScan, _, _) => {}
                 (ui::Command::Pair(role, i), _, _) => {

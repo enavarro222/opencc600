@@ -98,8 +98,7 @@ def test_a_ride_records_the_sensors(dut, out_dir, fake_sensor, pairing):
     # past BlueZ's 30 s ATT timeout: the link must hold (the device answers the PC's requests)
     time.sleep(45)
     dut.press(2)  # pause
-    dut.press(1)  # end...
-    dut.press(2)  # ...confirmed
+    dut.finish_ride()
     time.sleep(1)
     lost = [line.text for line in dut.lines[mark:] if "ble: disconnected" in line.text]
     assert not lost, lost

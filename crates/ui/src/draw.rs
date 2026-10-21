@@ -10,7 +10,7 @@ use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle, Triangle};
 
 use crate::fonts::{self, Align, Font, Line as Fmt, Style, icon};
-use crate::{BannerKind, Gnss, Hint, Kind, Link, Page, RideCard, Role, Screen, Ui, View};
+use crate::{BannerKind, Gnss, Hint, Item, Kind, Link, Page, RideCard, Role, Screen, Ui, View};
 
 pub(crate) const W: i32 = 240;
 const H: i32 = 320;
@@ -214,6 +214,9 @@ pub fn draw<D: DrawTarget<Color = Rgb565>>(
             RESUME_NOTE,
         )?,
         Screen::ConfirmStop => confirm_stop(d, v, t)?,
+        Screen::ConfirmEmpty => confirm_empty(d, v, t)?,
+        Screen::ConfirmDiscard => confirm_discard(d, v, t)?,
+        Screen::ConfirmDiscardAgain => confirm_discard_again(d, v, t)?,
         Screen::Saved => saved(d, v, t)?,
         Screen::Rides => rides(d, ui, v, t)?,
         Screen::ConfirmDelete => confirm_delete(d, v, t)?,
@@ -674,10 +677,12 @@ fn menu<D: DrawTarget<Color = Rgb565>>(
     let mut buf = [0; 4];
     let chevron = char_str(icon::CHEVRON, &mut buf);
     for (i, item) in items.iter().flatten().enumerate() {
-        let (bg, fg) = if i as u8 == sel {
-            (t.sel, t.kinds[3].1)
-        } else {
-            (t.bg, t.fg)
+        // abandoning the ride in the danger colour
+        let (bg, fg) = match (i as u8 == sel, *item == Item::Discard) {
+            (true, true) => t.kinds[2],
+            (true, false) => (t.sel, t.kinds[3].1),
+            (false, true) => (t.bg, t.danger),
+            (false, false) => (t.bg, t.fg),
         };
         fill(d, rect(0, y, W - 1, y + ROW - 2), bg)?;
         hline(d, y + ROW - 1, t)?;
@@ -1146,6 +1151,37 @@ fn confirm_stop<D: DrawTarget<Color = Rgb565>>(
         128,
         22,
     )
+}
+
+/// "0,0 km · 1:12"
+fn ride_summary(v: &View) -> Fmt {
+    Fmt::new(format_args!("{} km · {}", km(v.ride.distance_cm).as_str(), duration(v.ride.timer_s).as_str()))
+}
+
+fn confirm_empty<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result<(), D::Error> {
+    // grey: nothing to lose
+    fill(d, rect(0, TOP + 1, W - 1, TOP + 6), t.mute)?;
+    fonts::text(d, &t.style(&fonts::HEADING), "Sortie vide", 14, 63, Align::Left)?;
+    fonts::text(d, &t.style(&fonts::BODY_BOLD), ride_summary(v).as_str(), 14, 100, Align::Left)?;
+    note_lines(d, &t.style(&fonts::BODY), "Rien à garder : elle est\neffacée, pas enregistrée.", 14, 132, 22)?;
+    note_lines(d, &t.mute(&fonts::NOTE), "Pour la garder quand même :\nEnregistrer.", 14, 196, 19)
+}
+
+fn confirm_discard<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result<(), D::Error> {
+    fill(d, rect(0, TOP + 1, W - 1, TOP + 6), t.danger)?;
+    fonts::text(d, &t.style(&fonts::HEADING), "Abandonner la sortie ?", 14, 63, Align::Left)?;
+    let lost = Fmt::new(format_args!("{}\nne sera pas enregistrée", ride_summary(v).as_str()));
+    bullet(d, &t.style(&fonts::BODY), icon::CROSS, lost.as_str(), 96, 22)?;
+    bullet(d, &t.style(&fonts::BODY_BOLD), icon::CROSS, "Impossible à reprendre", 150, 22)
+}
+
+fn confirm_discard_again<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result<(), D::Error> {
+    fill(d, rect(0, TOP + 1, W - 1, TOP + 6), t.danger)?;
+    fonts::text(d, &t.style(&fonts::HEADING).colored(t.danger), "Vraiment effacer ?", 14, 63, Align::Left)?;
+    fonts::text(d, &t.style(&fonts::BODY_BOLD), ride_summary(v).as_str(), 14, 100, Align::Left)?;
+    fonts::text(d, &t.style(&fonts::BODY), "Elle sera perdue pour de bon.", 14, 124, Align::Left)?;
+    let note = "Attention, les touches changent :\nEffacer à gauche, Garder à droite.";
+    note_lines(d, &t.mute(&fonts::NOTE), note, 14, 196, 19)
 }
 
 const WEEKDAYS: [&str; 7] = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];

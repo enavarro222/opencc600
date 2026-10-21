@@ -55,9 +55,7 @@ def test_ride_along_a_route(dut, out_dir):
         ride(40)
         dut.press(2)  # pause
         dut.wait_screen("Paused")
-        dut.press(1)  # finish...
-        dut.wait_screen("ConfirmStop")
-        dut.press(2)  # ...confirmed
+        dut.finish_ride()
         dut.wait_screen("Saved")
         dut.send("fix off")
         time.sleep(1)

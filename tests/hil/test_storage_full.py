@@ -28,9 +28,8 @@ def ride(dut, seconds: float) -> int:
     dut.press(2)  # start
     started = int(dut.expect(r"ride (\d+): started", timeout=10, since=m).group(1))
     time.sleep(seconds)
-    dut.press(2)  # pause...
-    dut.press(1)  # ...end...
-    dut.press(2)  # ...confirmed
+    dut.press(2)  # pause
+    dut.finish_ride()
     dut.expect(rf"ride {started}: saved", timeout=10, since=m)
     dut.press(2)  # the end screen's OK
     return started
@@ -110,9 +109,8 @@ def test_a_nearly_full_storage_records_a_point_every_5_s(dut, out_dir):
         dut.press(2)  # start
         dut.expect(r"ride: \d+ bytes left for the rides, a point every 5 s", timeout=10, since=m)
         time.sleep(40)
-        dut.press(2)  # pause...
-        dut.press(1)  # ...end...
-        dut.press(2)  # ...confirmed
+        dut.press(2)  # pause
+        dut.finish_ride()
         time.sleep(1)
     finally:
         unfill(dut)
@@ -155,9 +153,8 @@ def test_a_ride_on_a_storage_that_fills_up(dut, out_dir):
         unfill(dut)
         dut.expect(r"ride: written again", timeout=90, since=m)
         time.sleep(12)
-        dut.press(2)  # pause...
-        dut.press(1)  # ...end...
-        dut.press(2)  # ...confirmed
+        dut.press(2)  # pause
+        dut.finish_ride()
         time.sleep(1)
     finally:
         unfill(dut)

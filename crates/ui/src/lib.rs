@@ -7,7 +7,8 @@
 //! Keys (nRF numbering): 0 top left, 1 bottom left, 2 bottom right. Bottom right is the main action (start, pause,
 //! resume, OK), bottom left the menu or the next page / item, top left back or contextual. One long press only:
 //! the top left key on the home screen switches off. A ride ends from the pause screen, confirmed with another
-//! key, and stays resumable afterwards.
+//! key, and stays resumable afterwards. A ride started by mistake is erased: from the same key when it is empty
+//! ([`RideView::empty`]), else from the pause menu with two confirmations.
 
 #![no_std]
 
@@ -77,6 +78,13 @@ pub enum Screen {
     /// A paused ride found at power-on.
     Resume,
     ConfirmStop,
+    /// Finishing an empty ride ([`RideView::empty`]): erasing it is the main key, nothing is lost.
+    ConfirmEmpty,
+    /// "Abandon the ride?", from the pause menu, then [`Screen::ConfirmDiscardAgain`].
+    ConfirmDiscard,
+    /// The last confirmation, the keys the other way round: erasing on the bottom left, the main key keeps the ride
+    /// (two presses out of habit erase nothing).
+    ConfirmDiscardAgain,
     Saved,
     /// The finished rides, one at a time ([`View::rides`]), to delete some: from the menu, or when a ride cannot start
     /// for want of room ([`Ui::make_room`]).
@@ -172,6 +180,8 @@ pub enum Command {
     Resume,
     /// Finish the ride: it stays resumable.
     Stop,
+    /// Erase the ride in progress, not saved.
+    Discard,
     /// Resume the last finished ride (reopened, timer running).
     ResumeLast,
     /// Switch off; a paused ride is kept and offered again at power-on.
@@ -343,6 +353,8 @@ pub enum Item {
     Rides,
     Status,
     PowerOff,
+    /// Erase the paused ride (after confirmations).
+    Discard,
 }
 
 impl Item {
@@ -355,6 +367,7 @@ impl Item {
             Item::FreeRide => "Rouler sans trace",
             Item::FollowRoute => "Suivre la trace",
             Item::PowerOff => "Éteindre (sortie gardée)",
+            Item::Discard => "Abandonner la sortie",
         }
     }
 
@@ -371,6 +384,7 @@ impl Item {
             Item::FollowRoute => "Suivre",
             Item::Sensors | Item::Rides | Item::Status => "Ouvrir \u{e00b}",
             Item::PowerOff => "Éteindre",
+            Item::Discard => "Effacer…",
         }
     }
 }
@@ -499,7 +513,15 @@ pub struct RideView {
     pub avg_heart_rate: Option<u8>,
 }
 
+/// A ride shorter than both is empty: started by mistake, it is erased without more confirmation.
+pub const EMPTY_RIDE_CM: u32 = 10_000;
+pub const EMPTY_RIDE_S: u32 = 180;
+
 impl RideView {
+    pub fn empty(&self) -> bool {
+        self.distance_cm < EMPTY_RIDE_CM && self.timer_s < EMPTY_RIDE_S
+    }
+
     pub fn avg_speed_mm_s(&self) -> Option<u32> {
         (self.timer_s > 0).then(|| (self.distance_cm as u64 * 10 / self.timer_s as u64) as u32)
     }
@@ -769,7 +791,14 @@ impl Ui {
                 Some(Item::Status),
             ],
             // a strap that drops during a ride is paired again from the pause, the route set aside there too
-            Screen::PauseMenu => &[Some(Item::Sensors), route, Some(Item::PowerOff), Some(Item::Status)],
+            // abandoning last, the furthest from the first entry
+            Screen::PauseMenu => &[
+                Some(Item::Sensors),
+                route,
+                Some(Item::PowerOff),
+                Some(Item::Status),
+                Some(Item::Discard),
+            ],
             _ => &[],
         };
         let mut out = [None; MENU];
@@ -845,6 +874,8 @@ impl Ui {
                     Some(Item::FreeRide) => (self.back, Some(Command::FollowRoute(false))),
                     Some(Item::FollowRoute) => (self.back, Some(Command::FollowRoute(true))),
                     Some(Item::PowerOff) => (self.screen, Some(Command::PowerOff)),
+                    Some(Item::Discard) if view.ride.empty() => (ConfirmEmpty, None),
+                    Some(Item::Discard) => (ConfirmDiscard, None),
                     None => (self.screen, None),
                 }
             }
@@ -895,11 +926,17 @@ impl Ui {
             }
             (Paused | Resume, BottomLeft, Click) => {
                 self.back = self.screen;
-                (ConfirmStop, None)
+                (if view.ride.empty() { ConfirmEmpty } else { ConfirmStop }, None)
             }
             (Paused | Resume, BottomRight, Click) => (Ride, Some(Command::Resume)),
-            (ConfirmStop, TopLeft | BottomLeft, Click) => (self.back, None),
-            (ConfirmStop, BottomRight, Click) => (Saved, Some(Command::Stop)),
+            (ConfirmStop | ConfirmEmpty | ConfirmDiscard | ConfirmDiscardAgain, TopLeft, Click) => (self.back, None),
+            (ConfirmStop | ConfirmDiscard, BottomLeft, Click) => (self.back, None),
+            (ConfirmStop, BottomRight, Click) | (ConfirmEmpty, BottomLeft, Click) => (Saved, Some(Command::Stop)),
+            (ConfirmEmpty, BottomRight, Click) | (ConfirmDiscardAgain, BottomLeft, Click) => {
+                (Home, Some(Command::Discard))
+            }
+            (ConfirmDiscard, BottomRight, Click) => (ConfirmDiscardAgain, None),
+            (ConfirmDiscardAgain, BottomRight, Click) => (self.back, None),
             (Saved, BottomLeft, Click) if view.resumable => {
                 self.start_ride();
                 (Ride, Some(Command::ResumeLast))
@@ -959,9 +996,12 @@ impl Ui {
         if power_off {
             self.still_since = None;
         }
+        let confirming = matches!(self.screen, ConfirmStop | ConfirmEmpty | ConfirmDiscard | ConfirmDiscardAgain);
         self.screen = match (self.screen, ride) {
-            (Ride | Paused | PauseMenu | ConfirmStop | Resume, None) => Home,
-            (Home | Saved | Paused | ConfirmStop | Resume, Some(true)) => Ride,
+            (Ride | Paused | PauseMenu | Resume, None) => Home,
+            (_, None) if confirming => Home,
+            (Home | Saved | Paused | Resume, Some(true)) => Ride,
+            (_, Some(true)) if confirming => Ride,
             (Ride, Some(false)) => Paused,
             (s, _) => s,
         };
@@ -1067,6 +1107,7 @@ impl Ui {
             Menu | PauseMenu => {
                 let (items, at) = self.menu(view);
                 match items[at as usize] {
+                    Some(Item::Discard) => [BACK, NEXT, Hint::new(Item::Discard.action()).kind(Kind::Danger)],
                     Some(item) => [BACK, NEXT, Hint::new(item.action()).kind(Kind::Select)],
                     None => [BACK, NEXT, NOTHING],
                 }
@@ -1111,6 +1152,21 @@ impl Ui {
                 Hint::new("\u{e003} Annuler"),
                 Hint::new("Annuler"),
                 Hint::new("Terminer \u{e002}").kind(Kind::Select),
+            ],
+            ConfirmEmpty => [
+                Hint::new("\u{e003} Annuler"),
+                Hint::new("Enregistrer"),
+                Hint::new("Effacer \u{e007}").kind(Kind::Danger),
+            ],
+            ConfirmDiscard => [
+                Hint::new("\u{e003} Annuler"),
+                Hint::new("Annuler"),
+                Hint::new("Effacer…").kind(Kind::Danger),
+            ],
+            ConfirmDiscardAgain => [
+                Hint::new("\u{e003} Annuler"),
+                Hint::new("Effacer \u{e007}").kind(Kind::Danger),
+                Hint::new("Garder").kind(Kind::Go),
             ],
             Rides => {
                 let next = if view.rides.count > 1 { Hint::new("Suivante \u{e00a}") } else { NOTHING };
@@ -1164,12 +1220,122 @@ mod tests {
     fn view() -> View {
         View {
             gnss: Gnss::Fix { used: 9 },
+            ride: RideView { timer_s: 3600, distance_cm: 2_500_000, ..Default::default() },
             ..Default::default()
         }
     }
 
     fn press(ui: &mut Ui, key: Key) -> Option<Command> {
         ui.key(key, Click, 0, &view())
+    }
+
+    #[test]
+    fn an_empty_ride_is_erased_from_the_finish_key() {
+        let empty = View { ride: RideView { timer_s: 150, distance_cm: 4_000, ..Default::default() }, ..view() };
+        let mut ui = Ui::new();
+        ui.key(BottomRight, Click, 0, &empty);
+        ui.key(BottomRight, Click, 0, &empty);
+        ui.key(BottomLeft, Click, 0, &empty);
+        assert_eq!(ui.screen(), Screen::ConfirmEmpty);
+        // saved all the same from the bottom left
+        let mut save = ui;
+        assert_eq!(save.key(BottomLeft, Click, 0, &empty), Some(Command::Stop));
+        assert_eq!(save.screen(), Screen::Saved);
+        assert_eq!(ui.key(BottomRight, Click, 0, &empty), Some(Command::Discard));
+        assert_eq!(ui.screen(), Screen::Home);
+        // 3 min or 100 m make it a ride
+        for ride in [RideView { timer_s: 180, ..empty.ride }, RideView { distance_cm: 10_000, ..empty.ride }] {
+            let mut ui = Ui::new();
+            ui.found_paused_ride();
+            ui.key(BottomLeft, Click, 0, &View { ride, ..empty });
+            assert_eq!(ui.screen(), Screen::ConfirmStop);
+        }
+    }
+
+    #[test]
+    fn a_ride_is_abandoned_from_the_pause_menu_after_two_confirmations() {
+        let mut ui = Ui::new();
+        press(&mut ui, BottomRight);
+        press(&mut ui, BottomRight);
+        press(&mut ui, TopLeft);
+        // the last entry
+        for _ in 0..3 {
+            press(&mut ui, BottomLeft);
+        }
+        assert_eq!(ui.menu(&view()).0[ui.item as usize], Some(Item::Discard));
+        assert_eq!(press(&mut ui, BottomRight), None);
+        assert_eq!(ui.screen(), Screen::ConfirmDiscard);
+        assert_eq!(press(&mut ui, BottomRight), None);
+        assert_eq!(ui.screen(), Screen::ConfirmDiscardAgain);
+        // pressing on out of habit keeps the ride
+        let mut habit = ui;
+        assert_eq!(press(&mut habit, BottomRight), None);
+        assert_eq!(habit.screen(), Screen::Paused);
+        let mut cancel = ui;
+        press(&mut cancel, TopLeft);
+        assert_eq!(cancel.screen(), Screen::Paused);
+        assert_eq!(press(&mut ui, BottomLeft), Some(Command::Discard));
+        assert_eq!(ui.screen(), Screen::Home);
+    }
+
+    #[test]
+    fn erasing_is_cancelled_back_to_the_pause_it_came_from() {
+        let empty = View { ride: RideView::default(), ..view() };
+        // the pause menu's last entry, abandoning, then each confirmation
+        const MENU: &[Key] = &[TopLeft, BottomLeft, BottomLeft, BottomLeft, BottomRight];
+        const AGAIN: &[Key] = &[TopLeft, BottomLeft, BottomLeft, BottomLeft, BottomRight, BottomRight];
+        for (from, v, keys, confirm) in [
+            (Screen::Paused, empty, &[BottomLeft][..], Screen::ConfirmEmpty),
+            (Screen::Resume, empty, &[BottomLeft], Screen::ConfirmEmpty),
+            (Screen::Paused, view(), MENU, Screen::ConfirmDiscard),
+            (Screen::Resume, view(), MENU, Screen::ConfirmDiscard),
+            (Screen::Paused, view(), AGAIN, Screen::ConfirmDiscardAgain),
+            // the menu entry on an empty ride: its one confirmation
+            (Screen::Paused, empty, MENU, Screen::ConfirmEmpty),
+        ] {
+            let mut ui = Ui::new();
+            if from == Screen::Resume {
+                ui.found_paused_ride();
+            } else {
+                ui.key(BottomRight, Click, 0, &v);
+                ui.key(BottomRight, Click, 0, &v);
+            }
+            for &k in keys {
+                assert_eq!(ui.key(k, Click, 0, &v), None);
+            }
+            assert_eq!(ui.screen(), confirm, "{from:?} {keys:?}");
+            // every confirmation cancels from the top left
+            let cancels: &[Key] = match confirm {
+                // the bottom left saves, or erases
+                Screen::ConfirmEmpty | Screen::ConfirmDiscardAgain => &[TopLeft],
+                _ => &[TopLeft, BottomLeft],
+            };
+            for &k in cancels {
+                let mut cancel = ui;
+                assert_eq!(cancel.key(k, Click, 0, &v), None);
+                assert_eq!(cancel.screen(), from, "{confirm:?} {k:?}");
+            }
+            // the ride gone meanwhile (finished from the app), or running again: the screen follows
+            let mut gone = ui;
+            gone.tick(0, None, &v);
+            assert_eq!(gone.screen(), Screen::Home);
+            let mut running = ui;
+            running.tick(0, Some(true), &v);
+            assert_eq!(running.screen(), Screen::Ride);
+        }
+    }
+
+    #[test]
+    fn the_pause_menu_names_abandoning_in_the_danger_colour() {
+        let mut ui = Ui::new();
+        press(&mut ui, BottomRight);
+        press(&mut ui, BottomRight);
+        press(&mut ui, TopLeft);
+        assert_eq!(ui.hints(&view())[2].kind, Kind::Select);
+        for _ in 0..3 {
+            press(&mut ui, BottomLeft);
+        }
+        assert_eq!(ui.hints(&view())[2], Hint::new("Effacer…").kind(Kind::Danger));
     }
 
     #[test]

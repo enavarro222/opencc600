@@ -254,7 +254,7 @@ fn every_screen() {
         // each entry names its own action on the select key: every label must fit
         let mut each = ui;
         let routed = with_route(home, true);
-        for i in 0..4 {
+        for i in 0..5 {
             shot(&each, &routed, &format!("pause-menu-{i}"));
             each.key(BottomLeft, Press::Click, 0, &routed);
         }
@@ -267,6 +267,21 @@ fn every_screen() {
         let mut resume = Ui::new();
         resume.found_paused_ride();
         shot(&resume, &home, "resume");
+        // erasing: an empty ride from the finish key, a real one from the pause menu with two confirmations
+        let empty = View { ride: ui::RideView { timer_s: 72, distance_cm: 0, ..home.ride }, ..home };
+        let mut erase = resume;
+        erase.key(BottomLeft, Press::Click, 0, &empty);
+        shot(&erase, &empty, "confirm-empty");
+        let mut erase = resume;
+        erase.key(TopLeft, Press::Click, 0, &home);
+        for _ in 0..3 {
+            erase.key(BottomLeft, Press::Click, 0, &home);
+        }
+        shot(&erase, &home, "pause-menu-discard");
+        erase.key(BottomRight, Press::Click, 0, &home);
+        shot(&erase, &home, "confirm-discard");
+        erase.key(BottomRight, Press::Click, 0, &home);
+        shot(&erase, &home, "confirm-discard-again");
         // scrolling pages, the indicator under the page dots
         let mut scroll = Ui::new();
         scroll.key(BottomRight, Press::Click, 0, &v);

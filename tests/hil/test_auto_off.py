@@ -31,8 +31,7 @@ def test_a_key_cancels_the_power_off(dut, auto_off_1min):
     assert not [line for line in dut.lines[mark:] if "auto off: still" in line.text]
     dut.press(2)  # cancel
     dut.press(2)  # pause
-    dut.press(1)  # finish...
-    dut.press(2)  # ...confirmed
+    dut.finish_ride()
     dut.wait_screen("Saved")
 
 
@@ -49,6 +48,5 @@ def test_switched_off_with_the_ride_kept(dut, auto_off_1min):
     time.sleep(2)  # restarting
     dut.send("sound off")
     dut.wait_screen("Resume", timeout=20)
-    dut.press(1)  # finish...
-    dut.press(2)  # ...confirmed
+    dut.finish_ride()
     dut.wait_screen("Saved")

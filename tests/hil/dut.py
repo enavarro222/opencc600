@@ -181,14 +181,26 @@ class Dut:
             if shown == "Ride":
                 self.press(2)  # pause
             elif shown in ("Paused", "Resume"):
-                self.press(1)  # finish...
-                self.press(2)  # ...confirmed
+                self.finish_ride()
             elif shown in ("Saved", "ConfirmStop"):
                 self.press(2)
+            elif shown == "ConfirmEmpty":
+                self.press(1)  # saved all the same
             else:
                 self.press(0)  # back
             time.sleep(0.5)
         raise RuntimeError(f"not back home: {self.screen()}")
+
+    def finish_ride(self):
+        """From the pause: finishes the ride and saves it. An empty ride (`ui::EMPTY_RIDE_S`, `ui::EMPTY_RIDE_CM`)
+        asks otherwise: its main key erases it, the bottom left one saves it."""
+        self.press(1)  # finish...
+        end = time.time() + 5
+        while (shown := self.screen()) not in ("ConfirmStop", "ConfirmEmpty"):
+            if time.time() > end:
+                raise TimeoutError(f"screen {shown}, not a confirmation")
+            time.sleep(0.2)
+        self.press(1 if shown == "ConfirmEmpty" else 2)  # ...saved
 
     # --- storage -----------------------------------------------------------------------------------------------
 

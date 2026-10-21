@@ -32,9 +32,8 @@ def test_ride_with_a_pause(dut, out_dir):
     time.sleep(10)
     dut.press(2)  # resume
     time.sleep(20)
-    dut.press(2)  # pause: a ride ends from the pause screen...
-    dut.press(1)  # ...end...
-    dut.press(2)  # ...confirmed: stop and save
+    dut.press(2)  # pause: a ride ends from the pause screen
+    dut.finish_ride()
     time.sleep(1)
     new = {k: v for k, v in rides(dut.read_storage(out_dir / "after.bin")).items() if k not in before}
     assert len(new) == 1 and next(iter(new)).endswith(".fit"), new.keys()
@@ -62,8 +61,7 @@ def test_interrupted_ride_is_resumable_at_boot(dut, out_dir):
     # ...and stays one after the boot that follows: reopened paused, the screen offers to resume or finish it
     dut.send("sound off")
     dut.wait_screen("Resume")
-    dut.press(1)  # finish...
-    dut.press(2)  # ...confirmed
+    dut.finish_ride()
     time.sleep(1)
     after = rides(dut.read_storage(out_dir / "closed.bin"))
     fit = new[0].replace(".part", ".fit")
@@ -85,16 +83,14 @@ def test_finished_ride_is_resumed(dut, out_dir):
     dut.press(2)  # start
     time.sleep(15)
     dut.press(2)  # pause
-    dut.press(1)  # finish...
-    dut.press(2)  # ...confirmed: the end screen
+    dut.finish_ride()
     dut.wait_screen("Saved")
     time.sleep(5)
     dut.press(1)  # resume the same ride
     dut.wait_screen("Ride")
     time.sleep(10)
     dut.press(2)  # pause
-    dut.press(1)
-    dut.press(2)  # finished again
+    dut.finish_ride()  # finished again
     time.sleep(1)
     new = {k: v for k, v in rides(dut.read_storage(out_dir / "after.bin")).items() if k not in before}
     assert len(new) == 1 and next(iter(new)).endswith(".fit"), new.keys()
@@ -104,3 +100,24 @@ def test_finished_ride_is_resumed(dut, out_dir):
     s = m["session_mesgs"][0]
     # the time on the end screen does not count
     assert abs(s["total_timer_time"] - 25) <= 3, s["total_timer_time"]
+
+
+def test_empty_ride_is_erased(dut, out_dir):
+    # a ride left over by an earlier run is saved by to_home(): read what is stored after it
+    dut.reset()
+    dut.to_home()
+    before = set(rides(dut.read_storage(out_dir / "before.bin")))
+    dut.send("sound off")
+    dut.to_home()
+    dut.press(2)  # start by mistake
+    time.sleep(15)  # the file exists, records appended
+    dut.press(2)  # pause
+    dut.wait_screen("Paused")
+    mark = dut.mark()
+    dut.press(1)  # finish: under 3 min and 100 m, the main key erases it...
+    dut.wait_screen("ConfirmEmpty")
+    dut.press(2)  # ...erased
+    dut.expect(r"ride \d+: discarded", timeout=5, since=mark)
+    dut.wait_screen("Home")
+    after = set(rides(dut.read_storage(out_dir / "after.bin")))
+    assert after == before, sorted(after - before)
