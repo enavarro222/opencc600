@@ -357,6 +357,22 @@ impl Item {
             Item::PowerOff => "Éteindre (sortie gardée)",
         }
     }
+
+    /// The entry opens a screen (a chevron says so); the others act at once.
+    pub fn opens(self) -> bool {
+        matches!(self, Item::Sensors | Item::Rides | Item::Status)
+    }
+
+    /// The select key's label on this entry: a chevron when it opens a screen.
+    pub fn action(self) -> &'static str {
+        match self {
+            Item::ResumeLast => "Reprendre",
+            Item::FreeRide => "Sans trace",
+            Item::FollowRoute => "Suivre",
+            Item::Sensors | Item::Rides | Item::Status => "Ouvrir \u{e00b}",
+            Item::PowerOff => "Éteindre",
+        }
+    }
 }
 
 /// What the screens show, filled by the firmware before each [`draw`].
@@ -1041,7 +1057,6 @@ impl Ui {
         use Screen::*;
         const BACK: Hint = Hint::new("\u{e003} Retour");
         const NEXT: Hint = Hint::new("Suivant \u{e00a}");
-        const OPEN: Hint = Hint::new("Ouvrir \u{e00b}").kind(Kind::Select);
         const MENU: Hint = Hint::new("\u{e009} Menu");
         match self.screen {
             Home => [
@@ -1049,10 +1064,16 @@ impl Ui {
                 MENU,
                 Hint::new("Démarrer").kind(Kind::Go),
             ],
-            Menu | PauseMenu => [BACK, NEXT, OPEN],
+            Menu | PauseMenu => {
+                let (items, at) = self.menu(view);
+                match items[at as usize] {
+                    Some(item) => [BACK, NEXT, Hint::new(item.action()).kind(Kind::Select)],
+                    None => [BACK, NEXT, NOTHING],
+                }
+            }
             Status => [BACK, NOTHING, NOTHING],
             Charging | Splash => [NOTHING, NOTHING, NOTHING],
-            Sensors => [BACK, NEXT, OPEN],
+            Sensors => [BACK, NEXT, Hint::new("Chercher \u{e00b}").kind(Kind::Select)],
             SensorScan => match self.scan_entries(view) {
                 (0, false) => [BACK, NOTHING, NOTHING],
                 (found, forget) => [

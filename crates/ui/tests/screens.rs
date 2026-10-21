@@ -251,6 +251,13 @@ fn every_screen() {
         shot(&ui, &View { sparse: true, record_hours: Some(6), ..home }, "paused-sparse");
         key(&mut ui, TopLeft);
         shot(&ui, &home, "pause-menu");
+        // each entry names its own action on the select key: every label must fit
+        let mut each = ui;
+        let routed = with_route(home, true);
+        for i in 0..4 {
+            shot(&each, &routed, &format!("pause-menu-{i}"));
+            each.key(BottomLeft, Press::Click, 0, &routed);
+        }
         key(&mut ui, TopLeft);
         key(&mut ui, BottomLeft);
         shot(&ui, &home, "confirm-stop");

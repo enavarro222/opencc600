@@ -684,7 +684,9 @@ fn menu<D: DrawTarget<Color = Rgb565>>(
         let s = Style::new(&fonts::MENU, fg, bg);
         let cy = y + ROW / 2 - 1;
         fonts::text(d, &s, item.label(), MARGIN, cy, Align::Left)?;
-        fonts::text(d, &s, chevron, W - MARGIN, cy, Align::Right)?;
+        if item.opens() {
+            fonts::text(d, &s, chevron, W - MARGIN, cy, Align::Right)?;
+        }
         y += ROW;
     }
     let mut cy = y + 20;
@@ -898,7 +900,7 @@ fn sensor_value(role: Role, v: &View) -> Option<Fmt> {
     }
 }
 
-const SENSORS_NOTE: &str = "Ouvrir : chercher autour. Réveille le\ncapteur (roue, pédale, ceinture).";
+const SENSORS_NOTE: &str = "Chercher : réveille d'abord le\ncapteur (roue, pédale, ceinture).";
 
 /// The sensor roles, each with its sensor, its link and its value; the selected one in blue.
 fn sensors<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) -> Result<(), D::Error> {
