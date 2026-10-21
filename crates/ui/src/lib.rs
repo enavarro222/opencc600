@@ -72,6 +72,8 @@ pub enum Screen {
     Sensors,
     /// The sensors found around for a role ([`Ui::role`]), to pick one ([`View::sensors`]).
     SensorScan,
+    /// The power meter's zero offset calibration: what to do, then its result ([`Sensors::calibration`]).
+    Calibrate,
     Ride,
     Paused,
     PauseMenu,
@@ -197,6 +199,8 @@ pub enum Command {
     Pair(Role, u8),
     /// No sensor for the role any more.
     Forget(Role),
+    /// Calibrate the power meter (zero offset).
+    Calibrate,
     /// Follow the loaded route (`true`), or set it aside for a free ride: it stays stored.
     FollowRoute(bool),
     /// Switched on from the charging screen (the long press starts the nRF's sensor stream).
@@ -241,6 +245,23 @@ pub struct Sensors {
     pub roles: [SensorRow; 3],
     /// What the scan found for the role being paired, closest first.
     pub found: [Option<Found>; FOUND],
+    pub calibration: Calibration,
+}
+
+/// The power meter's last calibration ([`Command::Calibrate`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Calibration {
+    #[default]
+    None,
+    Running,
+    /// Done: the offset found, in the meter's own units.
+    Done(i16),
+    Failed,
+    /// The meter cannot do it.
+    Unsupported,
+    NotConnected,
+    /// No answer in time.
+    Timeout,
 }
 
 /// Sensors listed by a scan at most.
@@ -586,6 +607,8 @@ pub struct Ui {
     item: u8,
     /// The role selected on the sensors screen, and paired on the scan screen.
     role: u8,
+    /// On the sensors screen, the power meter's calibration entry (after the roles) is selected.
+    calibrate_row: bool,
     /// The charging screen's animation step.
     charge_step: u8,
     /// Automatic power off after this long without moving during a ride (0: never), and since when it is still.
@@ -630,6 +653,7 @@ impl Ui {
             page: 0,
             item: 0,
             role: 0,
+            calibrate_row: false,
             charge_step: 0,
             auto_off_ms: 0,
             still_since: None,
@@ -757,6 +781,11 @@ impl Ui {
     /// The role selected on [`Screen::Sensors`] or paired on [`Screen::SensorScan`].
     pub fn role(&self) -> Role {
         Role::ALL[self.role as usize]
+    }
+
+    /// On [`Screen::Sensors`]: the power meter's calibration entry is selected (shown once it is paired).
+    pub fn calibrate_row(&self) -> bool {
+        self.calibrate_row
     }
 
     /// On [`Screen::SensorScan`]: the entry selected, in the found sensors then "none" when the role is paired.
@@ -895,7 +924,10 @@ impl Ui {
                     }
                     // the status goes back to its menu, the menu to where it was opened from
                     Some(Item::Status) => (Status, None),
-                    Some(Item::Sensors) => (Sensors, None),
+                    Some(Item::Sensors) => {
+                        self.calibrate_row = false;
+                        (Sensors, None)
+                    }
                     Some(Item::Rides) => {
                         self.ride_item = 0;
                         self.making_room = false;
@@ -911,15 +943,28 @@ impl Ui {
                 }
             }
             (Status | Sensors, TopLeft, Click) => (if self.back == Home { Menu } else { PauseMenu }, None),
+            // after the power meter, its calibration once it is paired
             (Sensors, BottomLeft, Click) => {
-                self.role = (self.role + 1) % Role::ALL.len() as u8;
+                if self.calibrate_row {
+                    self.calibrate_row = false;
+                    self.role = 0;
+                } else if self.role() == Role::Power && view.sensors.roles[2].link != Link::Unpaired {
+                    self.calibrate_row = true;
+                } else {
+                    self.role = (self.role + 1) % Role::ALL.len() as u8;
+                }
                 (Sensors, None)
             }
+            (Sensors, BottomRight, Click) if self.calibrate_row => (Calibrate, None),
             (Sensors, BottomRight, Click) => {
                 self.item = 0;
                 (SensorScan, Some(Command::Scan(self.role())))
             }
             (SensorScan, TopLeft, Click) => (Sensors, Some(Command::StopScan)),
+            (Calibrate, TopLeft, Click) => (Sensors, None),
+            (Calibrate, BottomRight, Click) if view.sensors.calibration != Calibration::Running => {
+                (Calibrate, Some(Command::Calibrate))
+            }
             (SensorScan, BottomLeft, Click) => {
                 let (found, forget) = self.scan_entries(view);
                 self.item = (self.item + 1) % (found + forget as u8).max(1);
@@ -1146,7 +1191,10 @@ impl Ui {
             }
             Status => [BACK, NOTHING, NOTHING],
             Charging | Splash => [NOTHING, NOTHING, NOTHING],
+            Sensors if self.calibrate_row => [BACK, NEXT, Hint::new("Ouvrir \u{e00b}").kind(Kind::Select)],
             Sensors => [BACK, NEXT, Hint::new("Chercher \u{e00b}").kind(Kind::Select)],
+            Calibrate if view.sensors.calibration == Calibration::Running => [BACK, NOTHING, NOTHING],
+            Calibrate => [BACK, NOTHING, Hint::new("Calibrer").kind(Kind::Go)],
             SensorScan => match self.scan_entries(view) {
                 (0, false) => [BACK, NOTHING, NOTHING],
                 (found, forget) => [
@@ -1701,6 +1749,21 @@ mod tests {
         ui.key(BottomLeft, Click, 0, &v);
         ui.key(BottomLeft, Click, 0, &v);
         assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::Forget(Role::Power)));
+        // paired: its calibration after it, then back to the first role
+        assert_eq!(ui.key(BottomLeft, Click, 0, &v), None);
+        assert!(ui.calibrate_row());
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), None);
+        assert_eq!(ui.screen(), Screen::Calibrate);
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::Calibrate));
+        v.sensors.calibration = Calibration::Running;
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), None, "once at a time");
+        assert_eq!(ui.key(TopLeft, Click, 0, &v), None);
+        assert_eq!(ui.screen(), Screen::Sensors);
+        ui.key(BottomLeft, Click, 0, &v);
+        assert!(!ui.calibrate_row());
+        assert_eq!(ui.role(), Role::HeartRate);
+        ui.key(BottomLeft, Click, 0, &v);
+        ui.key(BottomLeft, Click, 0, &v);
         // back: the scan stops
         ui.key(BottomRight, Click, 0, &v);
         assert_eq!(ui.key(TopLeft, Click, 0, &v), Some(Command::StopScan));

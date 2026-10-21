@@ -489,6 +489,12 @@ pub mod command {
         raw(TYPE_SET, 0x01, [ant::CHANNEL, device_type, 0, 0, 0, 0x01, 0, 0])
     }
 
+    /// Sends a data page to the sensor on the channel of a device type (vendor `FUN_420e3430`, the power meter
+    /// calibration `Start Calib send`: `kind 2, cmd = device type, the page`).
+    pub fn ant_send(device_type: u8, page: [u8; 8]) -> [u8; CTRL_FRAME] {
+        raw(TYPE_SET, device_type, page)
+    }
+
     fn ctrl(kind: u8, grp: u8, id: u8, val: u8) -> [u8; CTRL_FRAME] {
         let mut out = [0; CTRL_FRAME];
         encode(kind, CMD_SYS, &[0xE2, grp, id, 0, 0, val, 0, 0], &mut out).unwrap();

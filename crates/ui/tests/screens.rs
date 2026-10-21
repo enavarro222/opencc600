@@ -465,6 +465,7 @@ fn sensor_screens() {
                 SensorRow::default(),
             ],
             found: [found("HRM-Pro", -48, true), found("Polar H10", -71, false), None, None],
+            ..Default::default()
         },
         ..view()
     };
@@ -486,6 +487,33 @@ fn sensor_screens() {
         ui.key(BottomLeft, Press::Click, 0, &v);
         ui.key(BottomRight, Press::Click, 0, &empty);
         shot(&ui, &empty, "sensor-scan-empty");
+    }
+    // a power meter paired: its calibration after the roles
+    let mut power = v;
+    power.sensors.roles[2] = SensorRow { link: Link::Connected, name: name("Assioma") };
+    power.power_w = Some(0);
+    for (theme, suffix) in [(ui::DAY, ""), (ui::NIGHT, "-night")] {
+        let mut ui = Ui::new();
+        let shot = |ui: &Ui, v: &View, n: &str| save(&format!("{n}{suffix}"), ui, v, &theme);
+        ui.key(BottomLeft, Press::Click, 0, &power); // menu
+        ui.key(BottomLeft, Press::Click, 0, &power); // to the sensors
+        ui.key(BottomRight, Press::Click, 0, &power);
+        for _ in 0..3 {
+            ui.key(BottomLeft, Press::Click, 0, &power);
+        }
+        assert!(ui.calibrate_row());
+        shot(&ui, &power, "sensors-calibrate");
+        ui.key(BottomRight, Press::Click, 0, &power);
+        assert_eq!(ui.screen(), ui::Screen::Calibrate);
+        shot(&ui, &power, "calibrate");
+        for (c, n) in [
+            (ui::Calibration::Running, "calibrate-running"),
+            (ui::Calibration::Done(-312), "calibrate-done"),
+            (ui::Calibration::NotConnected, "calibrate-failed"),
+        ] {
+            let v = View { sensors: Sensors { calibration: c, ..power.sensors }, ..power };
+            shot(&ui, &v, n);
+        }
     }
 }
 

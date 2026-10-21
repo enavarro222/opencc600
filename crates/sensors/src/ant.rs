@@ -1,7 +1,7 @@
 //! ANT+ sensors through a radio that only opens channels and hands the data pages over (the nRF of the CC600,
 //! c606-oss `main/ant.c`): the pages decoded, and [`Ant`], what to ask the radio and the values now.
 
-use crate::Revs;
+use crate::{Calibration, Revs};
 use crate::ble::{Csc, RevEvent};
 
 /// ANT+ device types.
@@ -68,6 +68,19 @@ pub fn power(page: &[u8; 8]) -> Option<Power> {
     })
 }
 
+/// Power meter, page 0x01: the calibration request "manual zero" (sent to the meter, [`Ant::calibrate`]).
+pub const CALIBRATION_REQUEST: [u8; 8] = [0x01, 0xAA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF];
+
+/// Power meter, page 0x01: the answer to [`CALIBRATION_REQUEST`], 0xAC success (the offset in bytes 6..8) or 0xAF
+/// failure; `None` for the other pages.
+pub fn calibration(page: &[u8; 8]) -> Option<Calibration> {
+    match page[..2] {
+        [0x01, 0xAC] => Some(Calibration::Done(i16::from_le_bytes([page[6], page[7]]))),
+        [0x01, 0xAF] => Some(Calibration::Failed),
+        _ => None,
+    }
+}
+
 /// What [`Ant::poll`] asks the radio for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Request {
@@ -75,6 +88,8 @@ pub enum Request {
     Open(Id),
     /// Close the channel of this device type (another sensor paired in its place, or none).
     Close(u8),
+    /// Send this page to the sensor of this device type.
+    Send(u8, [u8; 8]),
 }
 
 /// A role's link, for the screens.
@@ -169,6 +184,9 @@ pub struct Ant {
     closes: [Option<u8>; ROLES],
     last_request_ms: Option<u64>,
     found: [Option<Found>; FOUND_MAX],
+    /// A page to send to a sensor, after the closes.
+    send: Option<(u8, [u8; 8])>,
+    calibration: Option<Calibration>,
 }
 
 impl Ant {
@@ -194,6 +212,8 @@ impl Ant {
             closes: [None; ROLES],
             last_request_ms: None,
             found: [None; FOUND_MAX],
+            send: None,
+            calibration: None,
         }
     }
 
@@ -241,6 +261,11 @@ impl Ant {
     /// A data page from the radio.
     pub fn page(&mut self, device_type: u8, page: &[u8; 8], now_ms: u64) {
         let wheel_mm = self.wheel_mm;
+        if device_type == POWER
+            && let Some(c) = calibration(page)
+        {
+            self.calibration = Some(c);
+        }
         let Some(c) = self.channel_of(device_type) else {
             return;
         };
@@ -294,6 +319,9 @@ impl Ant {
         if let Some(t) = self.closes.iter_mut().find_map(Option::take) {
             return Some(Request::Close(t));
         }
+        if let Some((t, page)) = self.send.take() {
+            return Some(Request::Send(t, page));
+        }
         if now_ms < self.open_from_ms {
             return None;
         }
@@ -313,6 +341,22 @@ impl Ant {
             }
         }
         None
+    }
+
+    /// Asks the power meter for a zero offset calibration; `false` if it is not connected. Its answer:
+    /// [`Self::calibrated`].
+    pub fn calibrate(&mut self, now_ms: u64) -> bool {
+        let Some(id) = self.channels[2].id.filter(|_| self.link(2, now_ms) == Link::Connected) else {
+            return false;
+        };
+        self.calibration = None;
+        self.send = Some((id.device_type, CALIBRATION_REQUEST));
+        true
+    }
+
+    /// The power meter's answer to the last [`Self::calibrate`], once.
+    pub fn calibrated(&mut self) -> Option<Calibration> {
+        self.calibration.take()
     }
 
     /// The link of a role's sensor.
@@ -340,9 +384,9 @@ impl Ant {
         let [hr, sc, pm] = &self.channels;
         Values {
             heart_rate: fresh(hr.heart_rate, now_ms),
-            cadence_rpm: fresh(sc.cadence, now_ms)
-                .map(|c| c.min(254) as u8)
-                .or(fresh(pm.power_cadence, now_ms)),
+            // the power meter's, else the speed / cadence sensor's
+            cadence_rpm: fresh(pm.power_cadence, now_ms)
+                .or(fresh(sc.cadence, now_ms).map(|c| c.min(254) as u8)),
             speed_mm_s: fresh(sc.speed_mm_s, now_ms),
             power_w: fresh(pm.power, now_ms),
         }

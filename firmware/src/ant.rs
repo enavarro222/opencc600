@@ -86,7 +86,8 @@ pub fn on_message(msg: &Message) {
                 }
                 log
             });
-            if log {
+            // the power meter's calibration pages, all of them
+            if log || (device_type == sensors::ant::POWER && page[0] == 0x01) {
                 info!("ant: page {device_type}: {page:02X?}");
             }
             ANT.lock(|a| a.borrow_mut().page(device_type, &page, now));
@@ -107,7 +108,21 @@ pub fn poll() -> Option<[u8; command::CTRL_FRAME]> {
             info!("ant: close type {t}");
             command::ant_close(t)
         }
+        Request::Send(t, page) => {
+            info!("ant: send type {t}: {page:02X?}");
+            command::ant_send(t, page)
+        }
     })
+}
+
+/// Asks the power meter for a zero offset calibration; `false` if it is not connected.
+pub fn calibrate() -> bool {
+    ANT.lock(|a| a.borrow_mut().calibrate(now_ms()))
+}
+
+/// The power meter's answer to [`calibrate`], once.
+pub fn calibrated() -> Option<sensors::Calibration> {
+    ANT.lock(|a| a.borrow_mut().calibrated())
 }
 
 /// A search for this many seconds (0: stop), its sensors in [`found`]; `fresh`: forget the last search's.

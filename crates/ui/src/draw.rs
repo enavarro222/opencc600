@@ -217,6 +217,7 @@ pub fn draw<D: DrawTarget<Color = Rgb565>>(
         Screen::Sensors => sensors(d, ui, v, t)?,
         Screen::Charging | Screen::Splash => {}
         Screen::SensorScan => sensor_scan(d, ui, v, t)?,
+        Screen::Calibrate => calibrate(d, v, t)?,
         Screen::Ride => match ui.page() {
             Some(Page::Altitude) => ride_altitude(d, v, t)?,
             Some(Page::Climbs) => ride_climbs(d, v, route, t)?,
@@ -1242,7 +1243,7 @@ fn sensors<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Them
     let chevron = char_str(icon::CHEVRON, &mut buf);
     let mut y = 62;
     for (i, role) in Role::ALL.into_iter().enumerate() {
-        let selected = role == ui.role();
+        let selected = role == ui.role() && !ui.calibrate_row();
         let (bg, fg) = row_colors(t, selected);
         fill(d, rect(0, y, W - 1, y + ROW - 2), bg)?;
         hline(d, y + ROW - 1, t)?;
@@ -1263,7 +1264,40 @@ fn sensors<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Them
         fonts::text(d, &s, state.as_str(), MARGIN, y + 38, Align::Left)?;
         y += ROW;
     }
+    // the power meter's calibration, in the note's place
+    if v.sensors.roles[2].link != Link::Unpaired {
+        const CALIBRATE_ROW: i32 = 42;
+        let (bg, fg) = row_colors(t, ui.calibrate_row());
+        fill(d, rect(0, y, W - 1, y + CALIBRATE_ROW - 2), bg)?;
+        hline(d, y + CALIBRATE_ROW - 1, t)?;
+        let s = Style::new(&fonts::MENU, fg, bg);
+        let cy = y + CALIBRATE_ROW / 2 - 1;
+        fonts::text(d, &s, "Calibrer la puissance", MARGIN, cy, Align::Left)?;
+        fonts::text(d, &s, chevron, W - MARGIN, cy, Align::Right)?;
+        return Ok(());
+    }
     note_lines(d, &t.mute(&fonts::NOTE), SENSORS_NOTE, MARGIN, y + 16, 19)
+}
+
+/// The power meter's zero offset calibration: what to do before, then how it went.
+fn calibrate<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result<(), D::Error> {
+    use crate::Calibration;
+    fonts::text(d, &t.label(&fonts::LABEL), "CALIBRER LA PUISSANCE", MARGIN, 47, Align::Left)?;
+    let todo = "Vélo à l'arrêt, pieds au\nsol, manivelle en bas.\nNe touche plus les\npédales pendant ~10 s.";
+    note_lines(d, &t.style(&fonts::BODY), todo, MARGIN, 82, 22)?;
+    let when = "Avant chaque sortie, et quand\nla température a bien changé.";
+    note_lines(d, &t.mute(&fonts::NOTE), when, MARGIN, 172, 19)?;
+    let body = t.style(&fonts::BODY_BOLD);
+    let (mark, text, color) = match v.sensors.calibration {
+        Calibration::None => return Ok(()),
+        Calibration::Running => (icon::DOT, Fmt::new(format_args!("Calibration…")), t.warn),
+        Calibration::Done(offset) => (icon::CHECK, Fmt::new(format_args!("Réussie · offset {offset}")), t.ok),
+        Calibration::Failed => (icon::CROSS, Fmt::new(format_args!("Échec : réessaie")), t.danger),
+        Calibration::Unsupported => (icon::CROSS, Fmt::new(format_args!("Pas prise en charge")), t.danger),
+        Calibration::NotConnected => (icon::CROSS, Fmt::new(format_args!("Capteur non connecté")), t.danger),
+        Calibration::Timeout => (icon::CROSS, Fmt::new(format_args!("Pas de réponse")), t.danger),
+    };
+    bullet(d, &body.colored(color), mark, text.as_str(), 236, 22)
 }
 
 const SCAN_NOTE: &str = "Recherche en cours…\nRéveille le capteur : tourne la roue,\npédale ou mets la ceinture.";

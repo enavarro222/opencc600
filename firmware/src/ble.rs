@@ -74,9 +74,9 @@ pub fn current() -> Current {
     }
     Current {
         heart_rate: fresh(r.hr, now),
-        // the speed / cadence sensor's, else the power meter's
-        cadence_rpm: fresh(r.cadence, now)
-            .or(fresh(r.power_cadence, now))
+        // the power meter's, else the speed / cadence sensor's
+        cadence_rpm: fresh(r.power_cadence, now)
+            .or(fresh(r.cadence, now))
             .map(|c| c.min(254) as u8),
         speed_mm_s: fresh(r.speed_mm_s, now),
         power_w: fresh(r.power, now),
@@ -291,6 +291,45 @@ impl Drop for Listening {
     }
 }
 
+/// Asks the connected power meter for a zero offset calibration ([`calibrate`]).
+static CALIBRATE: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+/// The power meter's answer to [`calibrate`].
+static CALIBRATED: BlockingMutex<CriticalSectionRawMutex, Cell<Option<sensors::Calibration>>> =
+    BlockingMutex::new(Cell::new(None));
+/// A power meter with a control point is connected.
+static CAN_CALIBRATE: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// [`CAN_CALIBRATE`] while it lives.
+struct CanCalibrate;
+
+impl CanCalibrate {
+    fn start() -> Self {
+        CAN_CALIBRATE.store(true, core::sync::atomic::Ordering::Relaxed);
+        Self
+    }
+}
+
+impl Drop for CanCalibrate {
+    fn drop(&mut self) {
+        CAN_CALIBRATE.store(false, core::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Asks the power meter for a zero offset calibration; `false` if none with a control point is connected.
+pub fn calibrate() -> bool {
+    if !CAN_CALIBRATE.load(core::sync::atomic::Ordering::Relaxed) {
+        return false;
+    }
+    CALIBRATED.lock(|c| c.set(None));
+    CALIBRATE.signal(());
+    true
+}
+
+/// The power meter's answer to [`calibrate`], once.
+pub fn calibrated() -> Option<sensors::Calibration> {
+    CALIBRATED.lock(Cell::take)
+}
+
 /// What a notification handle carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
@@ -338,6 +377,8 @@ async fn serve(
             }
         }
         let mut handles: Vec<(u16, Kind), 3> = Vec::new();
+        // the power meter's control point, for its calibration (answers by indications)
+        let mut control: Option<Characteristic<[u8; 1]>> = None;
         for (wanted, service, measurement, kind) in [
             (t.hr, gatt::HEART_RATE, gatt::HEART_RATE_MEASUREMENT, Kind::HeartRate),
             (t.speed_cadence, gatt::SPEED_CADENCE, gatt::CSC_MEASUREMENT, Kind::SpeedCadence),
@@ -359,12 +400,46 @@ async fn serve(
             drop(client.subscribe(&c, false).await?);
             let _ = handles.push((c.handle, kind));
             info!("ble: subscribed {kind:?}");
+            if kind == Kind::Power
+                && let Ok(cp) = client.characteristic_by_uuid(s, &Uuid::new_short(gatt::POWER_CONTROL_POINT)).await
+                && client.subscribe(&cp, true).await.is_ok()
+            {
+                info!("ble: power control point");
+                control = Some(cp);
+            }
         }
+        let _can_calibrate = control.is_some().then(CanCalibrate::start);
         let mut listener = client.listen_all()?;
         let (mut crank, mut wheel, mut power_crank) = (Revs::default(), Revs::default(), Revs::default());
         let mut logged = Instant::now();
         loop {
-            let n = listener.next().await;
+            let asked = async {
+                match control {
+                    Some(_) => CALIBRATE.wait().await,
+                    None => core::future::pending().await,
+                }
+            };
+            let n = match select(listener.next(), asked).await {
+                Either::First(n) => n,
+                Either::Second(()) => {
+                    if let Some(cp) = &control {
+                        info!("ble: power meter calibration");
+                        client.write_characteristic(cp, &gatt::START_OFFSET_COMPENSATION).await?;
+                    }
+                    continue;
+                }
+            };
+            if control.as_ref().is_some_and(|cp| cp.handle == n.handle()) {
+                if n.is_indication() {
+                    client.confirm_indication().await?;
+                }
+                let answer = gatt::calibration(n.as_ref());
+                info!("ble: control point {:02X?}: {answer:?}", n.as_ref());
+                if answer.is_some() {
+                    CALIBRATED.lock(|c| c.set(answer));
+                }
+                continue;
+            }
             if logged.elapsed() >= Duration::from_secs(10) {
                 logged = Instant::now();
                 info!("ble: {:?}", current());

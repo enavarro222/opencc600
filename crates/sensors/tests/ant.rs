@@ -254,3 +254,22 @@ fn search_results_by_role_closest_first() {
     a.search_started();
     assert_eq!(a.found(0).count(), 0);
 }
+
+#[test]
+fn a_connected_power_meter_is_calibrated() {
+    use sensors::Calibration;
+    let mut a = Ant::new(0, 2000);
+    a.pair([None, None, Some(PM)]);
+    assert!(!a.calibrate(0), "not connected");
+    let _ = requests(&mut a, 0, 1_000);
+    a.page(PM.device_type, &[0x10, 1, 0xFF, 85, 0, 0, 200, 0], 1_000);
+    assert!(a.calibrate(1_000));
+    assert_eq!(requests(&mut a, 1_000, 2_000), vec![(1_000, Request::Send(ant::POWER, ant::CALIBRATION_REQUEST))]);
+    assert_eq!(a.calibrated(), None);
+    // the answer: offset 300
+    a.page(PM.device_type, &[0x01, 0xAC, 0x00, 0xFF, 0xFF, 0xFF, 0x2C, 0x01], 2_500);
+    assert_eq!(a.calibrated(), Some(Calibration::Done(300)));
+    assert_eq!(a.calibrated(), None, "once");
+    a.page(PM.device_type, &[0x01, 0xAF, 0x00, 0xFF, 0xFF, 0xFF, 0, 0], 3_000);
+    assert_eq!(a.calibrated(), Some(Calibration::Failed));
+}

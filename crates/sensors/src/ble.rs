@@ -1,5 +1,7 @@
 //! The BLE GATT measurements of the Bluetooth SIG cycling profiles, decoded from their notifications.
 
+use crate::Calibration;
+
 /// Services (16-bit UUIDs) and their measurement characteristics.
 pub const HEART_RATE: u16 = 0x180D;
 pub const HEART_RATE_MEASUREMENT: u16 = 0x2A37;
@@ -7,6 +9,25 @@ pub const SPEED_CADENCE: u16 = 0x1816;
 pub const CSC_MEASUREMENT: u16 = 0x2A5B;
 pub const POWER: u16 = 0x1818;
 pub const POWER_MEASUREMENT: u16 = 0x2A63;
+pub const POWER_CONTROL_POINT: u16 = 0x2A66;
+
+/// Cycling Power Control Point: "start offset compensation", written to the control point (the meter answers by
+/// an indication, [`calibration`]).
+pub const START_OFFSET_COMPENSATION: [u8; 1] = [0x0C];
+
+/// The control point's answer to [`START_OFFSET_COMPENSATION`]: `20 0C result offset(i16)`, result 1 success,
+/// 2 not supported; `None` for any other indication.
+pub fn calibration(data: &[u8]) -> Option<Calibration> {
+    let [0x20, 0x0C, result, rest @ ..] = data else {
+        return None;
+    };
+    Some(match (result, rest) {
+        (0x01, [lo, hi, ..]) => Calibration::Done(i16::from_le_bytes([*lo, *hi])),
+        (0x01, _) => Calibration::Done(0),
+        (0x02, _) => Calibration::Unsupported,
+        _ => Calibration::Failed,
+    })
+}
 
 /// Heart Rate Measurement (0x2A37): the rate in bpm (flags bit 0: 16 bits); `None` if too short, 0 or above 255.
 pub fn heart_rate(data: &[u8]) -> Option<u8> {

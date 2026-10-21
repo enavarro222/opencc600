@@ -40,6 +40,17 @@ fn power_and_its_optional_fields() {
     assert_eq!(ble::power(&[0x20, 0x00, 0xDC, 0x00, 0x07]), None);
 }
 
+#[test]
+fn calibration_answers() {
+    use sensors::Calibration;
+    assert_eq!(ble::calibration(&[0x20, 0x0C, 0x01, 0x2C, 0x01]), Some(Calibration::Done(300)));
+    assert_eq!(ble::calibration(&[0x20, 0x0C, 0x01, 0xFE, 0xFF]), Some(Calibration::Done(-2)));
+    assert_eq!(ble::calibration(&[0x20, 0x0C, 0x02]), Some(Calibration::Unsupported));
+    assert_eq!(ble::calibration(&[0x20, 0x0C, 0x04]), Some(Calibration::Failed));
+    // the answer to another request
+    assert_eq!(ble::calibration(&[0x20, 0x01, 0x01]), None);
+}
+
 const CRANK: u32 = u16::MAX as u32;
 const WHEEL: u32 = u32::MAX;
 

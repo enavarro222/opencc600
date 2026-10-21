@@ -522,6 +522,7 @@ async fn main(spawner: Spawner) -> ! {
                     }
                 }
                 (ui::Command::Forget(role), _, _) => set_sensor(role, settings::Sensor::None),
+                (ui::Command::Calibrate, _, _) => calibrate_power(),
                 (ui::Command::WakeUp, _, _) => info!("charging screen: switched on"),
                 (ui::Command::DeleteRide(i), None, Ok(fs)) => {
                     if let Some(r) = stored.take().and_then(|list| list.into_iter().nth(usize::from(i))) {
@@ -1376,7 +1377,48 @@ fn sensors_view() -> ui::Sensors {
         }
     }
     SHOWN_FOUND.lock(|c| c.set(shown));
+    out.calibration = power_calibration();
     out
+}
+
+/// The power meter's calibration, and when it was asked.
+static CALIBRATION: Mutex<CriticalSectionRawMutex, Cell<(ui::Calibration, Instant)>> =
+    Mutex::new(Cell::new((ui::Calibration::None, Instant::from_ticks(0))));
+/// A calibration without an answer after this long failed (the meters answer within a few seconds).
+const CALIBRATION_WAIT: Duration = Duration::from_secs(20);
+
+/// Asks the paired power meter, over its radio, for a zero offset calibration.
+fn calibrate_power() {
+    let sensor = settings().power;
+    let state = match sensor {
+        settings::Sensor::Ble { .. } if ble::calibrate() => ui::Calibration::Running,
+        settings::Sensor::Ble { .. } if ble::connected(&sensor) => ui::Calibration::Unsupported,
+        settings::Sensor::Ant { .. } if ant::calibrate() => ui::Calibration::Running,
+        _ => ui::Calibration::NotConnected,
+    };
+    info!("power meter calibration: {state:?}");
+    CALIBRATION.lock(|c| c.set((state, Instant::now())));
+}
+
+/// The power meter calibration now: its answer, or no answer in time.
+fn power_calibration() -> ui::Calibration {
+    let (mut state, at) = CALIBRATION.lock(Cell::get);
+    if state == ui::Calibration::Running {
+        if let Some(answer) = ble::calibrated().or_else(ant::calibrated) {
+            state = match answer {
+                sensors::Calibration::Done(offset) => ui::Calibration::Done(offset),
+                sensors::Calibration::Failed => ui::Calibration::Failed,
+                sensors::Calibration::Unsupported => ui::Calibration::Unsupported,
+            };
+        } else if at.elapsed() >= CALIBRATION_WAIT {
+            state = ui::Calibration::Timeout;
+        }
+        if state != ui::Calibration::Running {
+            info!("power meter calibration: {state:?}");
+            CALIBRATION.lock(|c| c.set((state, at)));
+        }
+    }
+    state
 }
 
 /// The power of the last 3 s, fed by each frame drawn.

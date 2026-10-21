@@ -373,7 +373,12 @@ fn ant_commands() {
     );
     assert_eq!(&command::ant_close(120)[4..14], &[0x02, 0x01, 0x17, 120, 0, 0, 0, 1, 0, 0]);
     assert_eq!(&command::ant_scan(30)[4..14], &[0x02, 0x10, 0xE1, 0x02, 0x00, 30, 0, 0xFF, 0, 0]);
-    for f in [command::ant_open(11, 1, 5), command::ant_close(11), command::ant_scan(0)] {
+    // the vendor's power meter calibration: page 0x01 "manual zero" to the type 11 channel
+    assert_eq!(
+        &command::ant_send(11, [0x01, 0xAA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF])[4..14],
+        &[0x02, 0x0B, 0x01, 0xAA, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]
+    );
+    for f in [command::ant_open(11, 1, 5), command::ant_close(11), command::ant_scan(0), command::ant_send(11, [0; 8])] {
         assert_eq!(frames(&f).len(), 1);
     }
 }

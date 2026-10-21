@@ -7,6 +7,16 @@
 pub mod ant;
 pub mod ble;
 
+/// What a power meter answered to a zero offset calibration (cranks still, no weight on the pedals).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Calibration {
+    /// Done: the offset found, in the meter's own units (to compare from one calibration to the next).
+    Done(i16),
+    Failed,
+    /// The meter cannot do it.
+    Unsupported,
+}
+
 /// A revolution rate from a cumulative revolution count and the time of its last event (1/1024 s), as the
 /// speed / cadence sensors send them (both counters wrap). The rate holds while the sensor repeats the same event
 /// (it sends ~4 a second, a revolution may take longer), and drops to 0 after [`Revs::STOP_MS`] without a new one.
