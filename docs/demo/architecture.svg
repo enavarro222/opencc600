@@ -28,7 +28,7 @@
   <rect width="1400" height="1060" fill="#FFFFFF"/>
 
   <text x="30" y="36" font-size="22" font-weight="700" fill="#111">Démo du CC600 dans le navigateur : architecture et flux de données</text>
-  <text x="30" y="58" class="s">En haut, ce qui tourne dans un onglet ; en bas, comment c'est construit et publié. Pointillés : prévu, pas encore écrit.</text>
+  <text x="30" y="58" class="s">En haut, ce qui tourne dans un onglet ; en bas, comment c'est construit et publié.</text>
 
   <!-- ================= the browser tab ================= -->
   <rect x="20" y="76" width="1360" height="660" rx="14" class="wrap"/>
@@ -63,8 +63,8 @@
   <text x="62" y="471" class="m">relit la partition storage (0x860000) toutes les 30 s,</text>
   <text x="62" y="487" class="m">la réécrit au démarrage suivant · bouton Effacer</text>
 
-  <rect x="50" y="506" width="348" height="64" rx="8" fill="#fff" stroke="#E8590C" class="plan"/>
-  <text x="62" y="526" class="s" font-weight="700">Pont Musette (prévu)</text>
+  <rect x="50" y="506" width="348" height="64" rx="8" fill="#fff" stroke="#E8590C"/>
+  <text x="62" y="526" class="s" font-weight="700">Pont Musette</text>
   <text x="62" y="543" class="m">relaie les opérations GATT entre l'app (iframe)</text>
   <text x="62" y="559" class="m">et le central virtuel de l'émulateur</text>
 
@@ -102,10 +102,10 @@
   <text x="594" y="485" class="m">remplace la radio : le firmware (trouble-host) lui parle en</text>
   <text x="594" y="501" class="m">HCI et le voit comme un vrai contrôleur</text>
 
-  <rect x="582" y="520" width="398" height="64" rx="8" fill="#fff" stroke="#3B5BDB" class="plan"/>
-  <text x="594" y="540" class="s" font-weight="700">Central BLE pilotable depuis la page (prévu)</text>
-  <text x="594" y="557" class="m">existe en script (connect, discover, write, subscribe) ;</text>
-  <text x="594" y="573" class="m">à ouvrir au worker, notifications vers la page ; MTU 23</text>
+  <rect x="582" y="520" width="398" height="64" rx="8" fill="#fff" stroke="#3B5BDB"/>
+  <text x="594" y="540" class="s" font-weight="700">Central BLE piloté par la page</text>
+  <text x="594" y="557" class="m">connect, discover, write, write-cmd, subscribe ;</text>
+  <text x="594" y="573" class="m">ses lignes reviennent à la page (notifications) ; MTU 23</text>
 
   <text x="582" y="606" class="m">Firmware ↔ modèle de carte : trames A5 6F F1 du nRF (115200 bauds),</text>
   <text x="582" y="622" class="m">NMEA à 921600 bauds par UHCI/GDMA, pixels par le bus i8080 ;</text>
@@ -113,7 +113,7 @@
 
   <!-- musette -->
   <rect x="1050" y="108" width="316" height="300" rx="12" class="mus"/>
-  <text x="1066" y="132" class="t">Musette web (iframe, prévu)</text>
+  <text x="1066" y="132" class="t">Musette web (iframe)</text>
   <text x="1066" y="149" class="m">musette · déjà en ligne : github.io/musette/</text>
 
   <rect x="1066" y="162" width="284" height="48" rx="8" fill="#fff" stroke="#9C36B5"/>
@@ -128,10 +128,10 @@
   <text x="1078" y="294" class="s" font-weight="700">GattTransport existants</text>
   <text x="1078" y="310" class="m">Web Bluetooth, BLE natif (connect, write, notify)</text>
 
-  <rect x="1066" y="330" width="284" height="64" rx="8" class="demo plan"/>
-  <text x="1078" y="350" class="s" font-weight="700">EmulatorGattTransport (prévu)</text>
-  <text x="1078" y="366" class="m">propre à la démo, dans Musette : parle à la</text>
-  <text x="1078" y="382" class="m">page par postMessage au lieu de la radio</text>
+  <rect x="1066" y="330" width="284" height="64" rx="8" class="demo"/>
+  <text x="1078" y="350" class="s" font-weight="700">EmulatorGattTransport</text>
+  <text x="1078" y="366" class="m">web seulement, activé par ?emulator= que</text>
+  <text x="1078" y="382" class="m">passe l'iframe : postMessage, pas de radio</text>
 
   <!-- browser storage and local files -->
   <rect x="1050" y="432" width="316" height="104" rx="12" class="ext"/>
@@ -162,11 +162,11 @@
   <path class="f2" d="M398 466 H566"/>
   <text x="420" y="460" class="lab">read / load storage</text>
   <path class="fp" d="M398 552 H582"/>
-  <text x="420" y="546" class="labp">GATT (prévu)</text>
+  <text x="420" y="546" class="labp">{t: 'ble'} lignes</text>
 
   <!-- flows to the right column, under the worker -->
   <path class="fp" d="M300 656 V666 H1022 V362 H1066"/>
-  <text x="700" y="682" class="labp">postMessage : write / subscribe / notify (prévu)</text>
+  <text x="700" y="682" class="labp">postMessage : hello / connect / write / subscribe / notify</text>
   <path class="f2" d="M340 656 V690 H1032 V484 H1050"/>
   <text x="700" y="706" class="lab">partition storage gzippée</text>
   <path class="f" d="M1050 604 H1042 V714 H380 V656"/>
@@ -235,6 +235,6 @@
     <rect x="768" width="18" height="14" rx="3" class="board"/><text x="792" y="12" class="s">esp32sim, modèle CC600</text>
     <rect x="958" width="18" height="14" rx="3" class="mus"/><text x="982" y="12" class="s">Musette</text>
     <rect x="1060" width="18" height="14" rx="3" class="ext"/><text x="1084" y="12" class="s">externe / navigateur</text>
-    <rect x="1230" width="18" height="14" rx="3" fill="#fff" stroke="#444" stroke-dasharray="4 3"/><text x="1254" y="12" class="s">prévu</text>
+    
   </g>
 </svg>

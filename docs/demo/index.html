@@ -62,7 +62,11 @@ pre { height: 260px; margin: 8px 0 6px; padding: 8px 10px; overflow: auto; backg
 form { display: flex; gap: 8px; }
 input[type=text] { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid #bbb; border-radius: 6px; font: 14px ui-monospace, Menlo, Consolas, monospace; }
 button.act { padding: 6px 12px; border: 1px solid #999; border-radius: 6px; background: #fff; font: 600 16px 'Barlow Condensed', sans-serif; cursor: pointer; }
-section.ride { max-width: 860px; margin: 0 auto 24px; padding: 0 16px; }
+section.ride, section.app { max-width: 860px; margin: 0 auto 24px; padding: 0 16px; }
+section.app h2 { margin: 0 0 6px; font-size: 24px; }
+.phone { width: 390px; max-width: 100%; height: 760px; margin-top: 10px; padding: 14px 10px; border-radius: 34px; background: #111; box-shadow: 0 12px 28px rgba(0,0,0,.25); box-sizing: border-box; }
+.phone iframe { width: 100%; height: 100%; border: 0; border-radius: 22px; background: #fff; }
+.phone[hidden] { display: none; }
 section.ride h2 { margin: 0 0 6px; font-size: 24px; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 8px 0; font-size: 17px; }
 .controls label { display: inline-flex; gap: 6px; align-items: center; }
@@ -126,6 +130,14 @@ footer p { font-size: 15px; color: var(--mute); }
     </details>
   </div>
 </main>
+<section class="app">
+  <h2>L'application Musette</h2>
+  <p>Musette, l'application compagnon, tourne ici dans sa version web et se connecte au compteur émulé ci-dessus :
+     envoie-lui une trace, change ses réglages, récupère ses sorties. La liaison Bluetooth est simulée par
+     l'émulateur, aucun vrai Bluetooth n'est utilisé. Dans Musette : « Connecter le compteur de la démo ».</p>
+  <div class="controls"><button class="act" id="musette-open">Ouvrir Musette</button><span class="note" id="musette-state"></span></div>
+  <div class="phone" id="phone" hidden><iframe id="musette" title="Musette" allow="clipboard-write"></iframe></div>
+</section>
 <section class="ride">
   <h2>Trajet simulé</h2>
   <p>Le récepteur GPS du compteur reçoit, chaque seconde, la position le long de cette trace. Charge un fichier GPX
@@ -192,6 +204,7 @@ function onMessage(ev) {
     const t = JSON.parse(m.text);
     if (t.t === 'serial' && t.src === 'usb') out(t.data);
     if (t.t === 'stat') { emulated = t.time; showStatus(); ride.tick(emulated); }
+    if (t.t === 'ble') gatt.heard(t);
     return;
   }
   if (m.log !== undefined) { out('[emu] ' + m.log + '\n'); return; }
@@ -203,11 +216,94 @@ function onMessage(ev) {
   if (m.started !== undefined && !m.started) status('Le démarrage a échoué : ' + (m.error || 'voir la console'));
 }
 
+// ---- Musette in an iframe, its Bluetooth relayed to the emulator's virtual central ({t: 'ble'} lines)
+// The app asks with {gatt: 'hello' | 'connect' | 'disconnect' | 'subscribe' | 'write', id, ...} (musette's
+// app/src/lib/transport/emulator.ts); each request becomes central commands, answered when the line it waits for comes.
+const MUSETTE = new URLSearchParams(location.search).get('musette') || 'https://enavarro222.github.io/musette/';
+const hex4 = (h) => '0x' + h.toString(16).padStart(4, '0');
+const gatt = {
+  device: null, connected: false, chars: new Map(), waiters: [], queue: Promise.resolve(),
+  reset() { this.connected = false; this.chars.clear(); for (const w of this.waiters) w.reject(new Error('compteur redémarré')); this.waiters = []; },
+  // a line of the virtual central: state, then whoever waits for it
+  heard(m) {
+    if (m.error) { const w = this.waiters.shift(); w?.reject(new Error(m.error)); return; }
+    const l = m.line, f = (k) => l.match(new RegExp(`${k}=(0x[0-9a-f]+|[0-9a-f-]+)`))?.[1];
+    if (l.startsWith('advertising ')) {
+      const names = [...l.matchAll(/name="([^"]*)"/g)].map((x) => x[1]);
+      this.device = { name: names[names.length - 1] || 'CC600', serviceUuid: f('service') };
+    } else if (l.startsWith('connected ')) this.connected = true;
+    else if (l === 'disconnected') { this.connected = false; this.chars.clear(); }
+    else if (l.startsWith('characteristic ')) this.chars.set(f('uuid'), { value: parseInt(f('handle')), props: parseInt(f('properties')) });
+    else if (l.startsWith('notification ')) {
+      const h = parseInt(f('handle')), uuid = [...this.chars].find(([, c]) => c.value === h)?.[0];
+      const bytes = (f('value') || '').match(/../g)?.map((b) => parseInt(b, 16)) || [];
+      if (uuid) musette.post({ gatt: 'notify', characteristic: uuid, bytes });
+    }
+    this.waiters = this.waiters.filter((w) => !(w.match(l) && (w.resolve(l), true)));
+  },
+  wait(match, ms = 20000) {
+    return new Promise((resolve, reject) => {
+      const w = { match, resolve, reject };
+      this.waiters.push(w);
+      setTimeout(() => { if (this.waiters.includes(w)) { this.waiters = this.waiters.filter((x) => x !== w); reject(new Error('le compteur ne répond pas')); } }, ms);
+    });
+  },
+  async run(line, match) { const answer = this.wait(match); send({ t: 'ble', line }); return answer; },
+  char(uuid) { const c = this.chars.get(String(uuid).toLowerCase()); if (!c) throw new Error('caractéristique inconnue : ' + uuid); return c; },
+  async request(m) {
+    switch (m.gatt) {
+      case 'hello':
+        if (!this.device) await this.wait((l) => l.startsWith('advertising '), 60000);
+        return this.device;
+      case 'connect':
+        if (!this.connected) await this.run('connect', (l) => l.startsWith('connected '));
+        if (!this.chars.size) await this.run('discover', (l) => l === 'discovery complete');
+        return {};
+      case 'disconnect': return {};   // the emulated link stays up: nothing on the device side to undo
+      case 'subscribe': {
+        // the CCCD right after the value: trouble-host's layout (its descriptor discovery is unusable in 0.7)
+        const cccd = this.char(m.characteristic).value + 1;
+        await this.run(`subscribe ${cccd}`, (l) => l === `write complete handle=${hex4(cccd)}`);
+        return {};
+      }
+      case 'write': {
+        const h = this.char(m.characteristic).value, data = m.bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
+        if (m.withResponse) await this.run(`write ${h} ${data}`, (l) => l === `write complete handle=${hex4(h)}`);
+        else await this.run(`write-cmd ${h} ${data}`, (l) => l === `write command handle=${hex4(h)}`);
+        return {};
+      }
+      default: throw new Error('demande inconnue : ' + m.gatt);
+    }
+  },
+};
+const musette = {
+  frame: $('musette'), origin: new URL(MUSETTE, location.href).origin,
+  post(m) { this.frame.contentWindow?.postMessage(m, this.origin); },
+  open() {
+    const url = new URL(MUSETTE, location.href);
+    url.searchParams.set('emulator', location.origin);
+    this.frame.src = url.href;
+    $('phone').hidden = false;
+    $('musette-open').textContent = 'Recharger Musette';
+    $('musette-state').textContent = url.origin === location.origin ? '' : `(${url.host})`;
+  },
+};
+addEventListener('message', (e) => {
+  const m = e.data;
+  if (e.source !== musette.frame.contentWindow || e.origin !== musette.origin || !m || typeof m.gatt !== 'string') return;
+  // one request at a time: the central serializes its ATT exchanges anyway
+  gatt.queue = gatt.queue.then(() => gatt.request(m))
+    .then((r) => musette.post({ gatt: 'reply', id: m.id, ok: true, ...r }),
+          (err) => musette.post({ gatt: 'reply', id: m.id, ok: false, error: err.message }));
+});
+$('musette-open').onclick = () => musette.open();
+
 const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(`${url} : ${r.status}`); return r.arrayBuffer(); };
 // a build of versions.json, or the visitor's own flash dump (run by the emulator of the build chosen)
 let versions = [], build = null, files = null;
 async function boot() {
   status('Démarrage du compteur…');
+  gatt.reset();
   store.live = false;   // no save while the flash is being loaded
   const own = !files.elf;
   // ROM, flash image, application ELF (symbols for the virtual BLE controller; none in a vendor dump)

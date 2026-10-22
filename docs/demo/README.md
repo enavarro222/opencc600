@@ -12,18 +12,16 @@ The emulator is [esp32sim](https://github.com/mikroverk/esp32sim) compiled to We
 
 ![The demo: architecture and data flow](architecture.svg)
 
-Dashed in the diagram: planned, not written yet (Musette next to the device, see below).
-
 ## Where the code lives
 
 | What | Where | Specific to the demo? |
 |---|---|---|
-| The page: case, keys and clickable screen hints, simulated ride, USB console, version menu, visitor's own dump, saved storage | `docs/demo/index.html` | yes |
+| The page: case, keys and clickable screen hints, simulated ride, USB console, version menu, visitor's own dump, saved storage, the bridge to Musette | `docs/demo/index.html` | yes |
 | Build and publication | `.github/workflows/demo.yml`, `tools/demo/` (`build.sh`, `versions.py`, `partitions.csv`, `esp32sim.rev`) | yes |
 | The firmware | `firmware/` | no: the same ELF as on the device |
 | The emulated ESP32-S3, the worker and its message protocol, the virtual BLE controller, the flash read-back | esp32sim fork, generic branches | no: written so they could go upstream |
 | The CC600 board model: ST7789 panel, nRF52 on UART2, Airoha GNSS on UART0 | esp32sim fork, branch `board-cc600` | CC600-specific, written like esp32sim's other boards; may stay in the fork |
-| Musette's emulator transport (planned) | musette, a `GattTransport` next to Web Bluetooth | yes |
+| Musette's emulator transport | musette, `app/src/lib/transport/emulator.ts`, web only | yes |
 
 The page knows only three things about the device: the worker's message protocol, the virtual pins 64–66 the
 board model maps to the keys, and the board's `gnss LAT LON ALT KMH COURSE` command. Everything else is the
@@ -79,18 +77,27 @@ A tag also gets a GitHub release: `opencc600-<tag>.bin`, the application image f
 
 GitHub settings, once: Pages → source *GitHub Actions*; Environments → `github-pages` → allow the tags `v*`.
 
-## Planned: Musette next to the device
+## Musette next to the device
 
-[Musette](https://github.com/enavarro222/musette)'s web version already reaches the device through a small
-`GattTransport` interface (connect, subscribe, write, notify). An emulator transport, a central in esp32sim driven by
-the page (it exists for scripts), and the page relaying between the two would let the app sync routes, settings and
-rides with the emulated device, side by side: both pages are on `enavarro222.github.io`.
+*Ouvrir Musette* loads [Musette](https://github.com/enavarro222/musette)'s web version in a phone frame, with
+`?emulator=<this page's origin>`. With that parameter, and only in its web build, Musette replaces Web Bluetooth with
+`EmulatorGattTransport` (`app/src/lib/transport/emulator.ts`): its GATT operations go to this page by
+`postMessage`, to that origin only. The page turns each one into commands of esp32sim's virtual central
+(`{t: 'ble', line: 'connect' | 'discover' | 'write H HEX' | 'write-cmd H HEX' | 'subscribe CCC'}`) and answers when
+the line it waits for comes back; notifications are relayed to the app. The app then syncs settings, routes and
+rides with the emulated device as with a real one, at the emulated link's 20 bytes per write.
+
+The CCCD is taken right after its characteristic's value (trouble-host's layout): trouble-host 0.7 answers the
+descriptor discovery in a malformed format.
+
+`?musette=<url>` loads another Musette, a local build for instance (`npx expo export --platform web` in
+`musette/app`, served on another port).
 
 ## The esp32sim fork
 
 The fork's branches are stacked from the most generic to the most specific: fixes of the emulated S3, then generic
 additions (host inputs, the virtual BLE controller for esp-radio, the flash read-back, the page-driven BLE
-central), then behaviour inferred from the ROM without a register map, then the CC600 board. Once the demo and
+central), then behaviour inferred from the ROM without a register map, then the CC600 board. Now that the demo and
 Musette work together, the plan is to show the project to esp32sim's developers in an issue and ask which of these
 they would take as pull requests; the rest stays in the fork.
 
