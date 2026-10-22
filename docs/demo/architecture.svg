@@ -1,0 +1,240 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1060" width="1400" height="1060" font-family="Barlow, 'Helvetica Neue', Arial, sans-serif" font-size="13">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#444"/>
+    </marker>
+    <marker id="p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#9C36B5"/>
+    </marker>
+    <style>
+      .t { font-weight: 700; font-size: 15px; fill: #111; }
+      .s { font-size: 12px; fill: #333; }
+      .m { font-size: 11px; fill: #555; }
+      .demo { fill: #FFE8CC; stroke: #E8590C; stroke-width: 2; }
+      .fw { fill: #D3F9D8; stroke: #2B8A3E; stroke-width: 2; }
+      .sim { fill: #DBE4FF; stroke: #3B5BDB; stroke-width: 2; }
+      .board { fill: #C5F6FA; stroke: #0C8599; stroke-width: 2; }
+      .mus { fill: #F3D9FA; stroke: #9C36B5; stroke-width: 2; }
+      .ext { fill: #F1F3F5; stroke: #868E96; stroke-width: 1.5; }
+      .plan { stroke-dasharray: 6 4; }
+      .wrap { fill: none; stroke: #868E96; stroke-width: 1.5; stroke-dasharray: 3 3; }
+      .f { stroke: #444; stroke-width: 1.6; fill: none; marker-end: url(#a); }
+      .f2 { stroke: #444; stroke-width: 1.6; fill: none; marker-start: url(#a); marker-end: url(#a); }
+      .fp { stroke: #9C36B5; stroke-width: 1.8; fill: none; stroke-dasharray: 6 4; marker-start: url(#p); marker-end: url(#p); }
+      .lab { font-size: 11.5px; fill: #222; }
+      .labp { font-size: 11.5px; fill: #9C36B5; }
+    </style>
+  </defs>
+  <rect width="1400" height="1060" fill="#FFFFFF"/>
+
+  <text x="30" y="36" font-size="22" font-weight="700" fill="#111">Démo du CC600 dans le navigateur : architecture et flux de données</text>
+  <text x="30" y="58" class="s">En haut, ce qui tourne dans un onglet ; en bas, comment c'est construit et publié. Pointillés : prévu, pas encore écrit.</text>
+
+  <!-- ================= the browser tab ================= -->
+  <rect x="20" y="76" width="1360" height="660" rx="14" class="wrap"/>
+  <text x="34" y="96" class="m">ONGLET DU NAVIGATEUR (enavarro222.github.io)</text>
+
+  <!-- the page -->
+  <rect x="34" y="108" width="380" height="548" rx="12" class="demo"/>
+  <text x="50" y="132" class="t">Page de démo</text>
+  <text x="50" y="149" class="m">opencc600 · docs/demo/index.html (HTML + JS, thread principal)</text>
+
+  <rect x="50" y="162" width="348" height="64" rx="8" fill="#fff" stroke="#E8590C"/>
+  <text x="62" y="182" class="s" font-weight="700">Boîtier, écran et touches</text>
+  <text x="62" y="199" class="m">canvas 240×320 · touches 1/2/3 (clic, maintien = appui long)</text>
+  <text x="62" y="215" class="m">zones cliquables sur l'écran (aide du simulateur, désactivable)</text>
+
+  <rect x="50" y="234" width="348" height="64" rx="8" fill="#fff" stroke="#E8590C"/>
+  <text x="62" y="254" class="s" font-weight="700">Trajet simulé</text>
+  <text x="62" y="271" class="m">trace GPX locale ou boucle fictive · carte Leaflet + OSM</text>
+  <text x="62" y="287" class="m">une position par seconde émulée, au ×1 / ×5 / ×20</text>
+
+  <rect x="50" y="306" width="348" height="48" rx="8" fill="#fff" stroke="#E8590C"/>
+  <text x="62" y="326" class="s" font-weight="700">Console USB</text>
+  <text x="62" y="342" class="m">journal du firmware, commandes texte (screen ?, set …)</text>
+
+  <rect x="50" y="362" width="348" height="64" rx="8" fill="#fff" stroke="#E8590C"/>
+  <text x="62" y="382" class="s" font-weight="700">Versions et dump personnel</text>
+  <text x="62" y="399" class="m">menu lu dans versions.json (?v=…), ou la flash 16 Mo</text>
+  <text x="62" y="415" class="m">de son propre compteur, qui ne quitte pas la page</text>
+
+  <rect x="50" y="434" width="348" height="64" rx="8" fill="#fff" stroke="#E8590C"/>
+  <text x="62" y="454" class="s" font-weight="700">Sauvegarde du stockage</text>
+  <text x="62" y="471" class="m">relit la partition storage (0x860000) toutes les 30 s,</text>
+  <text x="62" y="487" class="m">la réécrit au démarrage suivant · bouton Effacer</text>
+
+  <rect x="50" y="506" width="348" height="64" rx="8" fill="#fff" stroke="#E8590C" class="plan"/>
+  <text x="62" y="526" class="s" font-weight="700">Pont Musette (prévu)</text>
+  <text x="62" y="543" class="m">relaie les opérations GATT entre l'app (iframe)</text>
+  <text x="62" y="559" class="m">et le central virtuel de l'émulateur</text>
+
+  <text x="50" y="596" class="m">Le seul code du navigateur entièrement propre à la démo.</text>
+  <text x="50" y="612" class="m">Du compteur, il ne connaît que le protocole de messages</text>
+  <text x="50" y="628" class="m">du worker, les broches virtuelles 64–66 et la commande</text>
+  <text x="50" y="644" class="m">« gnss » du modèle de carte.</text>
+
+  <!-- the worker -->
+  <rect x="566" y="108" width="430" height="548" rx="12" class="sim"/>
+  <text x="582" y="132" class="t">Web Worker : esp32sim</text>
+  <text x="582" y="149" class="m">esp32sim (fork) · worker.js + esp32sim.wasm · générique</text>
+
+  <rect x="582" y="162" width="398" height="64" rx="8" class="fw"/>
+  <text x="594" y="182" class="s" font-weight="700">Firmware opencc600, non modifié</text>
+  <text x="594" y="199" class="m">image flash propre : bootloader IDF, partitions, app, storage vide</text>
+  <text x="594" y="215" class="m">2 cœurs Xtensa LX7 émulés, ROM S3 d'Espressif · ELF : symboles</text>
+
+  <rect x="582" y="236" width="398" height="80" rx="8" fill="#fff" stroke="#3B5BDB"/>
+  <text x="594" y="256" class="s" font-weight="700">ESP32-S3 émulé (périphériques)</text>
+  <text x="594" y="273" class="m">LCD_CAM i8080 · UART0/2 · UHCI0 + GDMA · USB Serial/JTAG</text>
+  <text x="594" y="289" class="m">timers, SHA, flash 16 Mo, PSRAM 8 Mo · registres BLE du S3</text>
+  <text x="594" y="305" class="m">lecture de la flash depuis la page (op read)</text>
+
+  <rect x="582" y="326" width="398" height="112" rx="8" class="board"/>
+  <text x="594" y="346" class="s" font-weight="700">Modèle de carte CC600 (board-cc600)</text>
+  <text x="594" y="363" class="m">propre au CC600, générique dans sa forme : remontable</text>
+  <text x="594" y="381" class="m">· écran ST7789 sur LCD_CAM → images RGB565</text>
+  <text x="594" y="397" class="m">· faux nRF52 sur UART2 : touches, RTC, batterie, baromètre</text>
+  <text x="594" y="413" class="m">· faux GNSS Airoha sur UART0 : NMEA, $PAIR ; position</text>
+  <text x="594" y="429" class="m">  donnée par la commande « gnss LAT LON ALT KMH CAP »</text>
+
+  <rect x="582" y="448" width="398" height="64" rx="8" fill="#fff" stroke="#3B5BDB"/>
+  <text x="594" y="468" class="s" font-weight="700">Contrôleur BLE virtuel (VHCI)</text>
+  <text x="594" y="485" class="m">remplace la radio : le firmware (trouble-host) lui parle en</text>
+  <text x="594" y="501" class="m">HCI et le voit comme un vrai contrôleur</text>
+
+  <rect x="582" y="520" width="398" height="64" rx="8" fill="#fff" stroke="#3B5BDB" class="plan"/>
+  <text x="594" y="540" class="s" font-weight="700">Central BLE pilotable depuis la page (prévu)</text>
+  <text x="594" y="557" class="m">existe en script (connect, discover, write, subscribe) ;</text>
+  <text x="594" y="573" class="m">à ouvrir au worker, notifications vers la page ; MTU 23</text>
+
+  <text x="582" y="606" class="m">Firmware ↔ modèle de carte : trames A5 6F F1 du nRF (115200 bauds),</text>
+  <text x="582" y="622" class="m">NMEA à 921600 bauds par UHCI/GDMA, pixels par le bus i8080 ;</text>
+  <text x="582" y="638" class="m">HCI entre trouble-host et le contrôleur virtuel.</text>
+
+  <!-- musette -->
+  <rect x="1050" y="108" width="316" height="300" rx="12" class="mus"/>
+  <text x="1066" y="132" class="t">Musette web (iframe, prévu)</text>
+  <text x="1066" y="149" class="m">musette · déjà en ligne : github.io/musette/</text>
+
+  <rect x="1066" y="162" width="284" height="48" rx="8" fill="#fff" stroke="#9C36B5"/>
+  <text x="1078" y="182" class="s" font-weight="700">App (TypeScript, Expo web)</text>
+  <text x="1078" y="198" class="m">traces, réglages, synchronisation des sorties</text>
+
+  <rect x="1066" y="218" width="284" height="48" rx="8" fill="#fff" stroke="#9C36B5"/>
+  <text x="1078" y="238" class="s" font-weight="700">Sessions (Rust → wasm)</text>
+  <text x="1078" y="254" class="m">protocol-cc600, partagé avec le firmware</text>
+
+  <rect x="1066" y="274" width="284" height="48" rx="8" fill="#fff" stroke="#9C36B5"/>
+  <text x="1078" y="294" class="s" font-weight="700">GattTransport existants</text>
+  <text x="1078" y="310" class="m">Web Bluetooth, BLE natif (connect, write, notify)</text>
+
+  <rect x="1066" y="330" width="284" height="64" rx="8" class="demo plan"/>
+  <text x="1078" y="350" class="s" font-weight="700">EmulatorGattTransport (prévu)</text>
+  <text x="1078" y="366" class="m">propre à la démo, dans Musette : parle à la</text>
+  <text x="1078" y="382" class="m">page par postMessage au lieu de la radio</text>
+
+  <!-- browser storage and local files -->
+  <rect x="1050" y="432" width="316" height="104" rx="12" class="ext"/>
+  <text x="1066" y="456" class="t">IndexedDB du navigateur</text>
+  <text x="1066" y="476" class="m">base opencc600-demo, clé storage:&lt;version&gt;</text>
+  <text x="1066" y="492" class="m">partition storage gzippée (sorties, réglages,</text>
+  <text x="1066" y="508" class="m">appairages), jamais envoyée</text>
+  <text x="1066" y="524" class="m">+ localStorage : zones cliquables oui / non</text>
+
+  <rect x="1050" y="552" width="316" height="104" rx="12" class="ext"/>
+  <text x="1066" y="576" class="t">Fichiers de l'utilisateur</text>
+  <text x="1066" y="596" class="m">trace GPX à rejouer · dump de son compteur</text>
+  <text x="1066" y="612" class="m">(firmware d'origine inclus) : lus dans la page,</text>
+  <text x="1066" y="628" class="m">rien n'est envoyé ni hébergé</text>
+  <text x="1066" y="644" class="m">tuiles de la carte : OpenStreetMap</text>
+
+  <!-- flows page <-> worker (label above each arrow) -->
+  <path class="f" d="M398 180 H566"/>
+  <text x="420" y="174" class="lab">btn 64–66 (touches)</text>
+  <path class="f" d="M566 208 H398"/>
+  <text x="420" y="222" class="lab">images RGB565</text>
+  <path class="f" d="M398 266 H566"/>
+  <text x="420" y="260" class="lab">board_cmd « gnss … »</text>
+  <path class="f2" d="M398 330 H566"/>
+  <text x="420" y="324" class="lab">serial usb · stat / pace</text>
+  <path class="f" d="M398 394 H566"/>
+  <text x="420" y="388" class="lab">load ROM, flash, ELF</text>
+  <path class="f2" d="M398 466 H566"/>
+  <text x="420" y="460" class="lab">read / load storage</text>
+  <path class="fp" d="M398 552 H582"/>
+  <text x="420" y="546" class="labp">GATT (prévu)</text>
+
+  <!-- flows to the right column, under the worker -->
+  <path class="fp" d="M300 656 V666 H1022 V362 H1066"/>
+  <text x="700" y="682" class="labp">postMessage : write / subscribe / notify (prévu)</text>
+  <path class="f2" d="M340 656 V690 H1032 V484 H1050"/>
+  <text x="700" y="706" class="lab">partition storage gzippée</text>
+  <path class="f" d="M1050 604 H1042 V714 H380 V656"/>
+  <text x="700" y="730" class="lab">GPX, dump</text>
+
+  <!-- ================= build and publish ================= -->
+  <rect x="20" y="752" width="1360" height="292" rx="14" class="wrap"/>
+  <text x="34" y="771" class="m">CONSTRUCTION ET PUBLICATION (GitHub, sur un tag v* ou à la main)</text>
+
+  <rect x="34" y="796" width="300" height="122" rx="12" class="demo"/>
+  <text x="50" y="820" class="t">CI : .github/workflows/demo.yml</text>
+  <text x="50" y="840" class="m">installe espup + espflash, reprend les builds</text>
+  <text x="50" y="856" class="m">déjà publiés (versions.py fetch), construit,</text>
+  <text x="50" y="872" class="m">déploie Pages, release si tag</text>
+  <text x="50" y="896" class="s" font-weight="700">tools/demo/build.sh NOM</text>
+  <text x="50" y="912" class="m">versions.py · partitions.csv · esp32sim.rev</text>
+
+  <rect x="374" y="796" width="250" height="56" rx="10" class="fw"/>
+  <text x="388" y="818" class="s" font-weight="700">cargo build (firmware/)</text>
+  <text x="388" y="836" class="m">→ ELF → espflash save-image</text>
+
+  <rect x="374" y="862" width="250" height="56" rx="10" class="sim"/>
+  <text x="388" y="884" class="s" font-weight="700">fork esp32sim @ esp32sim.rev</text>
+  <text x="388" y="902" class="m">→ tools/wasm-build.sh → .wasm</text>
+
+  <rect x="374" y="928" width="250" height="56" rx="10" class="ext"/>
+  <text x="388" y="950" class="s" font-weight="700">ROM du S3 (Espressif)</text>
+  <text x="388" y="968" class="m">esp-rom-elfs, Apache-2.0, SHA-256 vérifié</text>
+
+  <rect x="684" y="796" width="380" height="188" rx="12" class="ext"/>
+  <text x="700" y="820" class="t">GitHub Pages</text>
+  <text x="700" y="842" class="s">demo/index.html · demo/versions.json</text>
+  <text x="700" y="860" class="s">demo/rom/esp32s3_rev0_rom.elf (partagée)</text>
+  <text x="700" y="878" class="s">demo/builds/&lt;version&gt;/</text>
+  <text x="716" y="896" class="m">fw/cc600-flash.bin (image complète, storage vide)</text>
+  <text x="716" y="912" class="m">fw/cc600.elf (sans debug) · build.json</text>
+  <text x="716" y="928" class="m">sim/wasm/worker.js, esp32sim.wasm · sim/README.md</text>
+  <text x="700" y="950" class="s">prototype/ (maquette cliquable)</text>
+  <text x="700" y="970" class="m">rien de tout ça n'est commité : généré à chaque build</text>
+
+  <rect x="1104" y="796" width="262" height="120" rx="12" class="ext"/>
+  <text x="1120" y="820" class="t">Release (tag v* seulement)</text>
+  <text x="1120" y="840" class="m">opencc600-vX.bin : image de l'app, pour</text>
+  <text x="1120" y="856" class="m">tools/flash.py (slot OTA libre, jamais 0x0)</text>
+  <text x="1120" y="872" class="m">opencc600-vX.elf · SHA256SUMS</text>
+  <text x="1120" y="888" class="m">lien vers la démo ?v=vX</text>
+
+  <path class="f" d="M334 824 H374"/>
+  <path class="f" d="M334 890 H374"/>
+  <path class="f" d="M354 890 V956 H374"/>
+  <path class="f" d="M624 824 H684"/>
+  <path class="f" d="M624 890 H684"/>
+  <path class="f" d="M624 956 H684"/>
+  <path class="f" d="M500 796 V780 H1235 V796"/>
+  <text x="1080" y="775" class="lab">image de l'app + ELF</text>
+  <!-- the page fetches what Pages serves -->
+  <path class="f" d="M874 796 V744 H120 V656"/>
+  <text x="130" y="690" class="lab">la page charge versions.json,</text>
+  <text x="130" y="706" class="lab">puis builds/&lt;v&gt;/ et rom/</text>
+
+  <!-- legend -->
+  <g transform="translate(34 1004)">
+    <rect width="18" height="14" rx="3" class="demo"/><text x="24" y="12" class="s">propre à la démo (opencc600 ; Musette pour le transport)</text>
+    <rect x="390" width="18" height="14" rx="3" class="fw"/><text x="414" y="12" class="s">firmware opencc600, inchangé</text>
+    <rect x="604" width="18" height="14" rx="3" class="sim"/><text x="628" y="12" class="s">esp32sim générique</text>
+    <rect x="768" width="18" height="14" rx="3" class="board"/><text x="792" y="12" class="s">esp32sim, modèle CC600</text>
+    <rect x="958" width="18" height="14" rx="3" class="mus"/><text x="982" y="12" class="s">Musette</text>
+    <rect x="1060" width="18" height="14" rx="3" class="ext"/><text x="1084" y="12" class="s">externe / navigateur</text>
+    <rect x="1230" width="18" height="14" rx="3" fill="#fff" stroke="#444" stroke-dasharray="4 3"/><text x="1254" y="12" class="s">prévu</text>
+  </g>
+</svg>

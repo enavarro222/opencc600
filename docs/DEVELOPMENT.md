@@ -58,6 +58,8 @@ Hardware-in-the-loop tests on a device plugged in over USB (keys injected over U
 
 ## In-browser demo and releases
 
+![The demo: architecture and data flow](demo/architecture.svg)
+
 [docs/demo/index.html](demo/index.html) runs the firmware, unmodified, in an emulated ESP32-S3: the screen, the
 keys and the USB console, a simulated nRF52 (clock, battery, barometer), the GNSS receiver fed from a GPX track
 and BLE through the emulator's virtual controller. The emulator is [esp32sim](https://github.com/mikroverk/esp32sim)
