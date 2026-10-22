@@ -1087,6 +1087,7 @@ async fn gnss_task(mut uart: GnssUart) {
             let calibration = STATUS.lock(|s| {
                 let mut status = s.get();
                 status.fix = Some(fix);
+                status.fix_at = Some(Instant::now());
                 let calibration = calibrate(&mut status.altimeter, &fix);
                 s.set(status);
                 calibration
@@ -1100,6 +1101,18 @@ async fn gnss_task(mut uart: GnssUart) {
             }
             STATUS_CHANGED.signal(());
             sync_rtc(&fix, &mut last_rtc_set).await;
+        }
+        let expired = STATUS.lock(|s| {
+            let mut status = s.get();
+            let expired = status.expire_fix();
+            if expired {
+                s.set(status);
+            }
+            expired
+        });
+        if expired {
+            warn!("gnss: no epoch for {} s, the last fix is no longer valid", FIX_MAX_AGE.as_secs());
+            STATUS_CHANGED.signal(());
         }
         if last_report.elapsed() >= Duration::from_secs(10) {
             last_report = Instant::now();
@@ -1197,6 +1210,9 @@ async fn sync_rtc(fix: &gnss::Fix, last_set: &mut Option<Instant>) {
     *last_set = Some(Instant::now());
 }
 
+/// A fix older than this is no longer valid (the receiver gives one a second).
+const FIX_MAX_AGE: Duration = Duration::from_secs(3);
+
 /// What the bring-up screen shows, updated from the nRF messages.
 #[derive(Clone, Copy, PartialEq)]
 struct Status {
@@ -1225,6 +1241,8 @@ struct Status {
     gnss: Option<gnss::Stats>,
     gnss_link: GnssLink,
     fix: Option<gnss::Fix>,
+    /// When `fix` was last set (a receiver epoch, or a position sent over USB): see [`Status::expire_fix`].
+    fix_at: Option<Instant>,
 }
 
 impl Status {
@@ -1248,6 +1266,19 @@ impl Status {
             gnss: None,
             gnss_link: GnssLink::new(),
             fix: None,
+            fix_at: None,
+        }
+    }
+
+    /// A fix without a new epoch for [`FIX_MAX_AGE`] (the receiver silent, the positions sent over USB stopped) is
+    /// no longer valid: the time comes from the RTC again, the speed and the position are gone. True if it changed.
+    fn expire_fix(&mut self) -> bool {
+        match (self.fix.as_mut(), self.fix_at) {
+            (Some(f), Some(at)) if f.valid && at.elapsed() >= FIX_MAX_AGE => {
+                f.valid = false;
+                true
+            }
+            _ => false,
         }
     }
 
@@ -2826,6 +2857,7 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                         STATUS.lock(|c| {
                             let mut s = c.get();
                             s.fix = Some(sim_fix(&s, lat_e7, lon_e7, speed_mm_s, course_cdeg));
+                            s.fix_at = Some(Instant::now());
                             c.set(s);
                         });
                         STATUS_CHANGED.signal(());
