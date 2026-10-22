@@ -279,9 +279,12 @@ async fn main(spawner: Spawner) -> ! {
     let mut auto_off_announced = false;
     let mut unplugged_at: Option<Instant> = None;
     loop {
+        // the charging screen's animation: 20 frames a second (a redraw and flush take ~25 ms, nothing else runs)
+        let animated = ui.screen() == ui::Screen::Charging;
         // the app's ride requests are served while waiting: an iteration (and its redraw) for each piece of a ride
         // made a download 3 times slower
-        let sent = with_timeout(Duration::from_secs(1), async {
+        let wait = if animated { Duration::from_millis(25) } else { Duration::from_secs(1) };
+        let sent = with_timeout(wait, async {
             loop {
                 // the request first: the nRF and the GNSS signal a change several times a second
                 match select(RIDE_REQUEST.wait(), STATUS_CHANGED.wait()).await {
@@ -731,8 +734,8 @@ async fn main(spawner: Spawner) -> ! {
                 }
             }
         }
-        // At most 5 redraws per second; the nRF task keeps updating STATUS meanwhile, nothing is lost.
-        Timer::after(Duration::from_millis(200)).await;
+        // At most 5 redraws per second (20 while animated); the nRF task keeps updating STATUS meanwhile, nothing is lost.
+        Timer::after(Duration::from_millis(if animated { 25 } else { 200 })).await;
     }
 }
 

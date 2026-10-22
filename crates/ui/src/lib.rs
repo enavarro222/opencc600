@@ -427,9 +427,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// A `Long` this soon after the last one of the same key is its repeat (the nRF sends one every ~200 ms).
 pub const LONG_REPEAT_MS: u64 = 600;
 
-/// The charging screen's animation: steps, and how long each.
-pub const CHARGE_STEPS: u8 = 4;
-pub const CHARGE_STEP_MS: u64 = 300;
+/// The charging screen's animation: how long a cycle (the band climbing to the top, the dots rising a gap) lasts.
+pub const CHARGE_CYCLE_MS: u64 = 1_200;
 
 /// The automatic power off's banner title.
 pub const AUTO_OFF: &str = "Extinction automatique";
@@ -720,8 +719,8 @@ pub struct Ui {
     role: u8,
     /// On the sensors screen, the power meter's calibration entry (after the roles) is selected.
     calibrate_row: bool,
-    /// The charging screen's animation step.
-    charge_step: u8,
+    /// Where the charging screen's animation is in its cycle, in ms.
+    charge_ms: u16,
     /// Automatic power off after this long without moving during a ride (0: never), and since when it is still.
     auto_off_ms: u64,
     still_since: Option<u64>,
@@ -768,7 +767,7 @@ impl Ui {
             item: 0,
             role: 0,
             calibrate_row: false,
-            charge_step: 0,
+            charge_ms: 0,
             auto_off_ms: 0,
             still_since: None,
             held: None,
@@ -865,9 +864,9 @@ impl Ui {
         }
     }
 
-    /// The charging screen's animation step, 0..[`CHARGE_STEPS`].
-    pub fn charge_step(&self) -> u8 {
-        self.charge_step
+    /// Where the charging screen's animation is in its cycle, 0..[`CHARGE_CYCLE_MS`] ms.
+    pub fn charge_ms(&self) -> u16 {
+        self.charge_ms
     }
 
     /// At power-on with a paused ride: the screen that offers to resume or finish it.
@@ -1180,7 +1179,7 @@ impl Ui {
     pub fn tick(&mut self, now_ms: u64, ride: Option<bool>, view: &View) -> Option<Command> {
         use Screen::*;
         if self.screen == Charging {
-            self.charge_step = ((now_ms / CHARGE_STEP_MS) % CHARGE_STEPS as u64) as u8;
+            self.charge_ms = (now_ms % CHARGE_CYCLE_MS) as u16;
         }
         self.power_zone.update(
             view.power_3s_w.and_then(|w| view.power_zones.zone(w, view.ftp_w)),

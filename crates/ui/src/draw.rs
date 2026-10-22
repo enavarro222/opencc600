@@ -1413,17 +1413,30 @@ fn charging<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &The
     fonts::text(d, &t.style(&fonts::BODY_BOLD).colored(c), state, W / 2, y0 + 82, Align::Center)?;
     // the battery: its cap, the body, the inside
     let (left, right, top, bottom) = (90, 150, y0 + BLOCK - 90, y0 + BLOCK);
+    let (phase, cycle) = (ui.charge_ms() as i32, crate::CHARGE_CYCLE_MS as i32);
+    // the current from the USB port (the bottom edge): dots rising into the battery, drawn first so that they come
+    // out from under the edge and go in under the battery's body
+    if charging {
+        let (from, to) = (H, bottom + 1);
+        let gap = 14;
+        // anti-aliased discs: they move by a fraction of a pixel
+        let mut y = (from + 4) as f32 - (gap * phase) as f32 / cycle as f32;
+        while y >= (to - 4) as f32 {
+            // brighter near the battery
+            let near = (from as f32 - y) * 2.0 >= (from - to) as f32;
+            disc(d, (W / 2) as f32 - 0.5, y, 3.5, if near { color } else { mix(color, t.bg) }, t.bg)?;
+            y -= gap as f32;
+        }
+    }
     rounded(d, rect(left + 18, top - 7, right - 18, top + 4), 3, t.fg, t.bg)?;
     rounded(d, rect(left, top, right, bottom), 11, t.fg, t.bg)?;
     rounded(d, rect(left + 5, top + 5, right - 5, bottom - 5), 7, t.bg, t.fg)?;
     let (il, ir, it, ib) = (left + 9, right - 9, top + 9, bottom - 9);
     let h = ib - it + 1;
     let level = h * pct / 100;
-    let step = ui.charge_step() as i32;
-    let steps = crate::CHARGE_STEPS as i32;
     // charging: a lighter band climbs from the level to the top
     if charging {
-        let band = (h - level) * (step + 1) / steps;
+        let band = (h - level) * phase / cycle;
         if band > 0 {
             rounded(d, rect(il, ib - level - band + 1, ir, ib - level), 4, mix(color, t.bg), t.bg)?;
         }
@@ -1443,18 +1456,6 @@ fn charging<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &The
         bolt(d, dx, dy, t.bg)?;
     }
     bolt(d, 0, 0, if v.plugged { t.fg } else { t.mute })?;
-    // the current from the USB port (the bottom edge): dots rising into the battery
-    if charging {
-        let (from, to) = (H, bottom + 1);
-        let gap = 14;
-        let mut y = from - 6 - step * gap / steps;
-        while y >= to + 6 {
-            // brighter near the battery
-            let near = (from - y) * 2 >= from - to;
-            disc(d, (W / 2) as f32 - 0.5, y as f32, 3.5, if near { color } else { mix(color, t.bg) }, t.bg)?;
-            y -= gap;
-        }
-    }
     Ok(())
 }
 

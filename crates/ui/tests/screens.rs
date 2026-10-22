@@ -383,7 +383,7 @@ fn every_screen() {
     // started by the charger: the charging screen, its animation, full, unplugged; night
     for (name, pct, plugged, at) in [
         ("charging", 64, true, 0),
-        ("charging-step", 64, true, 2 * ui::CHARGE_STEP_MS),
+        ("charging-step", 64, true, ui::CHARGE_CYCLE_MS / 2),
         ("charging-low", 9, true, 0),
         ("charging-full", 100, true, 0),
         ("charging-unplugged", 64, false, 0),
