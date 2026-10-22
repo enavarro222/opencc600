@@ -9,6 +9,7 @@
 
 Log lines can be lost: assert on what the device stores (rides, files) rather than on log lines when possible.
 """
+import os
 import re
 import subprocess
 import threading
@@ -138,6 +139,17 @@ class Dut:
             except TimeoutError:
                 continue
         raise TimeoutError(f"command {command!r} not acknowledged after {retries} tries")
+
+    @property
+    def ble_address(self) -> str:
+        """The device's BLE address, as BlueZ shows it: the MAC address (the USB serial number of its USB-Serial/JTAG)
+        with the two top bits set, a static random address (crates/identity `ble_address`)."""
+        from serial.tools import list_ports
+
+        port = os.path.realpath(self.port)
+        mac = next(p.serial_number for p in list_ports.comports() if os.path.realpath(p.device) == port)
+        b = bytes.fromhex(mac.replace(":", ""))
+        return ":".join(f"{x:02X}" for x in bytes([b[0] | 0xC0]) + b[1:])
 
     def press(self, key: int, long: bool = False):
         self.send(f"key {key} {'long' if long else 'click'}")

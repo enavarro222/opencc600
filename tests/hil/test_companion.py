@@ -50,11 +50,13 @@ class App:
         self.events: asyncio.Queue = asyncio.Queue()
 
     @classmethod
-    async def connect(cls):
+    async def connect(cls, address: str):
+        """Connects to the device at `address` only: another device in range advertises the same service."""
         device = await bleak.BleakScanner.find_device_by_filter(
-            lambda d, adv: SERVICE in [u.lower() for u in adv.service_uuids], timeout=20
+            lambda d, adv: d.address.upper() == address and SERVICE in [u.lower() for u in adv.service_uuids],
+            timeout=20,
         )
-        assert device, "the CC600 does not advertise the companion service"
+        assert device, f"the device plugged in ({address}) does not advertise the companion service"
         client = bleak.BleakClient(device)
         await client.connect()
         app = cls(client)
@@ -165,7 +167,7 @@ def kept(dut, out_dir):
 
 def test_hello_and_settings(dut, ble, kept):
     async def go():
-        app = await App.connect()
+        app = await App.connect(dut.ble_address)
         try:
             assert (await app.request(HELLO))[0] == DEVICE_INFO
             op, text = await app.request(GET_SETTINGS)
@@ -198,13 +200,13 @@ def test_a_route_resumed_after_a_dropped_link(dut, ble, kept):
     assert len(data) > 10_000, len(data)
 
     async def go():
-        app = await App.connect()
+        app = await App.connect(dut.ble_address)
         try:
             await app.send_file(ROUTE, data, stop_after=len(data) // 2)
         finally:
             await app.close()
         await asyncio.sleep(2)
-        app = await App.connect()
+        app = await App.connect(dut.ble_address)
         try:
             return await app.send_file(ROUTE, data)
         finally:
