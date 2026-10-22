@@ -17,15 +17,34 @@ h1 { margin: 0 0 4px; font-size: 30px; }
 p { margin: 6px 0; font-size: 18px; line-height: 1.3; color: #333; }
 a { color: #1D4ED8; }
 main { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; padding-top: 24px; padding-bottom: 24px; }
-.device { position: relative; width: 300px; height: 480px; flex-shrink: 0; margin-top: 10px; border-radius: 36px; background: var(--dev); box-shadow: 0 12px 28px rgba(0,0,0,.25); touch-action: none; }
-.device canvas { position: absolute; left: 30px; top: 44px; width: 240px; height: 320px; background: #000; image-rendering: pixelated; }
-/* a key: the blue bar on the edge, in a larger target */
+.device { position: relative; width: 300px; height: 480px; flex-shrink: 0; margin-top: 14px; touch-action: none; }
+/* the case: black, a rounded top, a slightly flatter bottom, a soft rim */
+.device .case { position: absolute; inset: 0; border-radius: 58px 58px 44px 44px / 52px 52px 40px 40px;
+  background: radial-gradient(120% 70% at 50% 0%, #2a2a2e 0%, #161618 45%, #0d0d0f 100%);
+  box-shadow: 0 16px 30px rgba(0,0,0,.28), inset 0 0 0 2px #2c2c31, inset 0 3px 2px rgba(255,255,255,.07), inset 0 -4px 6px rgba(0,0,0,.6); }
+/* the glass over the panel */
+.device .glass { position: absolute; left: 20px; top: 26px; width: 260px; height: 350px; border-radius: 16px; background: #050506;
+  box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #29292d; overflow: hidden; }
+.device .glass::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(125deg, rgba(255,255,255,.07) 0%, rgba(255,255,255,0) 38%); }
+.device canvas { position: absolute; left: 30px; top: 40px; width: 240px; height: 320px; background: #000; image-rendering: pixelated; }
+/* the marks printed above the bottom keys */
+.device .marks { position: absolute; top: 410px; width: 70px; height: 22px; color: #6d6d73; }
+.device .marks.l { left: 40px; } .device .marks.r { right: 40px; }
+/* a key: the blue rubber pad on the edge, in a larger target */
 .key { position: absolute; width: 96px; height: 40px; padding: 0; border: none; background: none; cursor: pointer; touch-action: none; -webkit-tap-highlight-color: transparent; }
-.key::before { content: ''; position: absolute; left: 10px; width: 76px; height: 12px; border-radius: 4px; background: var(--key); transition: transform .05s; }
-.key.tl { left: 26px; top: -24px; } .key.tl::before { top: 15px; }
-.key.bl { left: 26px; bottom: -24px; } .key.bl::before { top: 13px; }
-.key.br { right: 26px; bottom: -24px; } .key.br::before { top: 13px; }
+.key::before { content: ''; position: absolute; left: 10px; width: 76px; height: 12px; border-radius: 5px;
+  background: linear-gradient(#6cc8ec, var(--key) 45%, #2896c2); box-shadow: 0 1px 2px rgba(0,0,0,.35); transition: transform .05s; }
+.key.tl { left: 30px; top: -24px; } .key.tl::before { top: 16px; }
+.key.bl { left: 30px; bottom: -24px; } .key.bl::before { top: 12px; }
+.key.br { right: 30px; bottom: -24px; } .key.br::before { top: 12px; }
 .key.down::before { background: #1F8FBA; transform: scaleY(.6); }
+/* simulator aid: the screen's key hints, clickable */
+.zone { position: absolute; padding: 0; border: none; border-radius: 6px; background: none; cursor: pointer; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.zone:hover, .zone.down { background: rgba(59,179,224,.18); box-shadow: inset 0 0 0 1px rgba(59,179,224,.6); }
+.zone.tl { left: 30px; top: 40px; width: 110px; height: 34px; }
+.zone.bl { left: 30px; top: 324px; width: 110px; height: 36px; }
+.zone.br { left: 160px; top: 324px; width: 110px; height: 36px; }
+.device.nozones .zone { display: none; }
 .key:focus-visible { outline: 2px solid var(--key); outline-offset: 2px; border-radius: 8px; }
 .hint { position: absolute; font-size: 14px; color: #8a8a8a; }
 .note { font-size: 16px; color: var(--mute); }
@@ -65,7 +84,16 @@ footer p { font-size: 15px; color: var(--mute); }
 </header>
 <main>
   <div class="device" id="device">
+    <div class="case"></div>
+    <div class="glass"></div>
     <canvas id="screen" width="240" height="320" aria-label="Écran du compteur"></canvas>
+    <svg class="marks l" viewBox="0 0 70 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <path d="M20 5a7 7 0 1 1-6 3"/><path d="M14 3v5h5"/><path d="M42 6h14M42 11h14M42 16h14"/></svg>
+    <svg class="marks r" viewBox="0 0 70 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 4v14"/><path d="M17 4l10 7-10 7z"/><rect x="44" y="4" width="14" height="14" rx="2"/></svg>
+    <button class="zone tl" data-key="0" tabindex="-1" aria-hidden="true" title="Touche haut gauche (aide du simulateur)"></button>
+    <button class="zone bl" data-key="1" tabindex="-1" aria-hidden="true" title="Touche bas gauche (aide du simulateur)"></button>
+    <button class="zone br" data-key="2" tabindex="-1" aria-hidden="true" title="Touche bas droite (aide du simulateur)"></button>
     <button class="key tl" data-key="0" aria-label="Touche haut gauche"></button>
     <button class="key bl" data-key="1" aria-label="Touche bas gauche"></button>
     <button class="key br" data-key="2" aria-label="Touche bas droite"></button>
@@ -75,6 +103,8 @@ footer p { font-size: 15px; color: var(--mute); }
     <ul class="legend">
       <li><kbd>1</kbd> haut gauche · <kbd>2</kbd> bas gauche · <kbd>3</kbd> bas droite</li>
       <li>Un clic : appui court. Maintenir ½ seconde : appui long (allumer, éteindre, arrêter une sortie).</li>
+      <li><label><input type="checkbox" id="zones" checked> Cliquer aussi sur les indications de l'écran</label>
+        <span class="note">(« Maintenir », « Menu », « Démarrer » : une aide du simulateur, le vrai compteur n'a pas d'écran tactile)</span></li>
       <li>L'heure vient de ton ordinateur, la batterie est à 80 %. Le GPS se cale sur le trajet simulé ci-dessous.</li>
     </ul>
     <div class="controls"><label>Version du firmware <select id="version" aria-label="Version du firmware"></select></label>
@@ -228,20 +258,28 @@ $('restart').onclick = () => { if (files) boot().catch((e) => status('Échec : '
 
 // the keys: the nRF's pseudo pins 64..66, held = long press
 const PIN = 64;
-function press(el, down) {
-  if (el.classList.contains('down') === down) return;
-  el.classList.toggle('down', down);
-  send({ t: 'btn', pin: PIN + Number(el.dataset.key), v: down ? 1 : 0 });
+const held = [false, false, false];
+function press(key, down) {
+  if (held[key] === down) return;
+  held[key] = down;
+  for (const el of document.querySelectorAll(`[data-key="${key}"]`)) el.classList.toggle('down', down);
+  send({ t: 'btn', pin: PIN + key, v: down ? 1 : 0 });
 }
-for (const el of document.querySelectorAll('.key')) {
-  el.onpointerdown = (e) => { e.preventDefault(); el.setPointerCapture(e.pointerId); press(el, true); };
-  el.onpointerup = el.onpointercancel = () => press(el, false);
-  el.onkeydown = (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press(el, true); } };
-  el.onkeyup = (e) => { if (e.key === ' ' || e.key === 'Enter') press(el, false); };
+for (const el of document.querySelectorAll('.key, .zone')) {
+  const key = Number(el.dataset.key);
+  el.onpointerdown = (e) => { e.preventDefault(); el.setPointerCapture(e.pointerId); press(key, true); };
+  el.onpointerup = el.onpointercancel = () => press(key, false);
+  el.onkeydown = (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press(key, true); } };
+  el.onkeyup = (e) => { if (e.key === ' ' || e.key === 'Enter') press(key, false); };
 }
-const byDigit = (e) => !e.target.closest('input') && document.querySelector(`.key[data-key="${Number(e.key) - 1}"]`);
-addEventListener('keydown', (e) => { const el = /^[123]$/.test(e.key) && byDigit(e); if (el && !e.repeat) press(el, true); });
-addEventListener('keyup', (e) => { const el = /^[123]$/.test(e.key) && byDigit(e); if (el) press(el, false); });
+const byDigit = (e) => /^[123]$/.test(e.key) && !e.target.closest('input') ? Number(e.key) - 1 : null;
+addEventListener('keydown', (e) => { const k = byDigit(e); if (k !== null && !e.repeat) press(k, true); });
+addEventListener('keyup', (e) => { const k = byDigit(e); if (k !== null) press(k, false); });
+// the clickable screen hints: on unless turned off (remembered in this browser)
+const zonesKey = 'opencc600-demo-zones';
+const showZones = (on) => { $('device').classList.toggle('nozones', !on); $('zones').checked = on; };
+try { showZones(localStorage.getItem(zonesKey) !== 'off'); } catch { showZones(true); }
+$('zones').onchange = () => { showZones($('zones').checked); try { localStorage.setItem(zonesKey, $('zones').checked ? 'on' : 'off'); } catch {} };
 
 // ---- the simulated ride: a track, played along the emulated time, sent to the GNSS receiver
 const R = 6371000, rad = Math.PI / 180;
