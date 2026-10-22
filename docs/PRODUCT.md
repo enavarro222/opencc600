@@ -76,8 +76,9 @@ kept in step with `crates/ui`.
 - Riding: up to 4 pages, picked automatically (below); bottom-left cycles them, top-left is the map's zoom on the
   map, auto-scroll on / off elsewhere.
 - Top bar: the top key on the left in a fixed 100 px box, the clock in the middle ("GPS ✕" in its place while
-  riding without a fix, the distance to the route when off it), the floppy disk while recording and the battery on
-  the right.
+  riding without a fix, the distance to the route when off it, two figures: "85m", "9,9km", "12km"), the Bluetooth
+  rune while the phone's app is connected, the floppy disk while recording and the battery on the right. The clock
+  never moves (`top-bars.png` of the screens test shows every case).
 - Nothing changes size: fixed-width top key, key bar in 3 fixed columns, fixed-height rows; long text is cut with
   "…" (`tools/check_prototype_layout.py`, and the screens test of `crates/ui`).
 - One banner at a time, floating above the page, never over the key bar: information (blue, 3 s), attention
