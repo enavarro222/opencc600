@@ -32,7 +32,9 @@ class Dut:
     def __init__(self, port: str, log_path=None):
         self.port = port
         self.lines: list[Line] = []
-        self.seq = 0
+        # not 0: without a reset the firmware still holds the last number of a previous run and would skip a repeat;
+        # from the clock in ms, as a run sends fewer than one command a ms
+        self.seq = int(time.time() * 1000) % 2**31
         self.t0 = time.time()
         self.log = open(log_path, "w") if log_path else None
         self._lock = threading.Lock()

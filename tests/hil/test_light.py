@@ -87,7 +87,7 @@ def test_backlight_follows_the_light(dut, settings_kept):
     wait_light(dut, backlight=[10], timeout=20)
     dut.send("light 2600")  # a torch, the sensor saturated
     wait_light(dut, backlight=[100], timeout=20)
-    dut.send("light 1500")  # halfway: 55 %, to the step of 5 % near
+    dut.send("light 1600")  # halfway: 55 %, to the step of 5 % near
     wait_light(dut, backlight=range(50, 61), timeout=20)
     # switched off: the backlight setting, whatever the light
     dut.send("set backlight 30")

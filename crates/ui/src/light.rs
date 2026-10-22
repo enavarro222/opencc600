@@ -3,11 +3,12 @@
 
 use core::f64::consts::PI;
 
-/// Raw ambient light (nRF stream `F1 04`, tag 600) at and below which the backlight is at [`MIN_PCT`]: ~1000
-/// indoors at night, 411 covered.
-pub const DARK: u16 = 600;
-/// Raw ambient light at and above which the backlight is at [`MAX_PCT`]: ~2500 indoors by day, the sensor seems to
-/// saturate near 2600.
+/// Raw ambient light (nRF stream `F1 04`, tag 600) at and below which the backlight is at [`MIN_PCT`]. In the dark
+/// the sensor's floor depends on the device: 374 on a CC700, 769 on a CC600; ~1060 and ~390 under a kitchen lamp
+/// (tools/light_survey.py).
+pub const DARK: u16 = 800;
+/// Raw ambient light at and above which the backlight is at [`MAX_PCT`]: ~2500 indoors by day; the sensor saturates
+/// at ~2570, a headlamp on the screen is enough.
 pub const BRIGHT: u16 = 2400;
 pub const MIN_PCT: u8 = 10;
 pub const MAX_PCT: u8 = 100;
