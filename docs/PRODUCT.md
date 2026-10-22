@@ -1,8 +1,8 @@
 # opencc600 — product definition
 
 What the firmware is for, the rules it follows, where it stands. Hardware and reverse engineering:
-[REVERSE_NOTES.md](REVERSE_NOTES.md); how we build and test: [DEV_PROCESS.md](DEV_PROCESS.md); the crates: the
-[README](../README.md#firmware).
+[REVERSE_NOTES.md](REVERSE_NOTES.md); how we build and test: [DEV_PROCESS.md](DEV_PROCESS.md); the crates:
+[DEVELOPMENT.md](DEVELOPMENT.md#code-layout).
 
 ## Principles
 - **Rust, `no_std`**, on [`esp-hal`](https://github.com/esp-rs/esp-hal) + Embassy; no ESP-IDF, no LVGL. Everything
@@ -46,9 +46,9 @@ What the firmware is for, the rules it follows, where it stands. Hardware and re
 - 1800 mAh battery: battery life is a requirement ([POWER.md](POWER.md)).
 
 ### Storage
-- The whole 7.8 MB littlefs `storage` partition is ours, after a verified backup (`dump/storage.orig.bin`) and the
+- The whole 7.8 MB littlefs `storage` partition is ours, after a verified backup (`dump/<mac>/storage.orig.bin`) and the
   vendor's 24 rides extracted as FIT (`tools/reverse/vendor_fit.py`). Back to the vendor:
-  `tools/flash_ota0.py --restore-vendor --storage dump/storage.orig.bin` (checked on the device).
+  `tools/flash.py --restore-vendor --storage dump/<mac>/storage.orig.bin` (checked on the device).
 - Rides: `/rides/<start>.part` while recording, `.fit` once closed, `.sent.fit` once Musette acknowledged it
   (resumed, it is `.fit` again). Power-cut tested at every flash operation (`crates/ride-store`).
 - **Rides first** (`ride_store::room`): the logs (`/logs/*.csv`) take 2 MB at most and never the last 1 MB. Below

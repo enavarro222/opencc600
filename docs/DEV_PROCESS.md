@@ -1,7 +1,7 @@
 # opencc600 — development and test process
 
 Goal: test and validate **as automatically as possible**, including the behaviour on the **real CC600**,
-not only on a PC. Context: the [README](../README.md#firmware) (crates), [REVERSE_NOTES.md](REVERSE_NOTES.md) (hardware).
+not only on a PC. Context: [DEVELOPMENT.md](DEVELOPMENT.md) (crates), [REVERSE_NOTES.md](REVERSE_NOTES.md) (hardware).
 
 ## The rule that makes it possible
 
@@ -32,18 +32,18 @@ Everything except `firmware/` is `no_std` Rust with no hardware dependency (`nrf
   as PNG.
 - Fixtures must not leak real positions: synthetic or anonymised tracks only (`dump/` and `*.log` are git-ignored).
 
-Host tests need `BINDGEN_EXTRA_CLANG_ARGS` for littlefs2-sys (see the Firmware section of the README); never leave
+Host tests need `BINDGEN_EXTRA_CLANG_ARGS` for littlefs2-sys (see [DEVELOPMENT.md](DEVELOPMENT.md#build-and-flash)); never leave
 it set when building the firmware.
 
 ## 2. Device (HIL) — pytest over USB
 
 The CC600 on USB-C, everything through that single cable (native USB-Serial/JTAG, eFuses open):
 
-- **Flash** `ota_0` only, with `tools/flash_ota0.py`, which refuses any other offset (never the bootloader, the
-  partition table or the eFuses). The vendor firmware stays in `ota_1` as a fallback.
+- **Flash** the OTA slot the vendor firmware does not use, with `tools/flash.py`, which refuses any other offset
+  (never the bootloader, the partition table or the eFuses). The vendor firmware stays in its slot as a fallback.
 - **USB test hook** in the normal build: keys (`key <0-2> <click|long>`; the keys are on the nRF, there is no GPIO
   to poke), `sound off` (tests run next to people), `fix` (positions in place of the receiver's), `route
-  begin/data/end`, `set` / `get`, `storage fill`, `gnss cold`... (list in the README, `tools/serial_log.py`). The
+  begin/data/end`, `set` / `get`, `storage fill`, `gnss cold`... (list in [DEVELOPMENT.md](DEVELOPMENT.md#tools), `tools/serial_log.py`). The
   link loses ~5 % of the lines when the log is busy: the host numbers each command and resends it until the
   firmware logs `usb ack <seq>`; a repeated number runs once.
 - **Framework**: pytest in `tests/hil/` (`uv run --project tests/hil pytest tests/hil`). The `dut` fixture resets
@@ -71,10 +71,12 @@ never really power off (`power off dry`).
 
 - Build with `cargo build --release` in `firmware/`, then `espflash save-image --chip esp32s3 --flash-size 16mb` for
   an app image.
-- `tools/flash_ota0.py` writes `ota_0` (0x20000) only and erases `otadata`, after checking the device has the known
-  CC600 partition layout; it saves the original otadata once (`dump/otadata.orig.bin`).
-- **Back to the vendor firmware**: `tools/flash_ota0.py --restore-vendor` writes that otadata back, so the
-  bootloader loads `ota_1` (V1.407); `--storage dump/storage.orig.bin` puts its storage partition back too.
+- `tools/flash.py` finds the slot the vendor firmware boots (from `otadata` and the images' app descriptors), writes
+  the image to the other one and an `otadata` that boots it, after checking the device has the known
+  CC600 / CC700 partition layout; it saves the original otadata once (`dump/<mac>/otadata.orig.bin`, one directory per
+  device, named after its eFuse MAC).
+- **Back to the vendor firmware**: `tools/flash.py --restore-vendor` writes that otadata back, so the
+  bootloader loads the vendor slot again; `--storage dump/<mac>/storage.orig.bin` puts its storage partition back too.
 - Keep a full 16 MB flash dump of the device before the first write (REVERSE_NOTES.md, "Flash layout").
 - Recovery: holding the 3 keys hard-resets the ESP32; the ROM download mode is reachable over USB at any time.
 - **Never** write the eFuses, the bootloader (0x0) or the partition table (0x8000).
