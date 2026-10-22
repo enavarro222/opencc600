@@ -1433,16 +1433,17 @@ fn charging<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &The
     rounded(d, rect(left + 5, top + 5, right - 5, bottom - 5), 7, t.bg, t.fg)?;
     let (il, ir, it, ib) = (left + 9, right - 9, top + 9, bottom - 9);
     let h = ib - it + 1;
-    let level = h * pct / 100;
-    // charging: a lighter band climbs from the level to the top
-    if charging {
-        let band = (h - level) * phase / cycle;
-        if band > 0 {
-            rounded(d, rect(il, ib - level - band + 1, ir, ib - level), 4, mix(color, t.bg), t.bg)?;
-        }
+    // while charging, room is left above the level for the band to show, even near 100 %
+    let level = if charging { (h * pct / 100).min(h - 9) } else { h * pct / 100 };
+    // charging: a lighter band climbs from the level to the top. Band and level are one rounded shape cut in two
+    // colours; the band is never thinner than the corners, so that they stay in it and the level keeps its shape
+    let band = if charging { 4 + (h - level - 4) * phase / cycle } else { 0 };
+    let shape = rect(il, ib - level - band + 1, ir, ib);
+    if band > 0 {
+        rounded(&mut d.clipped(&rect(il, it, ir, ib - level)), shape, 4, mix(color, t.bg), t.bg)?;
     }
     if level > 0 {
-        rounded(d, rect(il, ib - level + 1, ir, ib), 4, color, t.bg)?;
+        rounded(&mut d.clipped(&rect(il, ib - level + 1, ir, ib)), shape, 4, color, t.bg)?;
     }
     // the bolt in the middle, outlined in the background colour: it shows on the fill and on the empty part
     let (bx, by) = ((left + right) / 2, (top + bottom) / 2);
