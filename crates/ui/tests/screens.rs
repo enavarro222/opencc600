@@ -85,6 +85,10 @@ fn view() -> View {
         power_w: None,
         power_3s_w: None,
         wheel_speed_mm_s: None,
+        ftp_w: 0,
+        hr_max: 0,
+        power_zones: ui::Zones::parse(settings::POWER_ZONES).unwrap(),
+        hr_zones: ui::Zones::parse(settings::HR_ZONES).unwrap(),
         sensors: Default::default(),
         ride: RideView {
             timer_s: 6128,
@@ -95,6 +99,7 @@ fn view() -> View {
             max_speed_mm_s: 17_400,
             avg_power_w: None,
             avg_heart_rate: None,
+            max_heart_rate: None,
         },
         recent: profile(50, |i| 5_700 + (i as i16 * 9) + ((i as i16 * 7) % 23) * 4),
         whole: profile(50, |i| {
@@ -323,7 +328,7 @@ fn every_screen() {
     }
     // with a route: home, then the map at each zoom, the whole route before the fix, off the route
     let mut ui = Ui::new();
-    ui.set_context(true, false, false, false);
+    ui.set_context(true, false, false, ui::Effort::None);
     let home = with_route(view(), false);
     save("route-home", &ui, &home, &ui::DAY);
     ui.key(Key::BottomRight, Press::Click, 0, &home);
@@ -431,15 +436,17 @@ fn every_screen() {
 /// The sensors screens: the roles with a sensor connected, one searching, one unpaired; then a scan.
 #[test]
 fn effort_pages() {
-    use ui::{Link, SensorRow, Sensors};
+    use ui::{Effort, Link, Page, SensorRow, Sensors};
     let row = |n: &str| SensorRow { link: Link::Connected, name: Some(Line::new(format_args!("{n}"))) };
     let power_and_hr = View {
         heart_rate: Some(142),
         cadence_rpm: Some(88),
         power_w: Some(231),
         power_3s_w: Some(215),
+        ftp_w: 230,
+        hr_max: 185,
         sensors: Sensors { roles: [row("H9Z 12381"), SensorRow::default(), row("Assioma")], ..Default::default() },
-        ride: RideView { avg_power_w: Some(198), avg_heart_rate: Some(136), ..view().ride },
+        ride: RideView { avg_power_w: Some(198), avg_heart_rate: Some(136), max_heart_rate: Some(171), ..view().ride },
         ..view()
     };
     let power_only = View {
@@ -449,15 +456,42 @@ fn effort_pages() {
     };
     // the power meter lost: its cells stay, with "–"
     let lost = View { power_w: None, power_3s_w: None, cadence_rpm: None, ..power_and_hr };
+    // no FTP nor max heart rate: no zones
+    let unset = View { ftp_w: 0, hr_max: 0, ..power_and_hr };
+    // other zones: 6 of Zwift, the last one
+    let zwift = View { power_3s_w: Some(420), power_zones: ui::Zones::parse("59,75,89,104,118").unwrap(), ..power_and_hr };
+    let hr_only = View {
+        power_w: None,
+        power_3s_w: None,
+        cadence_rpm: None,
+        sensors: Sensors { roles: [row("H9Z 12381"), SensorRow::default(), SensorRow::default()], ..Default::default() },
+        ..power_and_hr
+    };
+    let shots = [
+        (&power_and_hr, Effort::Power, Page::Effort, "effort-power"),
+        (&power_only, Effort::Power, Page::Effort, "effort-power-only"),
+        (&lost, Effort::Power, Page::Effort, "effort-power-lost"),
+        (&unset, Effort::Power, Page::Effort, "effort-power-no-ftp"),
+        (&zwift, Effort::Power, Page::Effort, "effort-power-z6-of-6"),
+        (&hr_only, Effort::Heart, Page::Cardio, "effort-cardio"),
+        (&View { hr_max: 0, ..hr_only }, Effort::Heart, Page::Cardio, "effort-cardio-no-max"),
+    ];
     for (theme, suffix) in [(ui::DAY, ""), (ui::NIGHT, "-night")] {
-        for (v, name) in [(&power_and_hr, "effort-power"), (&power_only, "effort-power-only"), (&lost, "effort-power-lost")] {
+        for (v, effort, page, name) in shots {
             let mut ui = Ui::new();
-            ui.set_context(false, false, true, true);
+            ui.set_context(false, false, true, effort);
             ui.key(Key::BottomRight, Press::Click, 0, v);
             ui.tick(0, Some(true), v);
-            assert_eq!(ui.page(), Some(ui::Page::Effort));
+            assert_eq!(ui.page(), Some(page));
             save(&format!("{name}{suffix}"), &ui, v, &theme);
         }
+        // Essential with the heart rate and its zone
+        let mut ui = Ui::new();
+        ui.set_context(false, false, false, Effort::Heart);
+        ui.key(Key::BottomRight, Press::Click, 0, &hr_only);
+        ui.tick(0, Some(true), &hr_only);
+        assert_eq!(ui.page(), Some(Page::Essential));
+        save(&format!("ride-page1-hr{suffix}"), &ui, &hr_only, &theme);
     }
 }
 
@@ -599,7 +633,7 @@ fn climbs_page() {
         ] {
             let v = at(along_dm, ride);
             let mut ui = Ui::new();
-            ui.set_context(true, true, false, false);
+            ui.set_context(true, true, false, ui::Effort::None);
             ui.key(Key::BottomRight, Press::Click, 0, &v);
             ui.tick(0, Some(true), &v);
             while ui.page() != Some(ui::Page::Climbs) {
@@ -609,7 +643,7 @@ fn climbs_page() {
         }
         // 4 pages on the home screen
         let mut ui = Ui::new();
-        ui.set_context(true, true, false, true);
+        ui.set_context(true, true, false, ui::Effort::Power);
         save_with(&format!("climbs-home{suffix}"), &ui, &at(0, false), &file, &theme);
     }
 }
@@ -624,7 +658,7 @@ fn climbs_of_a_gpx() {
     let file = route::build(&route::parse_gpx(&std::fs::read_to_string(path).unwrap()).unwrap(), 3.0);
     let r = route::Route::parse(&file).unwrap();
     let mut ui = Ui::new();
-    ui.set_context(true, true, false, false);
+    ui.set_context(true, true, false, ui::Effort::None);
     let v = View { grade_pct: None, ..view() };
     ui.key(Key::BottomRight, Press::Click, 0, &v);
     ui.tick(0, Some(true), &v);
@@ -675,7 +709,7 @@ fn top_bars() {
     gps_lost.tick(1, Some(true), &lost);
     // the map, off the route: the riding view and the screen state at each distance
     let mut map = Ui::new();
-    map.set_context(true, false, false, false);
+    map.set_context(true, false, false, ui::Effort::None);
     let riding = with_route(view(), true);
     map.key(BottomRight, Press::Click, 0, &riding);
     map.tick(0, Some(true), &riding);

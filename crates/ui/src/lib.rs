@@ -20,6 +20,7 @@ pub mod nav;
 
 pub use draw::{CONTENT, DAY, NIGHT, Theme, draw};
 use fonts::Line;
+pub use settings::Zones;
 
 /// Pages of a ride at most.
 pub const MAX_PAGES: usize = 4;
@@ -27,6 +28,9 @@ pub const MAX_PAGES: usize = 4;
 pub const SCROLL_MS: u64 = 4_000;
 /// An information banner stays this long.
 pub const INFO_MS: u64 = 3_000;
+/// A power or heart rate zone shows once the value has stayed this long in it: at a bound, the screen does not
+/// flicker from one colour to the other.
+pub const ZONE_HOLD_MS: u64 = 3_000;
 /// Points of an altitude profile ([`View::recent`], [`View::whole`]).
 pub const PROFILE: usize = 50;
 
@@ -108,6 +112,18 @@ pub enum Page {
     Climbs,
     /// 3 s power, then average power, heart rate, cadence, speed, time (a power meter paired).
     Effort,
+    /// Heart rate, then its average and max, speed, cadence or time (a heart rate sensor without a power meter).
+    Cardio,
+}
+
+/// The effort page of a ride: with a power meter [`Page::Effort`], else with a heart rate sensor [`Page::Cardio`]
+/// ([`EffortPick`]). In order: a power meter beats a heart rate sensor.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Effort {
+    #[default]
+    None,
+    Heart,
+    Power,
 }
 
 impl Page {
@@ -118,16 +134,21 @@ impl Page {
             Page::Altitude => "Altitude",
             Page::Climbs => "Montées",
             Page::Effort => "Effort",
+            Page::Cardio => "Cardio",
         }
     }
 }
 
 /// The ride pages for what the device has (docs/PRODUCT.md, "Data pages"): to explore, the map first when a route
 /// is loaded, then Essential and Altitude, or Climbs in its place when the route has climbs (`climbs`); Effort
-/// last with a power meter paired (`effort`); to train, Effort first.
-pub fn pages(route: bool, climbs: bool, train: bool, effort: bool) -> Pages {
+/// (or Cardio) last with a power meter (or a heart rate sensor) paired (`effort`); to train, Effort first.
+pub fn pages(route: bool, climbs: bool, train: bool, effort: crate::Effort) -> Pages {
     use Page::*;
-    let effort = effort.then_some(Effort);
+    let effort = match effort {
+        crate::Effort::None => None,
+        crate::Effort::Heart => Some(Cardio),
+        crate::Effort::Power => Some(Effort),
+    };
     let height = Some(if route && climbs { Climbs } else { Altitude });
     let list = match (route, train) {
         (true, false) => [Some(Map), Some(Essential), height, effort],
@@ -139,6 +160,59 @@ pub fn pages(route: bool, climbs: bool, train: bool, effort: bool) -> Pages {
     let mut list = list.into_iter().flatten();
     let list = core::array::from_fn(|_| list.next());
     Pages { list }
+}
+
+/// After the start of a ride (or a sensor paired or forgotten), a sensor that connects still brings its page.
+pub const EFFORT_GRACE_MS: u64 = 5 * 60_000;
+
+/// Picks the effort page from the sensors connected, not from the ones paired: a power meter off at the start
+/// leaves Cardio to the heart rate sensor. Within [`EFFORT_GRACE_MS`] of the start, a sensor that connects brings
+/// its page (Cardio becomes Effort); later, a sensor lost keeps its page (its values "–"). A sensor forgotten takes
+/// its page away.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EffortPick {
+    picked: Effort,
+    /// Since when the pages may still change, during a ride.
+    since_ms: Option<u64>,
+    /// The roles paired, at the last update.
+    paired: [bool; 3],
+}
+
+impl EffortPick {
+    /// The effort page now: `ride` a ride is in progress (running or paused).
+    pub fn update(&mut self, ride: bool, sensors: &Sensors, now_ms: u64) -> Effort {
+        let link = |role: Role| sensors.roles[Role::ALL.iter().position(|&r| r == role).unwrap_or(0)].link;
+        let has = |role: Role, l: Link| link(role) == l;
+        let seen = if has(Role::Power, Link::Connected) {
+            Effort::Power
+        } else if has(Role::HeartRate, Link::Connected) {
+            Effort::Heart
+        } else {
+            Effort::None
+        };
+        let paired = sensors.roles.map(|r| r.link != Link::Unpaired);
+        if !ride {
+            *self = Self { picked: seen, since_ms: None, paired };
+            return seen;
+        }
+        let since = self.since_ms.get_or_insert(now_ms);
+        // a sensor paired or forgotten during the ride: its page may come
+        if paired != self.paired {
+            *since = now_ms;
+            self.paired = paired;
+        }
+        if now_ms.saturating_sub(*since) < EFFORT_GRACE_MS {
+            self.picked = self.picked.max(seen);
+        }
+        // forgotten
+        if self.picked == Effort::Power && has(Role::Power, Link::Unpaired) {
+            self.picked = if has(Role::HeartRate, Link::Connected) { Effort::Heart } else { Effort::None };
+        }
+        if self.picked == Effort::Heart && has(Role::HeartRate, Link::Unpaired) {
+            self.picked = Effort::None;
+        }
+        self.picked
+    }
 }
 
 /// Map zooms around the rider: metres for the scale bar (60 pixels). The top left key goes through them, then the
@@ -457,6 +531,11 @@ pub struct View {
     pub power_w: Option<u16>,
     /// Average power of the last 3 s.
     pub power_3s_w: Option<u16>,
+    /// The FTP and the max heart rate, the 100 % of their zones (0: not set, no zones).
+    pub ftp_w: u16,
+    pub hr_max: u16,
+    pub power_zones: Zones,
+    pub hr_zones: Zones,
     /// The speed from a wheel sensor.
     pub wheel_speed_mm_s: Option<u32>,
     pub sensors: Sensors,
@@ -560,6 +639,7 @@ pub struct RideView {
     pub max_speed_mm_s: u32,
     pub avg_power_w: Option<u16>,
     pub avg_heart_rate: Option<u8>,
+    pub max_heart_rate: Option<u8>,
 }
 
 /// A ride shorter than both is empty: started by mistake, it is erased without more confirmation.
@@ -598,6 +678,35 @@ impl Profile {
     }
 }
 
+/// A zone shown, which follows the value's zone once it stayed there [`ZONE_HOLD_MS`]; at once from no zone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Held {
+    shown: Option<u8>,
+    /// Another zone the value is in, since when.
+    next: Option<(u8, u64)>,
+}
+
+impl Held {
+    const fn new() -> Self {
+        Self { shown: None, next: None }
+    }
+
+    fn update(&mut self, zone: Option<u8>, now_ms: u64) {
+        match (zone, self.shown) {
+            (None, _) | (Some(_), None) => *self = Self { shown: zone, next: None },
+            (Some(z), Some(shown)) if z == shown => self.next = None,
+            (Some(z), Some(_)) => match self.next {
+                Some((n, since)) if n == z => {
+                    if now_ms.saturating_sub(since) >= ZONE_HOLD_MS {
+                        *self = Self { shown: zone, next: None };
+                    }
+                }
+                _ => self.next = Some((z, now_ms)),
+            },
+        }
+    }
+}
+
 /// Which screen is shown and what the keys do on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Ui {
@@ -628,7 +737,10 @@ pub struct Ui {
     route: bool,
     climbs: bool,
     train: bool,
-    effort: bool,
+    effort: Effort,
+    /// The power and heart rate zones shown.
+    power_zone: Held,
+    hr_zone: Held,
     /// The GNSS had a fix during this ride ("lost" rather than "searching").
     had_fix: bool,
     fix: bool,
@@ -668,7 +780,9 @@ impl Ui {
             route: false,
             climbs: false,
             train: false,
-            effort: false,
+            effort: Effort::None,
+            power_zone: Held::new(),
+            hr_zone: Held::new(),
             had_fix: false,
             fix: false,
             off_route: None,
@@ -700,9 +814,9 @@ impl Ui {
     }
 
     /// What picks the ride pages (at the next start): a route is loaded, it has climbs, the usage setting is training,
-    /// a power meter is paired. The pages of a ride follow a route sent or removed and a sensor paired or
+    /// a power meter or a heart rate sensor is paired. The pages of a ride follow a route sent or removed and a sensor paired or
     /// forgotten during it (and a ride resumed at power-on, before the route was read), the page shown kept.
-    pub fn set_context(&mut self, route: bool, climbs: bool, train: bool, effort: bool) {
+    pub fn set_context(&mut self, route: bool, climbs: bool, train: bool, effort: Effort) {
         let changed = route != self.route || climbs != self.climbs || effort != self.effort;
         self.route = route;
         self.climbs = climbs;
@@ -811,6 +925,17 @@ impl Ui {
     }
 
     /// The page shown and how many there are.
+    /// The power zone shown (1 the first), [`ZONE_HOLD_MS`] after the 3 s power got into it; `None` without an FTP
+    /// or a power.
+    pub fn power_zone(&self) -> Option<u8> {
+        self.power_zone.shown
+    }
+
+    /// The heart rate zone shown, as [`Ui::power_zone`].
+    pub fn hr_zone(&self) -> Option<u8> {
+        self.hr_zone.shown
+    }
+
     pub fn page_index(&self) -> (u8, u8) {
         (self.page, self.pages.len() as u8)
     }
@@ -1057,6 +1182,14 @@ impl Ui {
         if self.screen == Charging {
             self.charge_step = ((now_ms / CHARGE_STEP_MS) % CHARGE_STEPS as u64) as u8;
         }
+        self.power_zone.update(
+            view.power_3s_w.and_then(|w| view.power_zones.zone(w, view.ftp_w)),
+            now_ms,
+        );
+        self.hr_zone.update(
+            view.heart_rate.and_then(|bpm| view.hr_zones.zone(bpm as u16, view.hr_max)),
+            now_ms,
+        );
         // a ride deleted: the next one takes its place, the last one when it was the last
         self.ride_item = self.ride_item.min(view.rides.count.saturating_sub(1));
         // still: no speed (GNSS or wheel), no pedalling; without a fix (indoors, a café) it is still too
@@ -1645,7 +1778,7 @@ mod tests {
         let mut ui = Ui::new();
         ui.found_paused_ride();
         assert_eq!(ui.page(), Some(Page::Essential));
-        ui.set_context(true, false, false, false);
+        ui.set_context(true, false, false, Effort::None);
         assert_eq!(ui.page(), Some(Page::Essential), "the page shown stays");
         press(&mut ui, BottomRight); // resume
         let mut pages = [None; 3];
@@ -1655,7 +1788,7 @@ mod tests {
         }
         assert!(pages.contains(&Some(Page::Map)), "{pages:?}");
         // the route removed during the ride: no map page any more
-        ui.set_context(false, false, false, false);
+        ui.set_context(false, false, false, Effort::None);
         assert!((0..4).all(|_| {
             press(&mut ui, BottomLeft);
             ui.page() != Some(Page::Map)
@@ -1908,8 +2041,8 @@ mod tests {
 
     #[test]
     fn page_names() {
-        // route, climbs, train, effort
-        let names = |r, c, tr, e| pages(r, c, tr, e).names();
+        // route, climbs, train, a power meter
+        let names = |r, c, tr, e: bool| pages(r, c, tr, if e { Effort::Power } else { Effort::None }).names();
         assert_eq!(names(false, false, false, false).as_str(), "Essentiel · Altitude");
         assert_eq!(names(true, false, false, false).as_str(), "Carte · Essentiel · Altitude");
         assert_eq!(names(true, true, false, false).as_str(), "Carte · Essentiel · Montées");
@@ -1922,15 +2055,75 @@ mod tests {
         assert_eq!(names(false, false, true, true).as_str(), "Effort · Essentiel · Altitude");
         // climbs without a route followed (set aside): Altitude
         assert_eq!(names(false, true, false, false).as_str(), "Essentiel · Altitude");
+        // a heart rate sensor without a power meter: Cardio in Effort's place
+        assert_eq!(pages(false, false, false, Effort::Heart).names().as_str(), "Essentiel · Altitude · Cardio");
+        assert_eq!(pages(true, false, true, Effort::Heart).names().as_str(), "Cardio · Essentiel · Carte · Altitude");
+    }
+
+    #[test]
+    fn the_effort_page_follows_the_sensors_connected() {
+        let row = |link| SensorRow { link, name: None };
+        // heart rate, speed / cadence, power
+        let s = |hr, power| Sensors { roles: [row(hr), row(Link::Unpaired), row(power)], ..Default::default() };
+        use Link::*;
+        let mut pick = EffortPick::default();
+        // before the start: what is connected now
+        assert_eq!(pick.update(false, &s(Connected, Searching), 0), Effort::Heart, "the power meter is off");
+        assert_eq!(pick.update(false, &s(Connected, Connected), 0), Effort::Power);
+        assert_eq!(pick.update(false, &s(Searching, Searching), 0), Effort::None);
+        // started with the power meter off: Cardio, then Effort when it connects in the first minutes
+        let mut pick = EffortPick::default();
+        assert_eq!(pick.update(true, &s(Connected, Searching), 1_000), Effort::Heart);
+        assert_eq!(pick.update(true, &s(Connected, Connected), 60_000), Effort::Power);
+        // lost during the ride: Effort stays
+        assert_eq!(pick.update(true, &s(Connected, Searching), 120_000), Effort::Power);
+        // too late: Cardio stays
+        let mut pick = EffortPick::default();
+        pick.update(true, &s(Connected, Searching), 0);
+        assert_eq!(pick.update(true, &s(Connected, Connected), EFFORT_GRACE_MS), Effort::Heart);
+        // ... unless the power meter was paired during the ride
+        let mut pick = EffortPick::default();
+        pick.update(true, &s(Connected, Unpaired), 0);
+        pick.update(true, &s(Connected, Searching), EFFORT_GRACE_MS * 2);
+        assert_eq!(pick.update(true, &s(Connected, Connected), EFFORT_GRACE_MS * 2 + 5_000), Effort::Power);
+        // forgotten: its page goes
+        assert_eq!(pick.update(true, &s(Connected, Unpaired), EFFORT_GRACE_MS * 3), Effort::Heart);
+        assert_eq!(pick.update(true, &s(Unpaired, Unpaired), EFFORT_GRACE_MS * 3), Effort::None);
+    }
+
+    #[test]
+    fn a_zone_shows_once_the_value_stayed_in_it() {
+        let zones = Zones::parse(settings::POWER_ZONES).unwrap();
+        let v = |w| View { power_3s_w: Some(w), ftp_w: 230, power_zones: zones, ..view() };
+        let mut ui = Ui::new();
+        ui.tick(0, Some(true), &v(215));
+        assert_eq!(ui.power_zone(), Some(4), "at once from no zone");
+        // over 241 W for less than the hold: still Z4
+        ui.tick(1_000, Some(true), &v(245));
+        ui.tick(3_000, Some(true), &v(250));
+        assert_eq!(ui.power_zone(), Some(4));
+        // back in Z4 restarts the hold
+        ui.tick(3_500, Some(true), &v(230));
+        ui.tick(4_000, Some(true), &v(250));
+        ui.tick(6_500, Some(true), &v(250));
+        assert_eq!(ui.power_zone(), Some(4));
+        ui.tick(7_000, Some(true), &v(250));
+        assert_eq!(ui.power_zone(), Some(5));
+        // no power, or no FTP: no zone
+        ui.tick(7_100, Some(true), &View { power_3s_w: None, ..v(0) });
+        assert_eq!(ui.power_zone(), None);
+        ui.tick(7_200, Some(true), &View { ftp_w: 0, ..v(215) });
+        assert_eq!(ui.power_zone(), None);
+        assert_eq!(ui.hr_zone(), None, "no heart rate");
     }
 
     #[test]
     fn a_route_with_climbs_swaps_altitude_for_climbs_during_the_ride() {
         let mut ui = Ui::new();
         ui.found_paused_ride();
-        ui.set_context(true, false, false, false);
+        ui.set_context(true, false, false, Effort::None);
         assert_eq!(ui.next_pages().names().as_str(), "Carte · Essentiel · Altitude");
-        ui.set_context(true, true, false, false);
+        ui.set_context(true, true, false, Effort::None);
         assert_eq!(ui.next_pages().names().as_str(), "Carte · Essentiel · Montées");
     }
 
@@ -1938,7 +2131,7 @@ mod tests {
     fn a_power_meter_paired_during_the_ride_brings_effort() {
         let mut ui = Ui::new();
         ui.found_paused_ride();
-        ui.set_context(false, false, false, true);
+        ui.set_context(false, false, false, Effort::Power);
         assert_eq!(ui.page(), Some(Page::Essential), "the page shown stays");
         assert_eq!(ui.next_pages().names().as_str(), "Essentiel · Altitude · Effort");
     }

@@ -25,7 +25,7 @@ DIGITS = "0123456789,.:-+–% "
 UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZÀÂÇÉÈÊËÎÏÔÙÛÜŒ"
 FRENCH = "àâäçéèêëîïôöùûüÿœæÀÂÇÉÈÊËÎÏÔÖÙÛÜŒ«»’…·°−–›‹—"
 TEXT = "".join(chr(c) for c in range(32, 127)) + FRENCH
-LABEL = UPPER + DIGITS + "/·'’()%"
+LABEL = UPPER + DIGITS + "/·'’()%<>"
 
 # private use code points of the icons, in the order of `crate::fonts::icon`
 ICONS = ["play", "pause", "stop", "left", "right", "power", "check", "cross", "dot", "menu", "down", "chevron", "cycle",
@@ -37,6 +37,7 @@ ICON_CHARS = "".join(chr(ICON_BASE + i) for i in range(len(ICONS)))
 SPECS = [
     ("HUGE", "Bold", 84, DIGITS),
     ("ALT", "Bold", 78, DIGITS),
+    ("SPEED", "Bold", 64, DIGITS),
     ("VALUE", "Bold", 34, DIGITS),
     ("TITLE", "Bold", 30, TEXT),
     ("STAT", "Bold", 26, TEXT),

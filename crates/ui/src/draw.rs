@@ -7,7 +7,7 @@
 
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle, Triangle};
+use embedded_graphics::primitives::{Line, PrimitiveStyle, Rectangle, RoundedRectangle, Triangle};
 
 use crate::fonts::{self, Align, Font, Line as Fmt, Style, icon};
 use crate::{BannerKind, Gnss, Hint, Item, Kind, Link, Page, RideCard, Role, Screen, Ui, View};
@@ -222,8 +222,9 @@ pub fn draw<D: DrawTarget<Color = Rgb565>>(
             Some(Page::Altitude) => ride_altitude(d, v, t)?,
             Some(Page::Climbs) => ride_climbs(d, v, route, t)?,
             Some(Page::Map) => crate::map::draw(d, ui.zoom_m(), v, route, map, t)?,
-            Some(Page::Effort) => ride_effort(d, v, t)?,
-            Some(Page::Essential) | None => ride_essential(d, v, t)?,
+            Some(Page::Effort) => ride_effort(d, ui, v, t)?,
+            Some(Page::Cardio) => ride_cardio(d, ui, v, t)?,
+            Some(Page::Essential) | None => ride_essential(d, ui, v, t)?,
         },
         Screen::Paused => paused(d, v, t, "En pause", "chrono arrêté", PAUSED_NOTE)?,
         Screen::Resume => paused(
@@ -346,97 +347,340 @@ fn cell<D: DrawTarget<Color = Rgb565>>(
     Ok(())
 }
 
-/// The big value on top of the ride pages (speed, power), its cell's bottom edge.
-const BIG: i32 = 139;
-/// The rule between the two rows of small cells under it.
-const MID: i32 = 209;
+/// The top of the speed, power and heart rate pages ends here: four small cells under it, in two rows.
+const CELLS: i32 = 170;
 
-/// A small cell under the big value: label style, label, value, the value's smallest slot.
-type Small = (Style, &'static str, Fmt, &'static str);
+/// A small cell under the top: label style, label, value, the value's smallest slot, and a zone badge after the
+/// value (zone, how many zones).
+type Small = (Style, &'static str, Fmt, &'static str, Option<(u8, u8)>);
 
-/// The big value on top (its label, value and smallest slot), then four cells in two rows.
-fn big_and_four<D: DrawTarget<Color = Rgb565>>(
-    d: &mut D,
-    t: &Theme,
-    (label, big, min): (&str, &str, &str),
-    cells: &[Small; 4],
-) -> Result<(), D::Error> {
-    cell(
-        d,
-        rect(0, TOP + 1, W - 1, BIG - 1),
-        (&t.label(&fonts::LABEL), label),
-        (&t.style(&fonts::HUGE), big, min),
-        16,
-    )?;
-    hline(d, BIG, t)?;
-    hline(d, MID, t)?;
-    vline(d, W / 2 - 1, BIG + 1, BOTTOM - 1, t)?;
+/// The four small cells under the top of a page, two rows.
+fn four<D: DrawTarget<Color = Rgb565>>(d: &mut D, t: &Theme, cells: &[Small; 4]) -> Result<(), D::Error> {
+    let mid = (CELLS + BOTTOM) / 2;
+    hline(d, CELLS, t)?;
+    hline(d, mid, t)?;
+    vline(d, W / 2 - 1, CELLS + 1, BOTTOM - 1, t)?;
     let value = t.style(&fonts::VALUE);
-    for (i, (label, text, val, min)) in cells.iter().enumerate() {
-        let (y0, y1) = if i < 2 {
-            (BIG + 1, MID - 1)
-        } else {
-            (MID + 1, BOTTOM - 1)
+    for (i, (label, text, val, min, zone)) in cells.iter().enumerate() {
+        let (y0, y1) = if i < 2 { (CELLS + 1, mid - 1) } else { (mid + 1, BOTTOM - 1) };
+        let (x0, x1) = if i % 2 == 0 { (0, W / 2 - 2) } else { (W / 2, W - 1) };
+        let Some((z, count)) = *zone else {
+            cell(d, rect(x0, y0, x1, y1), (label, text), (&value, val.as_str(), min), 8)?;
+            continue;
         };
-        let (x0, x1) = if i % 2 == 0 {
-            (0, W / 2 - 2)
-        } else {
-            (W / 2, W - 1)
-        };
-        cell(
-            d,
-            rect(x0, y0, x1, y1),
-            (label, text),
-            (&value, val.as_str(), min),
-            8,
-        )?;
+        // the value moved left by half the badge
+        let cx = (x0 + x1) / 2;
+        let (lc, vc) = (label.font.cap as i32, value.font.cap as i32);
+        let top = y0 + (y1 - y0 + 1 - (lc + 8 + vc) + 1) / 2;
+        fonts::text(d, label, text, cx, top + lc / 2, Align::Center)?;
+        let vy = top + lc + 8 + vc / 2;
+        let half = fonts::VALUE.width(min, 0) / 2;
+        fonts::value(d, &value, val.as_str(), min, cx - 15, vy, Align::Center)?;
+        badge(d, z, count, cx - 15 + half + 5, vy)?;
     }
     Ok(())
 }
 
-/// Page Essential: speed, then time, distance, D+ and heart rate (else the average speed).
+/// "Z3" in the zone's colour, from `x`, centred on `cy`.
+fn badge<D: DrawTarget<Color = Rgb565>>(d: &mut D, zone: u8, count: u8, x: i32, cy: i32) -> Result<(), D::Error> {
+    let (bg, fg) = zone_colour(zone, count);
+    let r = rect(x, cy - 9, x + 25, cy + 8);
+    RoundedRectangle::with_equal_corners(r, Size::new(3, 3))
+        .into_styled(PrimitiveStyle::with_fill(bg))
+        .draw(d)?;
+    let z = Fmt::new(format_args!("Z{zone}"));
+    fonts::text(d, &Style::new(&fonts::NOTE_BOLD, fg, bg), z.as_str(), x + 13, cy, Align::Center)?;
+    Ok(())
+}
+
+/// The zone colours, grey to purple, and the text on each.
+const ZONES: [(Rgb565, Rgb565); 7] = {
+    let (light, dark) = (rgb(0xFFFFFF), rgb(0x111111));
+    [
+        (rgb(0x8E969E), light),
+        (rgb(0x2F7BE8), light),
+        (rgb(0x1F9A47), light),
+        (rgb(0xF2B705), dark),
+        (rgb(0xF57C00), dark),
+        (rgb(0xD92B2B), light),
+        (rgb(0x7C3AAD), light),
+    ]
+};
+
+/// The colour of `zone` (1 the first) of `count`: 7 zones take them all, fewer leave some out (6: no purple, 5: no
+/// yellow either...).
+fn zone_colour(zone: u8, count: u8) -> (Rgb565, Rgb565) {
+    const PICK: [&[usize]; 6] = [
+        &[2, 5],
+        &[2, 3, 5],
+        &[0, 2, 4, 5],
+        &[0, 1, 2, 4, 5],
+        &[0, 1, 2, 3, 4, 5],
+        &[0, 1, 2, 3, 4, 5, 6],
+    ];
+    let pick = PICK[(count.clamp(2, 7) - 2) as usize];
+    ZONES[pick[(zone.max(1) as usize - 1).min(pick.len() - 1)]]
+}
+
+/// The speed gauge's full scale: the arc is full from 50 km/h.
+const GAUGE_MM_S: u32 = 13_889;
+
+/// The speed gauge: an arc from 0 to [`GAUGE_MM_S`], the speed in the `me` colour over the track, a radial tick at
+/// the average; ends rounded, edges anti-aliased.
+fn gauge<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    t: &Theme,
+    speed: Option<u32>,
+    avg: Option<u32>,
+) -> Result<(), D::Error> {
+    const CX: f32 = 120.0;
+    const CY: f32 = 136.0;
+    const R: f32 = 72.0;
+    // half the arc's width, half the tick's length and width
+    const HALF: f32 = 5.0;
+    const TICK: f32 = 9.0;
+    const TICK_HALF: f32 = 1.5;
+    // from the left, clockwise, degrees
+    const START: f32 = 200.0;
+    const SWEEP: f32 = 220.0;
+    let deg = |v: u32| SWEEP * (v as f32 / GAUGE_MM_S as f32).min(1.0);
+    let fill = speed.filter(|&s| s > 0).map(deg);
+    let tick = avg.map(deg);
+    // the centre of the arc's end at `along` degrees from its start
+    let end = |along: f32| {
+        let a = (START - along).to_radians();
+        (CX + R * libm::cosf(a), CY - R * libm::sinf(a))
+    };
+    let cover = |v: f32| v.clamp(0.0, 1.0);
+    // an arc from the start to `sweep`, at a pixel `dist` from the centre, `along` degrees from the start
+    let band = |sweep: f32, (px, py): (f32, f32), dist: f32, along: f32| {
+        if along <= sweep {
+            return cover(HALF + 0.5 - libm::fabsf(dist - R));
+        }
+        let cap = |(ex, ey): (f32, f32)| cover(HALF + 0.5 - libm::sqrtf((px - ex) * (px - ex) + (py - ey) * (py - ey)));
+        cap(end(0.0)).max(cap(end(sweep)))
+    };
+    let alpha = |c: f32| (c * 15.0 + 0.5) as u8;
+    let reach = R + TICK + 1.0;
+    let hole = R - TICK - 1.0;
+    for y in (CY - reach) as i32..=(CY + reach) as i32 {
+        let dy = y as f32 + 0.5 - CY;
+        let span = reach * reach - dy * dy;
+        if span < 0.0 {
+            continue;
+        }
+        let half = libm::sqrtf(span);
+        for x in (CX - half) as i32..=(CX + half) as i32 {
+            let dx = x as f32 + 0.5 - CX;
+            let dist2 = dx * dx + dy * dy;
+            if dist2 < hole * hole || dist2 > reach * reach {
+                continue;
+            }
+            let dist = libm::sqrtf(dist2);
+            let p = (x as f32 + 0.5, y as f32 + 0.5);
+            // atan2 is in -180..180: START - it in 20..380
+            let along = START - libm::atan2f(-dy, dx).to_degrees();
+            let along = if along >= 360.0 { along - 360.0 } else { along };
+            let track = band(SWEEP, p, dist, along);
+            let speed = fill.map_or(0.0, |f| band(f, p, dist, along));
+            let mark = tick.map_or(0.0, |a| {
+                let across = dist * libm::sinf((along - a).to_radians());
+                cover(TICK_HALF + 0.5 - libm::fabsf(across)) * cover(TICK + 0.5 - libm::fabsf(dist - R))
+                    * if libm::fabsf(along - a) < 90.0 { 1.0 } else { 0.0 }
+            });
+            if track + speed + mark == 0.0 {
+                continue;
+            }
+            let c = fonts::blend(t.bg, t.profile, alpha(track));
+            let c = fonts::blend(c, t.me, alpha(speed));
+            let c = fonts::blend(c, t.fg, alpha(mark));
+            Pixel(Point::new(x, y), c).draw(d)?;
+        }
+    }
+    Ok(())
+}
+
+/// A big value and its unit after it, the pair centred, on one baseline; `cy` the value's capitals' centre.
+fn value_unit<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    (value, v): (&Style, &str),
+    (unit, u): (&Style, &str),
+    cy: i32,
+) -> Result<(), D::Error> {
+    const GAP: i32 = 6;
+    let (wv, wu) = (value.font.width(v, 0), unit.font.width(u, 0));
+    let x0 = W / 2 - (wv + GAP + wu) / 2;
+    fonts::text(d, value, v, x0, cy, Align::Left)?;
+    let baseline = cy + (value.font.cap as i32 + 1) / 2;
+    fonts::text(d, unit, u, x0 + wv + GAP, baseline - (unit.font.cap as i32 + 1) / 2, Align::Left)?;
+    Ok(())
+}
+
+/// What the top of the power and heart rate pages shows: label, value, unit, the reference ("FTP", "FC MAX"), and
+/// the hint when the reference is not set.
+struct Top {
+    label: &'static str,
+    value: Option<u16>,
+    unit: &'static str,
+    reference: (&'static str, u16),
+    zones: crate::Zones,
+    zone: Option<u8>,
+    hint: &'static str,
+}
+
+/// The top of the power and heart rate pages: in the colour of the zone, its number and range, the percentage of
+/// the reference, the value, a ruler of the zones; without a zone, the value alone on the page's background.
+fn zone_top<D: DrawTarget<Color = Rgb565>>(d: &mut D, t: &Theme, top: &Top) -> Result<(), D::Error> {
+    let v = int(top.value);
+    let (name, reference) = top.reference;
+    let unit_font = &fonts::HEADING_SMALL;
+    let (Some(z), Some(value)) = (top.zone, top.value) else {
+        fonts::text(d, &t.label(&fonts::LABEL), top.label, W / 2, 52, Align::Center)?;
+        value_unit(d, (&t.style(&fonts::HUGE), v.as_str()), (&t.style(unit_font), top.unit), 106)?;
+        if reference == 0 {
+            fonts::text(d, &t.mute(&fonts::NOTE), top.hint, W / 2, 156, Align::Center)?;
+        }
+        return Ok(());
+    };
+    let count = top.zones.count();
+    let (bg, fg) = zone_colour(z, count);
+    fill(d, rect(0, TOP + 1, W - 1, CELLS - 1), bg)?;
+    let on = |font: &'static Font| Style::new(font, fg, bg);
+    let zone = Fmt::new(format_args!("Z{z}"));
+    fonts::text(d, &on(&fonts::TITLE), zone.as_str(), MARGIN, 50, Align::Left)?;
+    // the zone's range: "< 127", "208–241", "> 345"
+    let unit = if top.unit == "W" { "W" } else { "BPM" };
+    let range = match (z.checked_sub(1).and_then(|p| top.zones.top(p, reference)), top.zones.top(z, reference)) {
+        (None, Some(hi)) => Fmt::new(format_args!("< {} {unit}", hi + 1)),
+        (Some(lo), Some(hi)) => Fmt::new(format_args!("{}–{hi} {unit}", lo + 1)),
+        (Some(lo), None) => Fmt::new(format_args!("> {lo} {unit}")),
+        (None, None) => Fmt::new(format_args!("")),
+    };
+    fonts::text(d, &on(&fonts::LABEL_SMALL).spaced(60), range.as_str(), MARGIN, 74, Align::Left)?;
+    fonts::text(d, &on(&fonts::LABEL_SMALL).spaced(60), top.label, W - MARGIN, 44, Align::Right)?;
+    let pct = Fmt::new(format_args!("{} % {name}", value as u32 * 100 / reference as u32));
+    fonts::text(d, &on(&fonts::HEADING_SMALL), pct.as_str(), W - MARGIN, 64, Align::Right)?;
+    value_unit(d, (&on(&fonts::HUGE), v.as_str()), (&on(unit_font), top.unit), 116)?;
+    // the ruler: a segment a zone, this one filled
+    let (x0, x1, gap) = (MARGIN, W - MARGIN, 2);
+    let n = count as i32;
+    let off = fonts::blend(bg, fg, 5);
+    for i in 0..n {
+        let a = x0 + (x1 - x0 + gap) * i / n;
+        let b = x0 + (x1 - x0 + gap) * (i + 1) / n - gap;
+        fill(d, rect(a, 155, b - 1, 162), if i + 1 == z as i32 { fg } else { off })?;
+    }
+    Ok(())
+}
+
+/// Whether the role has a sensor paired.
+fn paired(v: &View, role: Role) -> bool {
+    v.sensors.roles[Role::ALL.iter().position(|&r| r == role).unwrap_or(0)].name.is_some()
+}
+
+/// The heart rate cell, with its zone badge.
+fn heart_cell(ui: &Ui, v: &View, t: &Theme) -> Small {
+    let zone = ui.hr_zone().map(|z| (z, v.hr_zones.count()));
+    (t.label(&fonts::LABEL_SMALL), "FC BPM", int(v.heart_rate), "000", zone)
+}
+
+/// Page Essential: the speed on a gauge, the average and max speeds in the corners, then time, distance, D+ and
+/// heart rate (else cadence, else the time since the start).
 fn ride_essential<D: DrawTarget<Color = Rgb565>>(
     d: &mut D,
+    ui: &Ui,
     v: &View,
     t: &Theme,
 ) -> Result<(), D::Error> {
+    let avg = v.ride.avg_speed_mm_s();
+    gauge(d, t, v.speed_mm_s, avg)?;
+    // the average marked as on the gauge, the max
     let small = t.label(&fonts::LABEL_SMALL);
-    let last = match v.heart_rate {
-        Some(hr) => (small, "FC BPM", int(Some(hr)), "000"),
-        // no heart rate: the average speed takes its place, its label in the text colour like the prototype
-        None => (
-            small.colored(t.fg),
-            "MOYENNE KM/H",
-            kmh(v.ride.avg_speed_mm_s()),
-            SPEED,
-        ),
+    let corner = t.style(&fonts::HEADING);
+    fill(d, rect(MARGIN, 38, MARGIN + 2, 47), t.fg)?;
+    fonts::text(d, &small, "MOY.", MARGIN + 7, 43, Align::Left)?;
+    fonts::text(d, &corner, kmh(avg).as_str(), MARGIN, 62, Align::Left)?;
+    fonts::text(d, &small, "MAX.", W - MARGIN, 43, Align::Right)?;
+    let max = (v.ride.max_speed_mm_s > 0).then_some(v.ride.max_speed_mm_s);
+    fonts::text(d, &corner, kmh(max).as_str(), W - MARGIN, 62, Align::Right)?;
+    fonts::text(d, &t.label(&fonts::LABEL_SMALL).colored(t.me), "VITESSE KM/H", W / 2, 94, Align::Center)?;
+    fonts::value(d, &t.style(&fonts::SPEED), kmh(v.speed_mm_s).as_str(), SPEED, W / 2, 129, Align::Center)?;
+    let last = if v.heart_rate.is_some() || paired(v, Role::HeartRate) {
+        heart_cell(ui, v, t)
+    } else if v.cadence_rpm.is_some() || paired(v, Role::SpeedCadence) {
+        (small, "CADENCE", int(v.cadence_rpm), "00", None)
+    } else {
+        (small, "TEMPS TOTAL", duration(v.ride.elapsed_s), "", None)
     };
     let cells = [
-        (small, "DURÉE", duration(v.ride.timer_s), ""),
-        (small, "DISTANCE KM", km(v.ride.distance_cm), "00,0"),
-        (small, "D+ M", int(Some(v.ride.ascent_m)), "000"),
+        (small, "DURÉE", duration(v.ride.timer_s), "", None),
+        (small, "DISTANCE KM", km(v.ride.distance_cm), "00,0", None),
+        (small, "D+ M", int(Some(v.ride.ascent_m)), "000", None),
         last,
     ];
-    big_and_four(d, t, ("VITESSE KM/H", kmh(v.speed_mm_s).as_str(), SPEED), &cells)
+    four(d, t, &cells)
 }
 
-/// Page Effort (docs/PRODUCT.md), with a power meter paired: 3 s power big, then by priority average power, heart
-/// rate, cadence, speed, time. What shows follows the sensors paired, not their values: a sensor lost keeps its cell
-/// with "–", the layout never moves.
-fn ride_effort<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result<(), D::Error> {
-    let hr = v.sensors.roles[Role::ALL.iter().position(|&r| r == Role::HeartRate).unwrap_or(0)].name.is_some();
+/// Page Effort (docs/PRODUCT.md), with a power meter paired: 3 s power big in the colour of its zone, then by
+/// priority average power, heart rate, cadence, speed, time. What shows follows the sensors paired, not their
+/// values: a sensor lost keeps its cell with "–", the layout never moves.
+fn ride_effort<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) -> Result<(), D::Error> {
     let small = t.label(&fonts::LABEL_SMALL);
     let candidates = [
-        Some((small, "MOY. W", int(v.ride.avg_power_w), "000")),
-        hr.then(|| (small, "FC BPM", int(v.heart_rate), "000")),
+        Some((small, "MOY. W", int(v.ride.avg_power_w), "000", None)),
+        paired(v, Role::HeartRate).then(|| heart_cell(ui, v, t)),
         // from the power meter, else a cadence sensor
-        Some((small, "CADENCE", int(v.cadence_rpm), "00")),
-        Some((small, "VITESSE KM/H", kmh(v.speed_mm_s), SPEED)),
-        Some((small, "DURÉE", duration(v.ride.timer_s), "")),
+        Some((small, "CADENCE", int(v.cadence_rpm), "00", None)),
+        Some((small, "VITESSE KM/H", kmh(v.speed_mm_s), SPEED, None)),
+        Some((small, "DURÉE", duration(v.ride.timer_s), "", None)),
     ];
     let mut shown = candidates.into_iter().flatten();
-    let cells = core::array::from_fn(|_| shown.next().unwrap_or((small, "", Fmt::new(format_args!("")), "")));
-    big_and_four(d, t, ("PUISSANCE 3 S · W", int(v.power_3s_w).as_str(), "000"), &cells)
+    let cells = core::array::from_fn(|_| shown.next().unwrap_or((small, "", Fmt::new(format_args!("")), "", None)));
+    zone_top(
+        d,
+        t,
+        &Top {
+            label: "PUISSANCE 3 S",
+            value: v.power_3s_w,
+            unit: "W",
+            reference: ("FTP", v.ftp_w),
+            zones: v.power_zones,
+            zone: ui.power_zone(),
+            hint: "Zones : régler la FTP dans l'appli",
+        },
+    )?;
+    four(d, t, &cells)
+}
+
+/// Page Cardio, with a heart rate sensor and no power meter: the heart rate big in the colour of its zone, then
+/// its average and max over the ride, speed, and cadence with a cadence sensor, else time.
+fn ride_cardio<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) -> Result<(), D::Error> {
+    let small = t.label(&fonts::LABEL_SMALL);
+    let last = if paired(v, Role::SpeedCadence) {
+        (small, "CADENCE", int(v.cadence_rpm), "00", None)
+    } else {
+        (small, "DURÉE", duration(v.ride.timer_s), "", None)
+    };
+    let cells = [
+        (small, "MOY. BPM", int(v.ride.avg_heart_rate), "000", None),
+        (small, "MAX. BPM", int(v.ride.max_heart_rate), "000", None),
+        (small, "VITESSE KM/H", kmh(v.speed_mm_s), SPEED, None),
+        last,
+    ];
+    zone_top(
+        d,
+        t,
+        &Top {
+            label: "FRÉQ. CARDIAQUE",
+            value: v.heart_rate.map(u16::from),
+            unit: "bpm",
+            reference: ("FC MAX", v.hr_max),
+            zones: v.hr_zones,
+            zone: ui.hr_zone(),
+            hint: "Zones : régler la FC max dans l'appli",
+        },
+    )?;
+    four(d, t, &cells)
 }
 
 /// Page Altitude: altitude, then gradient, D+ and climbing speed, then the last 5 km.

@@ -265,6 +265,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut rides_view = ui::RidesView::default();
     // the ride's switch to a point every 5 s, told once
     let mut sparse_told = false;
+    let mut effort_pick = ui::EffortPick::default();
     // the blocks the test hook's filler file leaves free (`storage fill`), while it is written
     let mut fill_left: Option<usize> = None;
     // the free space, for the hours of riding left on the home screen: read again now and then
@@ -670,8 +671,8 @@ async fn main(spawner: Spawner) -> ! {
         view.route_set_aside = route.is_none() && route_data.is_some();
         route_shown = (view.route, view.route_set_aside);
         let s = settings();
-        // the Effort page with a power meter paired (the heart rate alone is on Essential)
-        let effort = s.power != settings::Sensor::None;
+        // the Effort page with a power meter connected, else Cardio with a heart rate sensor
+        let effort = effort_pick.update(ride_info.is_some(), &view.sensors, Instant::now().as_millis());
         // Climbs in place of Altitude when the route has climbs (a route of version 1 has none)
         let climbs = route.as_ref().is_some_and(|r| r.climbs().len() > 0);
         ui.set_context(route.is_some(), climbs, s.usage == settings::Usage::Train, effort);
@@ -1823,7 +1824,7 @@ fn map_for(route_file: Option<&[u8]>) -> Option<route::map::Map<'static>> {
 fn bench_map(fb: &mut FrameBuffer, r: &route::Route<'_>, m: Option<&route::map::Map<'_>>, view: &ui::View) {
     let p = r.points().nth(r.info.count as usize / 3).unwrap();
     let mut ui = ui::Ui::new();
-    ui.set_context(true, false, false, false);
+    ui.set_context(true, false, false, ui::Effort::None);
     let mut v = *view;
     v.route = Some(ui::RouteView {
         name: ui::fonts::Line::new(format_args!("{}", r.name())),
@@ -1891,6 +1892,7 @@ struct RideInfo {
     max_speed_mm_s: u32,
     avg_power_w: Option<u16>,
     avg_heart_rate: Option<u8>,
+    max_heart_rate: Option<u8>,
     /// Altitude along the ride (gradient, profiles).
     history: ui::history::History,
     /// The ride is no longer written.
@@ -2439,6 +2441,7 @@ impl Ride {
             max_speed_mm_s: t.max_speed_mm_s,
             avg_power_w: self.recorder.summary().avg_power_w(),
             avg_heart_rate: self.recorder.summary().avg_heart_rate(),
+            max_heart_rate: self.recorder.summary().max_heart_rate(),
             history: self.history,
             failure: self.failure.map(|(_, why)| why),
             sparse: self.recorder.interval_s() > 1,
@@ -2562,6 +2565,10 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
             a.get(now)
         }),
         wheel_speed_mm_s: sensors.speed_mm_s,
+        ftp_w: settings().ftp_w,
+        hr_max: settings().hr_max,
+        power_zones: settings().power_zones,
+        hr_zones: settings().hr_zones,
         sensors: sensors_view(),
         ride: ui::RideView {
             timer_s: ride.timer_s,
@@ -2572,6 +2579,7 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
             max_speed_mm_s: ride.max_speed_mm_s,
             avg_power_w: ride.avg_power_w,
             avg_heart_rate: ride.avg_heart_rate,
+            max_heart_rate: ride.max_heart_rate,
         },
         recent: ride.history.recent(),
         whole: ride.history.whole(),

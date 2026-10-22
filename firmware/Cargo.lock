@@ -1887,7 +1887,7 @@ dependencies = [
 [[package]]
 name = "protocol-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=8d1ba93275e3cb6955662efac8131e8dda2ba0c9#8d1ba93275e3cb6955662efac8131e8dda2ba0c9"
+source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
 
 [[package]]
 name = "quote"
@@ -2035,7 +2035,7 @@ dependencies = [
 [[package]]
 name = "route-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=8d1ba93275e3cb6955662efac8131e8dda2ba0c9#8d1ba93275e3cb6955662efac8131e8dda2ba0c9"
+source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
 
 [[package]]
 name = "rustc-hash"
@@ -2135,7 +2135,7 @@ dependencies = [
 [[package]]
 name = "settings-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=8d1ba93275e3cb6955662efac8131e8dda2ba0c9#8d1ba93275e3cb6955662efac8131e8dda2ba0c9"
+source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
 
 [[package]]
 name = "sha2"
@@ -2452,6 +2452,7 @@ dependencies = [
  "embedded-graphics",
  "libm",
  "route-cc600",
+ "settings-cc600",
 ]
 
 [[package]]

@@ -200,7 +200,7 @@ dependencies = [
 [[package]]
 name = "climbs"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=8d1ba93275e3cb6955662efac8131e8dda2ba0c9#8d1ba93275e3cb6955662efac8131e8dda2ba0c9"
+source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
 dependencies = [
  "track",
 ]
@@ -710,7 +710,7 @@ dependencies = [
 [[package]]
 name = "protocol-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=8d1ba93275e3cb6955662efac8131e8dda2ba0c9#8d1ba93275e3cb6955662efac8131e8dda2ba0c9"
+source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
 
 [[package]]
 name = "quick-error"
@@ -808,7 +808,7 @@ dependencies = [
 [[package]]
 name = "route-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=8d1ba93275e3cb6955662efac8131e8dda2ba0c9#8d1ba93275e3cb6955662efac8131e8dda2ba0c9"
+source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
 dependencies = [
  "climbs",
  "libm",
@@ -914,7 +914,7 @@ dependencies = [
 [[package]]
 name = "settings-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=8d1ba93275e3cb6955662efac8131e8dda2ba0c9#8d1ba93275e3cb6955662efac8131e8dda2ba0c9"
+source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
 
 [[package]]
 name = "shlex"
@@ -1014,7 +1014,7 @@ dependencies = [
 [[package]]
 name = "track"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=8d1ba93275e3cb6955662efac8131e8dda2ba0c9#8d1ba93275e3cb6955662efac8131e8dda2ba0c9"
+source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
 
 [[package]]
 name = "typenum"
@@ -1030,6 +1030,7 @@ dependencies = [
  "libm",
  "png",
  "route-cc600",
+ "settings-cc600",
 ]
 
 [[package]]

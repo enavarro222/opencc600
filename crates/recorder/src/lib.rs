@@ -73,6 +73,7 @@ pub struct Summary {
     /// rates.
     power: (u64, u32),
     heart_rate: (u64, u32),
+    max_heart_rate: u8,
     pub records: u32,
 }
 
@@ -107,6 +108,7 @@ impl Summary {
         }
         if let Some(bpm) = r.heart_rate {
             self.heart_rate = (self.heart_rate.0 + bpm as u64, self.heart_rate.1 + 1);
+            self.max_heart_rate = self.max_heart_rate.max(bpm);
         }
         if let Some(pa) = r.pressure_pa {
             let alt = altitude::pressure_altitude_dm(pa);
@@ -149,6 +151,11 @@ impl Summary {
     pub fn avg_heart_rate(&self) -> Option<u8> {
         let (sum, n) = self.heart_rate;
         (n > 0).then(|| ((sum + n as u64 / 2) / n as u64) as u8)
+    }
+
+    /// Highest heart rate recorded, bpm.
+    pub fn max_heart_rate(&self) -> Option<u8> {
+        (self.heart_rate.1 > 0).then_some(self.max_heart_rate)
     }
 
     pub fn totals(&self) -> Totals {

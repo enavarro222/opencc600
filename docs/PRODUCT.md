@@ -95,16 +95,30 @@ kept in step with `crates/ui`.
 
 ## Ride pages: chosen for the rider, not built by the rider
 No page editor. The app asks **one question** ("explore" or "train"); the device sees the rest when a ride starts
-(route loaded, power meter paired) and picks the pages (`ui::pages`):
+(route loaded, power meter or heart rate sensor connected) and picks the pages (`ui::pages`):
 
 | Usage | With route | Without route |
 |---|---|---|
 | Explore | Map · Essential · Climbs or Altitude (· Effort) | Essential · Altitude (· Effort) |
 | Train | (Effort ·) Essential · Map · Climbs or Altitude | (Effort ·) Essential · Altitude |
 
-- **Essential**: speed (big), time, distance, D+, heart rate if paired (else average speed).
+Effort is the power page with a power meter connected, else the Cardio page with a heart rate sensor connected
+(`ui::EffortPick`): a power meter off at the start leaves Cardio. In the first 5 minutes of a ride (or after a
+sensor is paired), a sensor that connects brings its page, Effort in place of Cardio; later, a sensor lost keeps
+its page with "–".
+
+- **Essential**: speed (big) on a gauge from 0 to 50 km/h with a tick at the average, average and max speeds in
+  the corners, time, distance, D+, heart rate with its zone if paired (else cadence, else the time since the
+  start).
 - **Altitude**: altitude, gradient (last 40 m), D+, climbing speed (VAM), the last 5 km.
-- **Effort** (a power meter paired): 3 s power (big), average power, heart rate, cadence, speed, time.
+- **Effort** (a power meter paired): 3 s power (big), average power, heart rate, cadence, speed, time. The top
+  takes the colour of the power zone: its number and range, % FTP, a ruler of the zones.
+- **Cardio** (a heart rate sensor, no power meter): heart rate (big) in the colour of its zone, % of the max heart
+  rate, then average and max heart rate, speed, cadence or time.
+- **Zones**: `ftp` and `hr_max` (0 by default: not set, no zones, the page says to set them in the app), and the
+  bounds of the zones in % of them, `power_zones` (Coggan's 7 by default) and `hr_zones` (5 by default); 2 to 7
+  zones, coloured grey to purple. A zone shows once the value has stayed 3 s in it (no flicker at a bound). No FTP
+  or max heart rate is guessed: a wrong one gives wrong zones.
 - **Map** (a route): turned to the heading, the part done in grey, remaining distance and speed; zooms with a
   scale bar of 250 m to 2 km, then the whole route.
 - **Climbs** (a route with climbs, in place of Altitude): altitude, gradient and D+ on top, then the last climb

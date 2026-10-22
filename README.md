@@ -29,14 +29,15 @@ No page editor: the device picks the pages from what it sees at the start (route
 "explore" or "train"). Large anti-aliased figures (Barlow Condensed), a layout that never moves during a ride,
 distances under 1 km in metres, auto-scroll, a night theme.
 
-| Essential | Altitude | Effort (power meter) | Night |
-|:-:|:-:|:-:|:-:|
-| ![Essential page](docs/screens/ride-page1.png) | ![Altitude page](docs/screens/ride-page2.png) | ![Effort page](docs/screens/effort-power.png) | ![Night theme](docs/screens/ride-page1-night.png) |
+| Essential | Altitude | Effort (power meter) | Cardio (heart rate only) | Night |
+|:-:|:-:|:-:|:-:|:-:|
+| ![Essential page](docs/screens/ride-page1.png) | ![Altitude page](docs/screens/ride-page2.png) | ![Effort page](docs/screens/effort-power.png) | ![Cardio page](docs/screens/effort-cardio.png) | ![Night theme](docs/screens/ride-page1-night.png) |
 
 - **Barometric altitude and D+**: the barometer's bias calibrated on the GNSS with a Kalman filter, D+ from the
   pressure only (pressure spikes rejected), gradient over the last 40 m, climbing speed, the last 5 km profile
   ([docs/ALTITUDE.md](docs/ALTITUDE.md)).
-- **Effort**: 3 s power, ride averages, heart rate, cadence.
+- **Effort**: 3 s power in the colour of its zone (FTP and zones set from the app), ride averages, heart rate with
+  its zone, cadence; with a heart rate sensor only, the same page for the heart rate.
 
 ### Route, map and climbs
 A GPX route sent from Musette over BLE (or over USB), the climbs found by the app when it builds the route.
