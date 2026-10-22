@@ -132,8 +132,14 @@ async fn main(spawner: Spawner) -> ! {
     let mut panel = Panel::new(bus, dma_buf);
     info!("panel initialised");
 
+    // Which device we are: CC600 or CC700 from the vendor's factory data (only read), the Bluetooth name and address
+    // from the MAC address.
+    let mut flash = FlashStorage::new(peripherals.FLASH);
+    let me = identify(&mut flash);
+    info!("device: {:?}, Bluetooth name {}", me.model, me.name.as_str());
+
     // Storage: our littlefs partition, formatted here only if blank (tools/flash.py erases the vendor's).
-    let mut partition = storage::Partition::new(FlashStorage::new(peripherals.FLASH));
+    let mut partition = storage::Partition::new(flash);
     let mut alloc = Box::new(Allocation::new());
     let fs = match storage::open(&mut alloc, &mut partition) {
         Ok((fs, formatted)) => {
@@ -193,11 +199,12 @@ async fn main(spawner: Spawner) -> ! {
     // Test hook: key presses typed on the USB serial port (esp-println keeps writing the log on the TX side).
     let (usb_rx, _usb_tx) = UsbSerialJtag::new(peripherals.USB_DEVICE).split();
     spawner.spawn(usb_keys(usb_rx).unwrap());
-    spawner.spawn(ble_task(peripherals.BT).unwrap());
+    spawner.spawn(ble_task(peripherals.BT, me).unwrap());
 
     // the logo until the first screen (the backlight comes on next)
     let mut fb = FrameBuffer::new();
     let mut splash = ui::Ui::new();
+    splash.set_identity(me.model.name(), me.name.as_str());
     splash.show_splash();
     let _ = ui::draw(&mut fb, &splash, &ui::View::default(), None, None, &theme());
     panel.flush(&fb);
@@ -244,6 +251,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut scan_sent: Option<Instant> = None;
     let mut last_power_on = Instant::now();
     let mut ui = ui::Ui::new();
+    ui.set_identity(me.model.name(), me.name.as_str());
     ui.set_scroll_s(settings().scroll_s);
     ui.set_auto_off_min(settings().auto_off_min);
     let mut ride: Option<Box<Ride>> = None;
@@ -389,11 +397,15 @@ async fn main(spawner: Spawner) -> ! {
         view.rides = rides_view;
         // the automatic power off asked by the last tick
         let mut commands: Vec<ui::Command> = auto_off.take().into_iter().collect();
-        // the logo until the nRF's sensor stream shows up (at least 1.5 s), or is known missing
+        // the logo until the nRF's sensor stream shows up (at least 1.5 s), or is known missing; then, without it, until
+        // the charger's state is known (the nRF sends it ~5 s after a cold start): straight to the charging screen
+        // when plugged in, not through the home screen
         if ui.screen() == ui::Screen::Splash {
             let up_ms = Instant::now().as_millis();
             let stream = STREAM_AT.lock(Cell::get).is_some();
-            if (up_ms >= 1_500 && stream) || up_ms >= 3_500 {
+            let charger_known = STATUS.lock(Cell::get).charger.is_some();
+            if (up_ms >= 1_500 && stream) || (up_ms >= 3_500 && charger_known) || up_ms >= 8_000 {
+                info!("splash: done at {up_ms} ms, stream {stream}, charger {:?}", STATUS.lock(Cell::get).charger);
                 ui.end_splash();
             }
         }
@@ -786,7 +798,7 @@ fn sim_fix_active() -> bool {
     SIM_FIX_AT.lock(Cell::get).is_some_and(|t| t.elapsed() < SIM_FIX_HOLD)
 }
 static NRF_KEYS: Channel<CriticalSectionRawMutex, (u8, KeyAction), 8> = Channel::new();
-/// The last frame of the nRF's sensor stream (barometer, clock): it only starts on the nRF's own power-on gesture
+/// The last barometer frame of the nRF's sensor stream: it only starts on the nRF's own power-on gesture
 /// (a long press of the power key), not when the charger starts the device, nor after a power off.
 static STREAM_AT: Mutex<CriticalSectionRawMutex, Cell<Option<Instant>>> = Mutex::new(Cell::new(None));
 
@@ -864,8 +876,8 @@ async fn nrf_link(uart: UART2<'static>, tx_pin: GPIO42<'static>, rx_pin: GPIO41<
     reason = "the BLE future (~15 KB, the GATT clients' notification queues) built once on the 215 KB main stack, \
     then kept on the heap"
 )]
-async fn ble_task(bt: esp_hal::peripherals::BT<'static>) {
-    Box::pin(ble::run(bt, App::default())).await;
+async fn ble_task(bt: esp_hal::peripherals::BT<'static>, me: &'static identity::Identity) {
+    Box::pin(ble::run(bt, me, App::default())).await;
 }
 
 #[embassy_executor::task]
@@ -914,7 +926,8 @@ async fn nrf_rx(mut rx: UartRx<'static, Async>) -> ! {
                 Message::AntChannel { .. } | Message::AntFound { .. } | Message::AntPage { .. } => {}
                 _ => info!("nrf {msg:?}"),
             }
-            if matches!(msg, Message::Baro { .. } | Message::Rtc(_)) {
+            // the barometer only: on a charger start the nRF still sends one clock frame
+            if matches!(msg, Message::Baro { .. }) {
                 STREAM_AT.lock(|c| c.set(Some(Instant::now())));
             }
             if let Message::Key { key, action } = msg {
@@ -2489,6 +2502,18 @@ impl Ride {
             sparse: self.recorder.interval_s() > 1,
         }
     }
+}
+
+/// The model from the `nvs` partition, the name and BLE address from the MAC address; a CC600 when the partition
+/// cannot be read.
+fn identify(flash: &mut FlashStorage<'_>) -> &'static identity::Identity {
+    static ME: StaticCell<identity::Identity> = StaticCell::new();
+    let mut nvs = alloc::vec![0; identity::NVS_SIZE];
+    if let Err(e) = flash.read(identity::NVS_OFFSET, &mut nvs) {
+        warn!("nvs: not read ({e:?})");
+        nvs.clear();
+    }
+    ME.init(identity::Identity::new(&nvs, esp_hal::efuse::base_mac_address().as_bytes().try_into().unwrap_or([0; 6])))
 }
 
 /// `file_id.serial_number` of the FIT files: the last 4 bytes of the MAC address, unique to the device.

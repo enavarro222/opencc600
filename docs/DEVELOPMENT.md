@@ -22,6 +22,8 @@ tested on a PC with `cargo test`:
   tested on synthetic rides; see [ALTITUDE.md](ALTITUDE.md).
 - [crates/sensors/](../crates/sensors/): BLE GATT measurements and ANT+ pages of the cycling sensors decoded, the
   ANT+ channels kept open, rates from cumulative revolution counts, the power meter's calibration.
+- [crates/identity/](../crates/identity/): which device this is (CC600 or CC700, from the vendor's factory data in the
+  `nvs` partition) and its Bluetooth name and address, from the MAC address (`OpenCC700 AEA8`).
 - [crates/companion/](../crates/companion/): the BLE link with Musette (settings, routes, rides listed, read and
   acknowledged), in the frames of `protocol-cc600`.
 - [crates/ui/](../crates/ui/): screens, what the 3 keys do on each, drawing on the 240x320 panel

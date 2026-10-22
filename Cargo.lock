@@ -200,7 +200,7 @@ dependencies = [
 [[package]]
 name = "climbs"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
+source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
 dependencies = [
  "track",
 ]
@@ -469,6 +469,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "identity"
+version = "0.1.0"
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -710,7 +714,7 @@ dependencies = [
 [[package]]
 name = "protocol-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
+source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
 
 [[package]]
 name = "quick-error"
@@ -808,7 +812,7 @@ dependencies = [
 [[package]]
 name = "route-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
+source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
 dependencies = [
  "climbs",
  "libm",
@@ -914,7 +918,7 @@ dependencies = [
 [[package]]
 name = "settings-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
+source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
 
 [[package]]
 name = "shlex"
@@ -1014,7 +1018,7 @@ dependencies = [
 [[package]]
 name = "track"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
+source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
 
 [[package]]
 name = "typenum"

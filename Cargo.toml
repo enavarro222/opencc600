@@ -14,6 +14,6 @@ version      = "0.1.0"
 # Formats and protocol shared with the companion app Musette (MIT): the only copy of them. While changing them, point
 # at a local clone with a `[patch."https://github.com/enavarro222/musette"]` in an untracked `.cargo/config.toml`.
 [workspace.dependencies]
-protocol-cc600 = { package = "protocol-cc600", git = "https://github.com/enavarro222/musette", rev = "fcf458a6b4192bc2176240dbca30846a7f1fdf40" }
-route          = { package = "route-cc600", git = "https://github.com/enavarro222/musette", rev = "fcf458a6b4192bc2176240dbca30846a7f1fdf40" }
-settings       = { package = "settings-cc600", git = "https://github.com/enavarro222/musette", rev = "fcf458a6b4192bc2176240dbca30846a7f1fdf40" }
+protocol-cc600 = { package = "protocol-cc600", git = "https://github.com/enavarro222/musette", rev = "2d2a801d913f8eb940f353d581f68f13d71ec8ed" }
+route          = { package = "route-cc600", git = "https://github.com/enavarro222/musette", rev = "2d2a801d913f8eb940f353d581f68f13d71ec8ed" }
+settings       = { package = "settings-cc600", git = "https://github.com/enavarro222/musette", rev = "2d2a801d913f8eb940f353d581f68f13d71ec8ed" }

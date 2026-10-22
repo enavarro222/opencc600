@@ -146,7 +146,7 @@ fn targets(p: &Paired) -> Vec<Target, CONNECTIONS_MAX> {
 
 /// Runs the BLE stack: waits for the paired sensors, connects them, scans on request; waits for the companion app,
 /// which asks `device`.
-pub async fn run(bt: BT<'static>, mut device: impl companion::Device) {
+pub async fn run(bt: BT<'static>, me: &'static identity::Identity, mut device: impl companion::Device) {
     let connector = match BleConnector::new(bt, Default::default()) {
         Ok(c) => c,
         Err(e) => {
@@ -156,8 +156,8 @@ pub async fn run(bt: BT<'static>, mut device: impl companion::Device) {
     };
     info!("ble: controller up, heap {}", esp_alloc::HEAP.stats());
     let controller: Ctrl = ExternalController::new(connector);
-    // a static random address (top two bits set), fixed for now
-    let address = Address::random([0x6f, 0xcc, 0x60, 0x00, 0x5c, 0xc6]);
+    // a static random address, from the MAC address: one per device, the same at every boot
+    let address = Address::random(me.ble_address);
     // ~18 KB: static, not in the task's future
     static RESOURCES: StaticCell<HostResources<Ctrl, Pool, LINKS, L2CAP_CHANNELS_MAX>> = StaticCell::new();
     let stack = trouble_host::new(controller, RESOURCES.init(HostResources::new()))
@@ -167,7 +167,7 @@ pub async fn run(bt: BT<'static>, mut device: impl companion::Device) {
     let central = Mutex::<NoopRawMutex, _>::new(Some(stack.central()));
     let mut table = AttributeTable::new();
     let gap = GapConfig::Peripheral(PeripheralConfig {
-        name: NAME,
+        name: me.name.as_str(),
         appearance: &appearance::cycling::CYCLING_COMPUTER,
     });
     if let Err(e) = gap.build(&mut table) {
@@ -181,7 +181,7 @@ pub async fn run(bt: BT<'static>, mut device: impl companion::Device) {
             warn!("ble: host stopped: {e:?}");
         }
     };
-    let _ = join3(host, app(&stack, &server, &rx, &tx, &mut device), async {
+    let _ = join3(host, app(&stack, &server, &rx, &tx, me.name.as_str(), &mut device), async {
         let mut paired = Paired::default();
         loop {
             let t = targets(&paired);
@@ -673,8 +673,6 @@ impl EventHandler for Seen {
     }
 }
 
-/// Our name: the app looks for devices whose name starts with `protocol_cc600::ble::NAME_PREFIX`.
-const NAME: &str = "CC600 OpenCC600";
 /// Largest write of the app (an ATT MTU of 517, as Chrome asks) and largest notification.
 const ATT_VALUE_MAX: usize = 512;
 /// Advertising interval while waiting for the app: slow, the radio is shared with the sensors (and may disturb the
@@ -725,6 +723,7 @@ async fn app(
     server: &Server<'_>,
     rx: &Characteristic<Value>,
     tx: &Characteristic<Value>,
+    name: &str,
     device: &mut impl companion::Device,
 ) {
     let mut session = Session::new();
@@ -741,7 +740,7 @@ async fn app(
     .unwrap_or(0);
     let mut scan_data = [0; 31];
     let scan_len =
-        AdStructure::encode_slice(&[AdStructure::CompleteLocalName(NAME.as_bytes())], &mut scan_data).unwrap_or(0);
+        AdStructure::encode_slice(&[AdStructure::CompleteLocalName(name.as_bytes())], &mut scan_data).unwrap_or(0);
     let params = AdvertisementParameters { interval_min: ADVERTISE, interval_max: ADVERTISE, ..Default::default() };
     loop {
         let advertised = peripheral

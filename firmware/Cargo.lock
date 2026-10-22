@@ -1484,6 +1484,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9e0384b61958566e926dc50660321d12159025e767c18e043daf26b70104c39"
 
 [[package]]
+name = "identity"
+version = "0.1.0"
+
+[[package]]
 name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1804,6 +1808,7 @@ dependencies = [
  "fit",
  "gnss",
  "heapless 0.9.3",
+ "identity",
  "littlefs2",
  "log",
  "nrf-link",
@@ -1887,7 +1892,7 @@ dependencies = [
 [[package]]
 name = "protocol-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
+source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
 
 [[package]]
 name = "quote"
@@ -2035,7 +2040,7 @@ dependencies = [
 [[package]]
 name = "route-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
+source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
 
 [[package]]
 name = "rustc-hash"
@@ -2135,7 +2140,7 @@ dependencies = [
 [[package]]
 name = "settings-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
+source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
 
 [[package]]
 name = "sha2"

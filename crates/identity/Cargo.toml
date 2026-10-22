@@ -1,0 +1,7 @@
+[package]
+name         = "identity"
+description  = "Which device this is (CC600 or CC700, from the factory NVS) and its Bluetooth name and address"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true

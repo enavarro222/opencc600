@@ -46,12 +46,13 @@ embassy-sync      = "0.8"
 altitude          = { path = "../crates/altitude" }
 fit               = { path = "../crates/fit" }
 gnss              = { path = "../crates/gnss" }
+identity          = { path = "../crates/identity" }
 nrf-link          = { path = "../crates/nrf-link" }
 recorder          = { path = "../crates/recorder" }
 # shared with the companion app Musette (MIT), same rev as the root Cargo.toml
-route             = { package = "route-cc600", git = "https://github.com/enavarro222/musette", rev = "fcf458a6b4192bc2176240dbca30846a7f1fdf40" }
-settings          = { package = "settings-cc600", git = "https://github.com/enavarro222/musette", rev = "fcf458a6b4192bc2176240dbca30846a7f1fdf40" }
-protocol-cc600    = { package = "protocol-cc600", git = "https://github.com/enavarro222/musette", rev = "fcf458a6b4192bc2176240dbca30846a7f1fdf40" }
+route             = { package = "route-cc600", git = "https://github.com/enavarro222/musette", rev = "2d2a801d913f8eb940f353d581f68f13d71ec8ed" }
+settings          = { package = "settings-cc600", git = "https://github.com/enavarro222/musette", rev = "2d2a801d913f8eb940f353d581f68f13d71ec8ed" }
+protocol-cc600    = { package = "protocol-cc600", git = "https://github.com/enavarro222/musette", rev = "2d2a801d913f8eb940f353d581f68f13d71ec8ed" }
 ui                = { path = "../crates/ui" }
 ride-store        = { path = "../crates/ride-store" }
 static_cell      = "2.1.1"

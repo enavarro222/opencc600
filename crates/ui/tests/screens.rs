@@ -378,6 +378,8 @@ fn every_screen() {
     ui.show_splash();
     save("splash", &ui, &view(), &ui::DAY);
     save("splash-night", &ui, &view(), &ui::NIGHT);
+    ui.set_identity("CC700", "OpenCC700 AEA8");
+    save("splash-cc700", &ui, &view(), &ui::DAY);
     ui.end_splash();
     assert_eq!(ui.screen(), ui::Screen::Home);
     // started by the charger: the charging screen, its animation, full, unplugged; night

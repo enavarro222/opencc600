@@ -748,6 +748,8 @@ pub struct Ui {
     /// The entry of the rides screen, and whether it was opened because a ride could not start.
     ride_item: u16,
     making_room: bool,
+    model: &'static str,
+    ble_name: &'static str,
 }
 
 impl Default for Ui {
@@ -788,7 +790,23 @@ impl Ui {
             off_route: None,
             ride_item: 0,
             making_room: false,
+            model: "CC600",
+            ble_name: "",
         }
+    }
+
+    /// The model (`CC600`, `CC700`) and the Bluetooth name, on the splash screen.
+    pub fn set_identity(&mut self, model: &'static str, ble_name: &'static str) {
+        self.model = model;
+        self.ble_name = ble_name;
+    }
+
+    pub fn model(&self) -> &'static str {
+        self.model
+    }
+
+    pub fn ble_name(&self) -> &'static str {
+        self.ble_name
     }
 
     /// Automatic power off during a ride after `min` minutes without moving (the `auto_off_min` setting; 0: never).

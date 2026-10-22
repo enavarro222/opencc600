@@ -206,7 +206,7 @@ pub fn draw<D: DrawTarget<Color = Rgb565>>(
     // the charging screen and the splash are all custom: no bars, no banner
     match ui.screen() {
         Screen::Charging => return charging(d, ui, v, t),
-        Screen::Splash => return splash(d, t),
+        Screen::Splash => return splash(d, ui, t),
         _ => {}
     }
     match ui.screen() {
@@ -1286,8 +1286,8 @@ fn menu<D: DrawTarget<Color = Rgb565>>(
 }
 
 /// The logo at power-on: a freewheel sprocket in the route colour ("rouler en liberté"), the name, the motto, the
-/// version.
-fn splash<D: DrawTarget<Color = Rgb565>>(d: &mut D, t: &Theme) -> Result<(), D::Error> {
+/// Bluetooth name (which device is which), the version.
+fn splash<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, t: &Theme) -> Result<(), D::Error> {
     let (cx, cy) = ((W / 2) as f32, 116.0);
     let c = t.route;
     // the teeth, cut out of a full disc like a real freewheel: pointed teeth between wide round seats for the
@@ -1342,13 +1342,14 @@ fn splash<D: DrawTarget<Color = Rgb565>>(d: &mut D, t: &Theme) -> Result<(), D::
     disc(d, sx, sy, 2.0, t.bg, t.fg)?;
     let (ex, ey) = path(1.0);
     disc(d, ex, ey, 4.2, c, t.bg)?;
-    // the name: Open in the mute colour, CC600 strong, as one word
-    let (open, cc) = ("Open", "CC600");
+    // the name: Open in the mute colour, the model strong, as one word
+    let (open, cc) = ("Open", ui.model());
     let (wo, wc) = (fonts::TITLE.width(open, 0), fonts::TITLE.width(cc, 0));
     let x0 = (W - wo - wc) / 2;
     fonts::text(d, &t.mute(&fonts::TITLE), open, x0, 214, Align::Left)?;
     fonts::text(d, &t.style(&fonts::TITLE), cc, x0 + wo, 214, Align::Left)?;
     fonts::text(d, &t.mute(&fonts::BODY), "Rouler en liberté", W / 2, 246, Align::Center)?;
+    fonts::text(d, &t.mute(&fonts::NOTE), ui.ble_name(), W / 2, 278, Align::Center)?;
     let version = Fmt::new(format_args!("v{}", crate::VERSION));
     fonts::text(d, &t.mute(&fonts::NOTE), version.as_str(), W / 2, 300, Align::Center)?;
     Ok(())
