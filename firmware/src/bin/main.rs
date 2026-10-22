@@ -58,6 +58,7 @@ use opencc600_firmware::panel::{self, FrameBuffer, Panel};
 use opencc600_firmware::storage;
 use ride_store::room;
 use static_cell::StaticCell;
+use test_hook::Command;
 
 extern crate alloc;
 
@@ -1780,30 +1781,6 @@ fn storage_fill(fs: &Fs<'_>, left: usize) -> Option<usize> {
 /// A route received (`None`: remove the route).
 static ROUTE_RECEIVED: Signal<CriticalSectionRawMutex, Option<Vec<u8>>> = Signal::new();
 
-/// The data of a `route data` line (hex, then the CRC-16 of the bytes in 4 hex digits) if its CRC matches.
-fn route_line(hex: &str) -> Option<&str> {
-    let (data, crc) = hex.split_at_checked(hex.len().checked_sub(4)?)?;
-    let mut bytes = Vec::with_capacity(data.len() / 2);
-    (unhex(data, &mut bytes) && u16::from_str_radix(crc, 16).ok()? == route::crc16(&bytes))
-        .then_some(data)
-}
-
-/// `hex` appended to `buf`; false if it is not hex.
-fn unhex(hex: &str, buf: &mut Vec<u8>) -> bool {
-    let b = hex.as_bytes();
-    if !b.len().is_multiple_of(2) {
-        return false;
-    }
-    let digit = |c: u8| (c as char).to_digit(16);
-    for pair in b.chunks(2) {
-        match (digit(pair[0]), digit(pair[1])) {
-            (Some(h), Some(l)) => buf.push((h * 16 + l) as u8),
-            _ => return false,
-        }
-    }
-    true
-}
-
 #[allow(
     clippy::large_stack_frames,
     reason = "littlefs file handle, once at boot from main"
@@ -2694,11 +2671,7 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
     }
 }
 
-/// Test hook, lines on the USB serial port: `key <0-2> <click|long>` act as key presses from the nRF (`long` =
-/// long press then release, as the nRF sends them); `sound <on|off>` turns the buzzer on or off until the next
-/// boot. An optional leading sequence number gets an `usb ack <seq>` log line: this link loses ~5 % of the
-/// received lines when the log is busy (and log lines too), so the host resends until acknowledged
-/// (`tests/hil/dut.py`); a repeated number is acknowledged again but not run twice.
+/// The test hook: the commands typed on the USB serial port (crates/test-hook).
 #[embassy_executor::task]
 #[allow(
     clippy::large_stack_frames,
@@ -2715,12 +2688,9 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
         for &b in &buf[..n] {
             if b == b'\n' || b == b'\r' {
                 let text = core::str::from_utf8(&line[..len]).unwrap_or("");
-                let (seq, text) = split_seq(text);
-                // the link also loses bytes inside a line: a route data line carries its CRC, a damaged one is not
-                // acknowledged, so the host sends it again
-                if let Some(hex) = text.strip_prefix("route data ")
-                    && route_line(hex).is_none()
-                {
+                let (seq, text) = test_hook::split_seq(text);
+                let command = test_hook::parse(text);
+                if command == Some(Command::RouteDataDamaged) {
                     warn!("usb: route data line damaged, not acknowledged");
                     len = 0;
                     continue;
@@ -2735,20 +2705,21 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                     }
                     last_seq = Some(seq);
                 }
-                match usb_command(text) {
-                    Some(UsbCommand::Key(key, actions)) => {
+                match command {
+                    Some(Command::Key(key, actions)) => {
                         info!("usb: key {key} {actions:?}");
                         for &action in actions {
                             log_key(key, action, true);
                             NRF_KEYS.send((key, action)).await;
                         }
                     }
-                    Some(UsbCommand::Sound(on)) => {
+                    Some(Command::Sound(on)) => {
                         info!("usb: sound {}", if on { "on" } else { "off" });
                         SOUND_ON.store(on, Ordering::Relaxed);
                     }
-                    Some(UsbCommand::Gnss(request)) => GNSS_REQUESTS.send(request).await,
-                    Some(UsbCommand::Screen) => match SCREEN.lock(Cell::get) {
+                    Some(Command::GnssStart(start)) => GNSS_REQUESTS.send(GnssRequest::Start(start)).await,
+                    Some(Command::GnssTimeAiding(on)) => GNSS_REQUESTS.send(GnssRequest::TimeAiding(on)).await,
+                    Some(Command::Screen) => match SCREEN.lock(Cell::get) {
                         (s @ (ui::Screen::Menu | ui::Screen::PauseMenu), Some(item), ..) => {
                             info!("screen {s:?} {item:?}")
                         }
@@ -2760,34 +2731,34 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                         }
                         (s, ..) => info!("screen {s:?}"),
                     },
-                    Some(UsbCommand::BleScan(seconds)) => ble::SCAN.signal(seconds),
-                    Some(UsbCommand::NrfE2(grp, id, val)) => {
+                    Some(Command::BleScan(seconds)) => ble::SCAN.signal(seconds),
+                    Some(Command::NrfE2(grp, id, val)) => {
                         info!("usb: nrf E2 {grp:02X} {id:02X} 00 00 {val:02X} 00 00");
                         NRF_COMMANDS.send(command::e2(grp, id, val)).await;
                     }
-                    Some(UsbCommand::NrfRaw(kind, cmd, payload)) => {
+                    Some(Command::NrfRaw(kind, cmd, payload)) => {
                         info!("usb: nrf {kind} {cmd:02X} {payload:02X?}");
                         NRF_COMMANDS.send(command::raw(kind, cmd, payload)).await;
                     }
-                    Some(UsbCommand::AntScan(seconds)) => {
+                    Some(Command::AntScan(seconds)) => {
                         info!("usb: ant scan {seconds} s");
                         NRF_COMMANDS.send(ant::search(seconds, seconds > 0)).await;
                     }
-                    Some(UsbCommand::FakeBattery(pct)) => {
-                        info!("usb: battery shown {}", if pct == FAKE_NONE { String::from("real") } else { format!("{pct} %") });
-                        FAKE_BATTERY.store(pct, Ordering::Relaxed);
+                    Some(Command::FakeBattery(pct)) => {
+                        info!("usb: battery shown {}", pct.map_or_else(|| String::from("real"), |p| format!("{p} %")));
+                        FAKE_BATTERY.store(pct.unwrap_or(FAKE_NONE), Ordering::Relaxed);
                         STATUS_CHANGED.signal(());
                     }
-                    Some(UsbCommand::DryPowerOff) => {
+                    Some(Command::DryPowerOff) => {
                         info!("usb: power off dry");
                         DRY_POWER_OFF.store(true, Ordering::Relaxed);
                     }
-                    Some(UsbCommand::GnssOff(lost)) => {
+                    Some(Command::GnssOff(lost)) => {
                         info!("usb: gnss off, {lost} power-ons lost");
                         GNSS_POWER_LOST.store(lost, Ordering::Relaxed);
                         NRF_COMMANDS.send(command::gps_power(0)).await;
                     }
-                    Some(UsbCommand::Set(key, value)) => {
+                    Some(Command::Set(key, value)) => {
                         let mut s = settings();
                         match s.set(key, value) {
                             Ok(()) => {
@@ -2798,32 +2769,31 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                             Err(e) => warn!("usb: set {key}={value}: {e:?}"),
                         }
                     }
-                    Some(UsbCommand::Get(key)) => {
+                    Some(Command::Get(key)) => {
                         let mut v = String::new();
                         match settings().get(key, &mut v) {
                             Ok(()) => info!("usb: {key}={v}"),
                             Err(e) => warn!("usb: get {key}: {e:?}"),
                         }
                     }
-                    Some(UsbCommand::Settings) => {
+                    Some(Command::Settings) => {
                         let mut v = String::new();
                         let _ = settings().write(&mut v);
                         for line in v.lines() {
                             info!("usb: {line}");
                         }
                     }
-                    Some(UsbCommand::RouteBegin(n)) if n <= ROUTE_MAX => {
+                    Some(Command::RouteBegin(n)) if n <= ROUTE_MAX => {
                         ROUTE_RX.lock(|r| *r.borrow_mut() = Some(Vec::with_capacity(n)));
                         info!("usb: route begin, {n} bytes");
                     }
-                    Some(UsbCommand::RouteBegin(n)) => {
+                    Some(Command::RouteBegin(n)) => {
                         warn!("usb: route of {n} bytes, more than {ROUTE_MAX}")
                     }
-                    Some(UsbCommand::RouteData(hex)) => {
-                        let data = route_line(hex).unwrap_or(hex);
+                    Some(Command::RouteData(data)) => {
                         let ok = ROUTE_RX.lock(|r| match r.borrow_mut().as_mut() {
                             Some(buf) if buf.len() + data.len() / 2 <= ROUTE_MAX => {
-                                unhex(data, buf)
+                                test_hook::unhex(data, buf)
                             }
                             _ => false,
                         });
@@ -2831,43 +2801,43 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                             warn!("usb: route data refused (no begin, too long or not hex)");
                         }
                     }
-                    Some(UsbCommand::RouteEnd) => match ROUTE_RX.lock(|r| r.borrow_mut().take()) {
+                    Some(Command::RouteEnd) => match ROUTE_RX.lock(|r| r.borrow_mut().take()) {
                         Some(data) => {
                             info!("usb: route end, {} bytes", data.len());
                             ROUTE_RECEIVED.signal(Some(data));
                         }
                         None => warn!("usb: route end without begin"),
                     },
-                    Some(UsbCommand::RouteClear) => ROUTE_RECEIVED.signal(None),
-                    Some(UsbCommand::BenchMap) => BENCH_MAP.signal(()),
-                    Some(UsbCommand::StorageFill(fill)) => STORAGE_FILL.signal(fill),
-                    Some(UsbCommand::Light) => info!(
+                    Some(Command::RouteClear) => ROUTE_RECEIVED.signal(None),
+                    Some(Command::BenchMap) => BENCH_MAP.signal(()),
+                    Some(Command::StorageFill(fill)) => STORAGE_FILL.signal(fill),
+                    Some(Command::Light) => info!(
                         "light: theme {}, backlight {} %",
                         if NIGHT.load(Ordering::Relaxed) { "night" } else { "day" },
                         BACKLIGHT.load(Ordering::Relaxed)
                     ),
-                    Some(UsbCommand::SimLight(raw)) => {
+                    Some(Command::SimLight(raw)) => {
                         info!("usb: ambient light {raw:?}");
                         SIM_LIGHT.lock(|c| c.set(raw));
                     }
-                    Some(UsbCommand::SimFix(Some((lat_e7, lon_e7, speed_mm_s, course_cdeg)))) => {
+                    Some(Command::SimFix(Some(at))) => {
                         if !sim_fix_active() {
                             info!("usb: simulated position, the receiver's ignored");
                         }
                         SIM_FIX_AT.lock(|c| c.set(Some(Instant::now())));
                         STATUS.lock(|c| {
                             let mut s = c.get();
-                            s.fix = Some(sim_fix(&s, lat_e7, lon_e7, speed_mm_s, course_cdeg));
+                            s.fix = Some(sim_fix(&s, at));
                             s.fix_at = Some(Instant::now());
                             c.set(s);
                         });
                         STATUS_CHANGED.signal(());
                     }
-                    Some(UsbCommand::SimFix(None)) => {
+                    Some(Command::SimFix(None)) => {
                         SIM_FIX_AT.lock(|c| c.set(None));
                         info!("usb: simulated position off");
                     }
-                    Some(UsbCommand::RtcShift(s)) => match STATUS.lock(Cell::get).rtc {
+                    Some(Command::RtcShift(s)) => match STATUS.lock(Cell::get).rtc {
                         Some(rtc) => {
                             let t = RtcTime::from_unix(rtc.unix() + s as i64);
                             info!("usb: rtc {rtc:?} -> {t:?} (shift {s} s)");
@@ -2875,6 +2845,7 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                         }
                         None => warn!("usb: rtc shift, no RTC time yet"),
                     },
+                    Some(Command::RouteDataDamaged) => {}
                     None if !text.is_empty() => warn!("usb: unknown command {text:?}"),
                     None => {}
                 }
@@ -2890,153 +2861,22 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
 
 /// A valid fix at this position, timed by the RTC (the recorder takes one point per new second), without altitude
 /// (the altimeter keeps to the barometer).
-fn sim_fix(s: &Status, lat_e7: i32, lon_e7: i32, speed_mm_s: Option<u32>, course_cdeg: Option<u16>) -> gnss::Fix {
+fn sim_fix(s: &Status, at: test_hook::SimFix) -> gnss::Fix {
     let mut f = gnss::Fix::default();
     f.valid = true;
     f.quality = 1;
     f.sats_used = 9;
     f.sats_in_view = 9;
     f.hdop_c = Some(100);
-    f.lat_e7 = Some(lat_e7);
-    f.lon_e7 = Some(lon_e7);
-    f.speed_mm_s = speed_mm_s;
-    f.course_cdeg = course_cdeg;
+    f.lat_e7 = Some(at.lat_e7);
+    f.lon_e7 = Some(at.lon_e7);
+    f.speed_mm_s = at.speed_mm_s;
+    f.course_cdeg = at.course_cdeg;
     if let Some(t) = s.rtc {
         f.time = Some(gnss::Time { hour: t.hour, minute: t.minute, second: t.second, millis: 0 });
         f.date = Some(gnss::Date { year: t.year, month: t.month, day: t.day });
     }
     f
-}
-
-/// `<seq> <command>` → (seq, command); a line without a number is a command typed by hand.
-fn split_seq(line: &str) -> (Option<u32>, &str) {
-    let line = line.trim();
-    match line.split_once(' ') {
-        Some((n, rest)) if n.bytes().all(|b| b.is_ascii_digit()) => (n.parse().ok(), rest),
-        _ => (None, line),
-    }
-}
-
-enum UsbCommand<'a> {
-    Key(u8, &'static [KeyAction]),
-    Sound(bool),
-    Gnss(GnssRequest),
-    /// `ble scan <seconds>`: logs the BLE cycling sensors around (`ble: found ble:r:… "name"`), for `set hr …`.
-    BleScan(u16),
-    /// `nrf e2 GRP ID VAL`: sends `E2 GRP ID 00 00 VAL 00 00` to the nRF (exploring its commands).
-    NrfE2(u8, u8, u8),
-    /// `nrf raw KIND CMD B0 .. B7` (hex): any frame with an 8-byte payload.
-    NrfRaw(u8, u8, [u8; 8]),
-    /// `ant scan <seconds>`: an ANT+ search by the nRF (0 stops), the sensors logged (`ant: found ant:120:…`).
-    AntScan(u16),
-    /// `battery fake N` / `battery real`: see [`FAKE_BATTERY`].
-    FakeBattery(u8),
-    /// `power off dry`: see [`DRY_POWER_OFF`].
-    DryPowerOff,
-    /// `gnss off [N]`: switches the receiver off through the nRF, as it was found at a boot, and drops the firmware's
-    /// next N power-ons (lost, as that day): the firmware must keep powering it on.
-    GnssOff(u8),
-    /// Moves the nRF RTC by this many seconds, to check that a fix sets it right again.
-    RtcShift(i32),
-    /// Logs the screen shown (`screen Home`), for the HIL tests.
-    Screen,
-    /// `set key value`: changes a setting (saved); `get key`, `settings ?`: logs them.
-    Set(&'a str, &'a str),
-    Get(&'a str),
-    Settings,
-    /// `route begin <bytes>`, `route data <hex>`..., `route end`: a route file sent from the PC
-    /// (`tools/send_route.py`); `route clear` removes it.
-    RouteBegin(usize),
-    RouteData(&'a str),
-    RouteEnd,
-    RouteClear,
-    /// Draws the map page on the route at each zoom and logs the times (the rider placed a third along it).
-    BenchMap,
-    /// `storage fill N`, `storage unfill`: see [`STORAGE_FILL`].
-    StorageFill(Option<u16>),
-    /// `light <raw>`, `light off`: see [`SIM_LIGHT`].
-    SimLight(Option<u16>),
-    /// `light ?`: logs the theme shown and the backlight (`light: theme night, backlight 10 %`).
-    Light,
-    /// `fix <lat_e7> <lon_e7> [<speed_mm_s> [<course_cdeg>]]`: a position in place of the receiver's, for
-    /// [`SIM_FIX_HOLD`] (tools/replay_gpx.py); `fix off` gives the receiver back at once.
-    SimFix(Option<(i32, i32, Option<u32>, Option<u16>)>),
-}
-
-#[allow(
-    clippy::large_stack_frames,
-    reason = "number parsing inlined (clippy's estimate); called from the USB task, whose stack is static"
-)]
-fn usb_command(line: &str) -> Option<UsbCommand<'_>> {
-    let mut words = line.split_whitespace();
-    match (words.next()?, words.next()?, words.next()) {
-        ("sound", "on", None) => Some(UsbCommand::Sound(true)),
-        ("sound", "off", None) => Some(UsbCommand::Sound(false)),
-        ("gnss", "time", Some(on @ ("on" | "off"))) => {
-            Some(UsbCommand::Gnss(GnssRequest::TimeAiding(on == "on")))
-        }
-        ("power", "off", Some("dry")) => Some(UsbCommand::DryPowerOff),
-        ("battery", "real", None) => Some(UsbCommand::FakeBattery(FAKE_NONE)),
-        ("battery", "fake", Some(p)) => Some(UsbCommand::FakeBattery(p.parse().ok().filter(|&p| p <= 100)?)),
-        ("nrf", "e2", Some(grp)) => {
-            let id = words.next()?.parse().ok()?;
-            let val = words.next()?.parse().ok()?;
-            Some(UsbCommand::NrfE2(grp.parse().ok()?, id, val))
-        }
-        ("nrf", "raw", Some(kind)) => {
-            let hex = |w: &str| u8::from_str_radix(w, 16).ok();
-            let cmd = hex(words.next()?)?;
-            let mut payload = [0; 8];
-            for b in &mut payload {
-                *b = hex(words.next()?)?;
-            }
-            Some(UsbCommand::NrfRaw(hex(kind)?, cmd, payload))
-        }
-        ("ant", "scan", Some(s)) => Some(UsbCommand::AntScan(s.parse().ok()?)),
-        ("gnss", "off", lost) => Some(UsbCommand::GnssOff(lost.map(str::parse).transpose().ok()?.unwrap_or(0))),
-        ("gnss", start, None) => {
-            let start = match start {
-                "hot" => gnss::Start::Hot,
-                "warm" => gnss::Start::Warm,
-                "cold" => gnss::Start::Cold,
-                "full" => gnss::Start::FullCold,
-                _ => return None,
-            };
-            Some(UsbCommand::Gnss(GnssRequest::Start(start)))
-        }
-        ("rtc", "shift", Some(s)) => Some(UsbCommand::RtcShift(s.parse().ok()?)),
-        ("screen", "?", None) => Some(UsbCommand::Screen),
-        ("set", key, Some(value)) => Some(UsbCommand::Set(key, value)),
-        ("get", key, None) => Some(UsbCommand::Get(key)),
-        ("settings", "?", None) => Some(UsbCommand::Settings),
-        ("route", "begin", Some(n)) => Some(UsbCommand::RouteBegin(n.parse().ok()?)),
-        ("route", "data", Some(hex)) => Some(UsbCommand::RouteData(hex)),
-        ("route", "end", None) => Some(UsbCommand::RouteEnd),
-        ("route", "clear", None) => Some(UsbCommand::RouteClear),
-        ("bench", "map", None) => Some(UsbCommand::BenchMap),
-        ("storage", "fill", Some(n)) => Some(UsbCommand::StorageFill(Some(n.parse().ok()?))),
-        ("storage", "unfill", None) => Some(UsbCommand::StorageFill(None)),
-        ("light", "?", None) => Some(UsbCommand::Light),
-        ("light", "off", None) => Some(UsbCommand::SimLight(None)),
-        ("light", raw, None) => Some(UsbCommand::SimLight(Some(raw.parse().ok()?))),
-        ("ble", "scan", Some(s)) => Some(UsbCommand::BleScan(s.parse().ok().filter(|&s| s > 0)?)),
-        ("fix", "off", None) => Some(UsbCommand::SimFix(None)),
-        ("fix", lat, Some(lon)) => {
-            let speed = words.next().map(str::parse).transpose().ok()?;
-            let course = words.next().map(str::parse).transpose().ok()?;
-            Some(UsbCommand::SimFix(Some((lat.parse().ok()?, lon.parse().ok()?, speed, course))))
-        }
-        ("key", key, Some(action)) => {
-            let key = key.parse().ok().filter(|&k: &u8| k <= 2)?;
-            let actions: &[KeyAction] = match action {
-                "click" => &[KeyAction::Click],
-                "long" => &[KeyAction::LongPress, KeyAction::LongRelease],
-                _ => return None,
-            };
-            Some(UsbCommand::Key(key, actions))
-        }
-        _ => None,
-    }
 }
 
 /// Centred box over the current screen.

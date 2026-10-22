@@ -1,0 +1,12 @@
+[package]
+name         = "test-hook"
+description  = "The commands typed on the USB serial port (HIL tests, tools): keys, settings, routes, simulated sensors"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dependencies]
+gnss     = { path = "../gnss" }
+nrf-link = { path = "../nrf-link" }
+route    = { workspace = true }
