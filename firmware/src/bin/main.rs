@@ -58,6 +58,7 @@ use opencc600_firmware::panel::{self, FrameBuffer, Panel};
 use opencc600_firmware::storage;
 use ride_store::room;
 use static_cell::StaticCell;
+use status::{GnssLink, Status};
 use test_hook::Command;
 
 extern crate alloc;
@@ -710,7 +711,7 @@ async fn main(spawner: Spawner) -> ! {
         if let Some(f) = fix {
             here = Some((f.lat_e7, f.lon_e7));
         }
-        let night = match (s.auto_night, here, now_unix(&state)) {
+        let night = match (s.auto_night, here, state.now_unix()) {
             (true, Some((lat, lon)), Some(unix)) => ui::light::is_night(unix.into(), lat, lon),
             _ => s.theme == settings::Theme::Night,
         };
@@ -938,7 +939,7 @@ async fn nrf_rx(mut rx: UartRx<'static, Async>) -> ! {
             }
             STATUS.lock(|s| {
                 let mut status = s.get();
-                status.update(msg);
+                status.update(msg, Instant::now().as_millis());
                 s.set(status);
             });
             STATUS_CHANGED.signal(());
@@ -1088,8 +1089,7 @@ async fn gnss_task(mut uart: GnssUart) {
         if epoch && !sim_fix_active() {
             let calibration = STATUS.lock(|s| {
                 let mut status = s.get();
-                status.fix = Some(fix);
-                status.fix_at = Some(Instant::now());
+                status.set_fix(fix, Instant::now().as_millis());
                 let calibration = calibrate(&mut status.altimeter, &fix);
                 s.set(status);
                 calibration
@@ -1106,14 +1106,14 @@ async fn gnss_task(mut uart: GnssUart) {
         }
         let expired = STATUS.lock(|s| {
             let mut status = s.get();
-            let expired = status.expire_fix();
+            let expired = status.expire_fix(Instant::now().as_millis());
             if expired {
                 s.set(status);
             }
             expired
         });
         if expired {
-            warn!("gnss: no epoch for {} s, the last fix is no longer valid", FIX_MAX_AGE.as_secs());
+            warn!("gnss: no epoch for {} s, the last fix is no longer valid", status::FIX_MAX_AGE_MS / 1000);
             STATUS_CHANGED.signal(());
         }
         if last_report.elapsed() >= Duration::from_secs(10) {
@@ -1142,36 +1142,6 @@ fn send_pair(uart: &mut GnssUart, body: &str) {
     match gnss::write_command(body, &mut out) {
         Some(len) => uart.send(&out[..len]),
         None => warn!("gnss: command too long: {body}"),
-    }
-}
-
-/// GNSS receiver events since boot, for the trip log and the time-to-first-fix measurements.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct GnssLink {
-    /// 3 s without data (receiver off or DMA stopped), each answered by `gps_power(1)`.
-    silences: u16,
-    /// Output setups sent (at boot, then after each receiver restart).
-    setups: u16,
-    /// `PAIR011,001` seen: the receiver (re)started.
-    restarts: u16,
-    /// `PAIR010` aiding requests (EPO, time, position).
-    aiding_requests: u16,
-    /// `PAIR590` time aiding sent.
-    time_aids: u16,
-    /// Time to the first valid fix since the last start (ESP32 boot, restart seen, or commanded), ms.
-    ttff_ms: Option<u32>,
-}
-
-impl GnssLink {
-    const fn new() -> Self {
-        Self {
-            silences: 0,
-            setups: 0,
-            restarts: 0,
-            aiding_requests: 0,
-            time_aids: 0,
-            ttff_ms: None,
-        }
     }
 }
 
@@ -1210,130 +1180,6 @@ async fn sync_rtc(fix: &gnss::Fix, last_set: &mut Option<Instant>) {
         .send(command::set_rtc(&gnss, gnss.weekday()))
         .await;
     *last_set = Some(Instant::now());
-}
-
-/// A fix older than this is no longer valid (the receiver gives one a second).
-const FIX_MAX_AGE: Duration = Duration::from_secs(3);
-
-/// What the bring-up screen shows, updated from the nRF messages.
-#[derive(Clone, Copy, PartialEq)]
-struct Status {
-    battery: Option<(u16, u8)>,
-    charger: Option<u8>,
-    rtc: Option<RtcTime>,
-    version: Option<(u8, u8, u8)>,
-    power_on_reason: Option<u8>,
-    last_key: Option<(u8, KeyAction)>,
-    keys: u32,
-    baro: Option<(i16, u32)>,
-    /// Barometer altitude, its bias calibrated on the GNSS (docs/ALTITUDE.md); fed by each pressure frame (5 Hz)
-    /// and each GNSS epoch.
-    altimeter: altitude::Altimeter,
-    baro_at: Option<Instant>,
-    /// Pressures (centi-pascals) received since the trip log took them (5 Hz frames, logged once a second).
-    baro_recent: [u32; 8],
-    baro_recent_n: u8,
-    /// Ambient light (raw) per measurement tag (`param` 600, 2000, 3000), and the raw sensor stream subtype `0A`
-    /// (meaning unknown).
-    light: [Option<u16>; 3],
-    stream0a: Option<[u8; 6]>,
-    /// Storage partition: Ok((finished rides, free blocks, total blocks)) or the littlefs error code.
-    storage: Option<Result<(u16, u16, u16), i32>>,
-    /// GNSS link counters and latest complete fix.
-    gnss: Option<gnss::Stats>,
-    gnss_link: GnssLink,
-    fix: Option<gnss::Fix>,
-    /// When `fix` was last set (a receiver epoch, or a position sent over USB): see [`Status::expire_fix`].
-    fix_at: Option<Instant>,
-}
-
-impl Status {
-    const fn new() -> Self {
-        Self {
-            battery: None,
-            charger: None,
-            rtc: None,
-            version: None,
-            power_on_reason: None,
-            last_key: None,
-            keys: 0,
-            baro: None,
-            altimeter: altitude::Altimeter::new(altitude::Tuning::DEFAULT),
-            baro_at: None,
-            baro_recent: [0; 8],
-            baro_recent_n: 0,
-            light: [None; 3],
-            stream0a: None,
-            storage: None,
-            gnss: None,
-            gnss_link: GnssLink::new(),
-            fix: None,
-            fix_at: None,
-        }
-    }
-
-    /// A fix without a new epoch for [`FIX_MAX_AGE`] (the receiver silent, the positions sent over USB stopped) is
-    /// no longer valid: the time comes from the RTC again, the speed and the position are gone. True if it changed.
-    fn expire_fix(&mut self) -> bool {
-        match (self.fix.as_mut(), self.fix_at) {
-            (Some(f), Some(at)) if f.valid && at.elapsed() >= FIX_MAX_AGE => {
-                f.valid = false;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    fn update(&mut self, msg: Message) {
-        match msg {
-            Message::Battery {
-                millivolts,
-                percent,
-            } => self.battery = Some((millivolts, percent)),
-            Message::Status(s) => self.charger = Some(s),
-            Message::Rtc(t) => self.rtc = Some(t),
-            Message::Version {
-                major,
-                minor,
-                patch,
-            } => self.version = Some((major, minor, patch)),
-            Message::PowerOnReason(r) => self.power_on_reason = Some(r),
-            Message::Key { key, action } => {
-                self.last_key = Some((key, action));
-                self.keys += 1;
-            }
-            Message::Baro {
-                centi_celsius,
-                centi_pascal,
-            } => {
-                self.baro = Some((centi_celsius, centi_pascal));
-                let now = Instant::now();
-                let dt = self
-                    .baro_at
-                    .map_or(0.0, |at| (now - at).as_micros() as f64 / 1e6);
-                self.baro_at = Some(now);
-                self.altimeter.baro(dt, centi_pascal as f64 / 100.0);
-                if (self.baro_recent_n as usize) < self.baro_recent.len() {
-                    self.baro_recent[self.baro_recent_n as usize] = centi_pascal;
-                    self.baro_recent_n += 1;
-                }
-            }
-            Message::Light { level, param } => {
-                if let Some(i) = [600, 2000, 3000].iter().position(|&p| p == param) {
-                    self.light[i] = Some(level);
-                }
-            }
-            Message::Stream { sub: 0x0A, data } => self.stream0a = Some(data),
-            Message::Ack
-            | Message::Accel(_)
-            | Message::Gyro(_)
-            | Message::Stream { .. }
-            | Message::AntChannel { .. }
-            | Message::AntFound { .. }
-            | Message::AntPage { .. }
-            | Message::Unknown => {}
-        }
-    }
 }
 
 /// Finished rides, blocks free for the rides (the logs' included: they give way to rides), total blocks.
@@ -2080,7 +1926,7 @@ keys,ble_links,ble_listening,ant_links\n";
 impl TripLog {
     #[allow(clippy::large_stack_frames, reason = "the log (a littlefs path) built on the main stack, once")]
     fn start(s: &Status) -> Option<Self> {
-        let start_unix = now_unix(s)?;
+        let start_unix = s.now_unix()?;
         let now = Instant::now();
         Some(Self {
             path: None,
@@ -2156,9 +2002,9 @@ impl TripLog {
         }
         let line = format!(
             "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
-            opt(now_unix(s).map(i64::from)),
-            opt(gnss_unix(s).map(i64::from)),
-            opt(rtc_unix(s).map(i64::from)),
+            opt(s.now_unix().map(i64::from)),
+            opt(s.gnss_unix().map(i64::from)),
+            opt(s.rtc_unix().map(i64::from)),
             self.started.elapsed().as_secs(),
             f.valid as u8,
             f.quality,
@@ -2272,7 +2118,7 @@ impl Ride {
         reason = "littlefs file handles (cache included) on the main stack, once per ride"
     )]
     fn start(fs: &Fs<'_>, s: &Status) -> Result<Box<Self>, StartError> {
-        let Some(unix) = now_unix(s) else {
+        let Some(unix) = s.now_unix() else {
             warn!("ride: no time yet (no GNSS fix, no RTC), not started");
             return Err(StartError::NoTime);
         };
@@ -2385,7 +2231,7 @@ impl Ride {
     }
 
     fn toggle_pause(&mut self, fs: &Fs<'_>, s: &Status) {
-        let t = now_unix(s)
+        let t = s.now_unix()
             .map_or(self.last_timestamp, fit::timestamp)
             .max(self.last_timestamp);
         let running = self.recorder.summary().running();
@@ -2411,8 +2257,8 @@ impl Ride {
         self.last_epoch = fix.time;
         let Some(epoch) = fix.time else { return };
         let epoch_s = epoch.hour as u32 * 3600 + epoch.minute as u32 * 60 + epoch.second as u32;
-        let gnss = gnss_unix(s).map(fit::timestamp);
-        let rtc = rtc_unix(s).map(fit::timestamp);
+        let gnss = s.gnss_unix().map(fit::timestamp);
+        let rtc = s.rtc_unix().map(fit::timestamp);
         let Some(timestamp) = self.clock.next(epoch_s, gnss, rtc) else {
             return;
         };
@@ -2478,10 +2324,10 @@ impl Ride {
         // the room for what is buffered and the closing messages
         let res = self.recorder.flush(fs);
         self.wrote(fs, res);
-        let t = now_unix(s)
+        let t = s.now_unix()
             .map_or(self.last_timestamp, fit::timestamp)
             .max(self.last_timestamp);
-        match self.recorder.stop(fs, t, utc_offset(now_unix(s))) {
+        match self.recorder.stop(fs, t, utc_offset(s.now_unix())) {
             Ok(totals) => {
                 info!("ride {id}: saved, {totals:?}");
                 sound(command::SOUND_JINGLE);
@@ -2558,37 +2404,6 @@ fn sound(id: u8) {
     }
 }
 
-/// Current time, Unix seconds: the GNSS time with a valid fix, else the nRF RTC.
-fn now_unix(s: &Status) -> Option<u32> {
-    gnss_unix(s).or_else(|| rtc_unix(s))
-}
-
-/// GNSS time, only with a valid fix (without, it can be off by tens of seconds).
-fn gnss_unix(s: &Status) -> Option<u32> {
-    let fix = s.fix?;
-    let (true, Some(time), Some(date)) = (fix.valid, fix.time, fix.date) else {
-        return None;
-    };
-    unix_of(&RtcTime {
-        year: date.year,
-        month: date.month,
-        day: date.day,
-        hour: time.hour,
-        minute: time.minute,
-        second: time.second,
-    })
-}
-
-fn rtc_unix(s: &Status) -> Option<u32> {
-    unix_of(&s.rtc?)
-}
-
-fn unix_of(t: &RtcTime) -> Option<u32> {
-    u32::try_from(t.unix())
-        .ok()
-        .filter(|&u| u > fit::FIT_EPOCH_OFFSET)
-}
-
 /// What the screens show (crates/ui).
 #[allow(
     clippy::large_stack_frames,
@@ -2599,7 +2414,7 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
     let altitude_dm = s.altimeter.altitude_dm();
     let sensors = sensor_values();
     ui::View {
-        clock: now_unix(s).map(|unix| {
+        clock: s.now_unix().map(|unix| {
             let day_s = (unix as i64 + utc_offset(Some(unix)) as i64).rem_euclid(86_400) as u32;
             ((day_s / 3600) as u8, (day_s / 60 % 60) as u8)
         }),
@@ -2827,8 +2642,8 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                         SIM_FIX_AT.lock(|c| c.set(Some(Instant::now())));
                         STATUS.lock(|c| {
                             let mut s = c.get();
-                            s.fix = Some(sim_fix(&s, at));
-                            s.fix_at = Some(Instant::now());
+                            let fix = sim_fix(&s, at);
+                            s.set_fix(fix, Instant::now().as_millis());
                             c.set(s);
                         });
                         STATUS_CHANGED.signal(());

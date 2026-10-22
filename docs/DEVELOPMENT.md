@@ -26,6 +26,9 @@ tested on a PC with `cargo test`:
   `nvs` partition) and its Bluetooth name and address, from the MAC address (`OpenCC700 AEA8`).
 - [crates/companion/](../crates/companion/): the BLE link with Musette (settings, routes, rides listed, read and
   acknowledged), in the frames of `protocol-cc600`.
+- [crates/status/](../crates/status/): the device's state from the nRF and the GNSS receiver (battery, RTC,
+  barometer, fix), and the time now: the GNSS one with a valid fix, else the RTC; a fix without an epoch for 3 s
+  expires.
 - [crates/test-hook/](../crates/test-hook/): the commands typed on the USB serial port by the HIL tests and the
   tools (keys, settings, routes, simulated position and light).
 - [crates/ui/](../crates/ui/): screens, what the 3 keys do on each, drawing on the 240x320 panel

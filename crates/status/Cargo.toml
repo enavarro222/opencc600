@@ -1,0 +1,13 @@
+[package]
+name         = "status"
+description  = "The device's state from the nRF and the GNSS receiver: battery, clock, barometer, fix, and the time now"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true
+
+[dependencies]
+altitude = { path = "../altitude" }
+fit      = { path = "../fit" }
+gnss     = { path = "../gnss" }
+nrf-link = { path = "../nrf-link" }
