@@ -37,7 +37,7 @@ It installs next to the vendor firmware, which stays on the device: one command 
 All the screens and details: [docs/FEATURES.md](docs/FEATURES.md). Clickable mock-up of the whole UI (in French for
 now): **https://enavarro222.github.io/opencc600/prototype/**
 
-The real firmware in your browser, on an emulated device (in French too): **https://enavarro222.github.io/opencc600/demo/**
+The real firmware in your browser, on an emulated device (in French too): **https://enavarro222.github.io/opencc600/demo/** ([how it works](docs/demo/README.md))
 
 ## Supported devices
 
