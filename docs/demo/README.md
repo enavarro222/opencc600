@@ -21,8 +21,8 @@ Dashed in the diagram: planned, not written yet (Musette next to the device, see
 | The page: case, keys and clickable screen hints, simulated ride, USB console, version menu, visitor's own dump, saved storage | `docs/demo/index.html` | yes |
 | Build and publication | `.github/workflows/demo.yml`, `tools/demo/` (`build.sh`, `versions.py`, `partitions.csv`, `esp32sim.rev`) | yes |
 | The firmware | `firmware/` | no: the same ELF as on the device |
-| The emulated ESP32-S3, the worker and its message protocol, the virtual BLE controller, the flash read-back | esp32sim fork, generic branches | no: meant to go upstream |
-| The CC600 board model: ST7789 panel, nRF52 on UART2, Airoha GNSS on UART0 | esp32sim fork, branch `board-cc600` | CC600-specific, written like esp32sim's other boards |
+| The emulated ESP32-S3, the worker and its message protocol, the virtual BLE controller, the flash read-back | esp32sim fork, generic branches | no: written so they could go upstream |
+| The CC600 board model: ST7789 panel, nRF52 on UART2, Airoha GNSS on UART0 | esp32sim fork, branch `board-cc600` | CC600-specific, written like esp32sim's other boards; may stay in the fork |
 | Musette's emulator transport (planned) | musette, a `GattTransport` next to Web Bluetooth | yes |
 
 The page knows only three things about the device: the worker's message protocol, the virtual pins 64–66 the
@@ -85,6 +85,22 @@ GitHub settings, once: Pages → source *GitHub Actions*; Environments → `gith
 `GattTransport` interface (connect, subscribe, write, notify). An emulator transport, a central in esp32sim driven by
 the page (it exists for scripts), and the page relaying between the two would let the app sync routes, settings and
 rides with the emulated device, side by side: both pages are on `enavarro222.github.io`.
+
+## The esp32sim fork
+
+The fork's branches are stacked from the most generic to the most specific: fixes of the emulated S3, then generic
+additions (host inputs, the virtual BLE controller for esp-radio, the flash read-back, the page-driven BLE
+central), then behaviour inferred from the ROM without a register map, then the CC600 board. Once the demo and
+Musette work together, the plan is to show the project to esp32sim's developers in an issue and ask which of these
+they would take as pull requests; the rest stays in the fork.
+
+## Ideas
+
+- **The CC600 board model in this repository.** esp32sim picks its boards from a fixed list; a small, generic
+  registration point (a board constructor by name, in the CLI and the browser build) would let `opencc600` own the
+  board model in a crate of its own, building its own emulator and WebAssembly at a pinned esp32sim commit. The
+  fake nRF and GNSS could then use `crates/nrf-link` and `crates/gnss` instead of a second copy of the protocols, and
+  the fork would keep only generic code. Not started.
 
 ## Limits
 
