@@ -65,8 +65,8 @@
 
   <rect x="50" y="506" width="348" height="64" rx="8" fill="#fff" stroke="#E8590C"/>
   <text x="62" y="526" class="s" font-weight="700">Pont Musette</text>
-  <text x="62" y="543" class="m">relaie les opérations GATT entre l'app (iframe)</text>
-  <text x="62" y="559" class="m">et le central virtuel de l'émulateur</text>
+  <text x="62" y="543" class="m">relaie le GATT entre l'app et le central ; lit les</text>
+  <text x="62" y="559" class="m">traces envoyées → le trajet simulé</text>
 
   <text x="50" y="596" class="m">Le seul code du navigateur entièrement propre à la démo.</text>
   <text x="50" y="612" class="m">Du compteur, il ne connaît que le protocole de messages</text>

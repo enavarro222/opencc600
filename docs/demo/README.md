@@ -34,6 +34,10 @@ firmware talking to emulated hardware.
 - **Screen**: the firmware draws through LCD_CAM's i8080 bus → the board's ST7789 model → RGB565 frames → the canvas.
 - **Ride**: the page samples the track once per emulated second → `{t: 'board_cmd', line: 'gnss …'}` → the GNSS model
   sends GGA/RMC at 921600 baud, read by the firmware through UHCI and GDMA. The barometer follows the altitude.
+- **A route sent from Musette**: the page also reads the frames Musette writes (musette's `protocol-cc600`:
+  `TransferBegin` of a route, `TransferChunk`s, `TransferEnd`), decodes the `OCRT` file (`route-cc600`: a local
+  plane in decimetres, zigzag varint deltas) back to latitudes and longitudes and loads it as the simulated ride:
+  the GPS follows the route the device now guides along. Neither the app nor the firmware knows.
 - **USB console**: the firmware's log and the commands typed in the page (`screen ?`, `set …`).
 - **Storage**: every 30 s, when the page goes to the background and before a restart, the page reads the `storage`
   partition back (`{op: 'read'}`), gzips it into IndexedDB (database `opencc600-demo`, one entry per version) and

@@ -74,8 +74,8 @@ button.act { padding: 6px 12px; border: 1px solid #999; border-radius: 6px; back
 section.ride { margin-bottom: 24px; }
 .app { width: 380px; max-width: 100%; }
 .app .colhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.phone { position: relative; padding: 14px 10px; border-radius: 34px; background: #111; box-shadow: 0 12px 28px rgba(0,0,0,.25); box-sizing: border-box; }
-.phone.open { height: 700px; }
+.phone { position: relative; height: 700px; padding: 14px 10px; border-radius: 34px; background: #111; box-shadow: 0 12px 28px rgba(0,0,0,.25); box-sizing: border-box; }
+@media (max-width: 760px) { .phone:not(.open) { height: auto; } }
 .phone iframe, .phone .intro { width: 100%; height: 100%; border: 0; border-radius: 22px; background: #fff; box-sizing: border-box; }
 .phone .intro { display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 28px; background: #F5F4F0; }
 .phone .intro p { margin: 0; }
@@ -160,7 +160,8 @@ footer p { font-size: 15px; color: var(--mute); }
 <section class="ride">
   <h2>Trajet simulé</h2>
   <p>Le récepteur GPS du compteur reçoit, chaque seconde, la position le long de cette trace. Charge un fichier GPX
-     (il reste dans ta page) ou garde la boucle fictive, puis lance la lecture et démarre une sortie sur le compteur.</p>
+     (il reste dans ta page) ou garde la boucle fictive, puis lance la lecture et démarre une sortie sur le compteur.
+     Une trace envoyée au compteur depuis Musette arrive ici aussi : le GPS la suit pendant que le compteur la guide.</p>
   <div class="controls">
     <label>Trace <input type="file" id="gpx" accept=".gpx,application/gpx+xml"></label>
     <button class="act" id="play">▶ Lecture</button>
@@ -286,6 +287,7 @@ const gatt = {
         return {};
       }
       case 'write': {
+        sent.write(m.bytes);
         const h = this.char(m.characteristic).value, data = m.bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
         if (m.withResponse) await this.run(`write ${h} ${data}`, (l) => l === `write complete handle=${hex4(h)}`);
         else await this.run(`write-cmd ${h} ${data}`, (l) => l === `write command handle=${hex4(h)}`);
@@ -293,6 +295,58 @@ const gatt = {
       }
       default: throw new Error('demande inconnue : ' + m.gatt);
     }
+  },
+};
+// A route Musette sends to the device, read from the frames it writes (musette's crates protocol-cc600 and
+// route-cc600): frames are `ver op seq len(u16) payload crc(u16)`, split over 20-byte writes; a transfer is
+// TransferBegin (kind 1: route, size, crc), TransferChunk (offset, bytes)..., TransferEnd. The route goes to the
+// simulated ride, so the GPS follows the route the device guides along.
+const crc16 = (b) => { let c = 0xffff; for (const x of b) { c ^= x << 8; for (let i = 0; i < 8; i++) c = c & 0x8000 ? ((c << 1) ^ 0x1021) & 0xffff : (c << 1) & 0xffff; } return c; };
+function readRoute(d) {
+  const v = new DataView(d.buffer, d.byteOffset, d.byteLength);
+  if (String.fromCharCode(...d.slice(0, 4)) !== 'OCRT' || d[4] < 1 || d[4] > 2) throw new Error('pas une trace');
+  if (crc16(d.subarray(0, d.length - 2)) !== v.getUint16(d.length - 2, true)) throw new Error('trace abîmée');
+  let at = 5;
+  const n = d[at++], name = new TextDecoder().decode(d.slice(at, at + n)); at += n;
+  const i32 = () => { const x = v.getInt32(at, true); at += 4; return x; };
+  const [lat0, lon0, kx, ky] = [i32(), i32(), i32(), i32()], count = v.getUint32(at, true);
+  at += 4 + 4 + 2 + 2 + 4 + 4 + 16;   // length, ascent, descent, elevation range, bounding box
+  const varint = () => { let x = 0, shift = 0, b; do { b = d[at++]; x += (b & 0x7f) * 2 ** shift; shift += 7; } while (b & 0x80); return x; };
+  const zigzag = () => { const x = varint(); return x % 2 ? -(x + 1) / 2 : x / 2; };
+  const pts = []; let x = 0, y = 0, e = 0;
+  for (let i = 0; i < count; i++) {
+    x += zigzag(); y += zigzag(); e += zigzag(); varint();   // and the length along, not needed
+    pts.push({ lat: (lat0 + y * 2 ** 24 / ky) / 1e7, lon: (lon0 + x * 2 ** 24 / kx) / 1e7, ele: e / 10, t: null });
+  }
+  return { name: name || 'Trace', pts };
+}
+const sent = {
+  rx: [], file: null,
+  write(bytes) {
+    this.rx.push(...bytes);
+    while (this.rx.length >= 5) {
+      const len = this.rx[3] | this.rx[4] << 8, n = 5 + len + 2;
+      if (this.rx[0] !== 1) { this.rx = []; return; }   // not a frame start: drop, the next write starts one
+      if (this.rx.length < n) return;
+      const f = this.rx.splice(0, n);
+      this.frame(f[1], Uint8Array.from(f.slice(5, 5 + len)));
+    }
+  },
+  frame(op, p) {
+    const u32 = (i) => (p[i] | p[i + 1] << 8 | p[i + 2] << 16) + p[i + 3] * 2 ** 24;
+    if (op === 0x10) {   // TransferBegin: a route, or a resume of the same one
+      const size = u32(1), crc = p[5] | p[6] << 8;
+      if (p[0] !== 1) this.file = null;
+      else if (!this.file || this.file.size !== size || this.file.crc !== crc) this.file = { size, crc, data: new Uint8Array(size) };
+    } else if (op === 0x11 && this.file) {   // TransferChunk
+      const at = u32(0), bytes = p.subarray(4);
+      if (at + bytes.length <= this.file.size) this.file.data.set(bytes, at);
+    } else if (op === 0x12 && this.file) {   // TransferEnd
+      const f = this.file; this.file = null;
+      if (crc16(f.data) !== f.crc) return;
+      try { const r = readRoute(f.data); r.name = `${r.name} (envoyée par Musette)`; ride.load(r); }
+      catch (e) { out(`[page] trace de Musette illisible : ${e.message}\n`); }
+    } else if (op === 0x13) this.file = null;   // TransferAbort
   },
 };
 const musette = {
