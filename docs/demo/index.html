@@ -48,6 +48,7 @@ main { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; paddi
 .key:focus-visible { outline: 2px solid var(--key); outline-offset: 2px; border-radius: 8px; }
 .hint { position: absolute; font-size: 14px; color: #8a8a8a; }
 .note { font-size: 16px; color: var(--mute); }
+button.act.small { padding: 1px 8px; font-size: 14px; }
 code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 .side { flex: 1; min-width: 280px; }
 .status { font-size: 18px; font-weight: 600; min-height: 24px; }
@@ -110,6 +111,7 @@ footer p { font-size: 15px; color: var(--mute); }
     <div class="controls"><label>Version du firmware <select id="version" aria-label="Version du firmware"></select></label>
       <button class="act" id="restart">Redémarrer le compteur</button></div>
     <p class="note" id="buildinfo"></p>
+    <p class="note"><span id="saved"></span> <button class="act small" id="forget" hidden>Effacer</button></p>
     <details id="own">
       <summary>Ton firmware d'origine</summary>
       <p class="note">Le firmware GEOID n'est pas diffusé ici. Si tu as lu la flash de ton compteur
@@ -140,7 +142,8 @@ footer p { font-size: 15px; color: var(--mute); }
 <footer>
   <p>Émulateur : <a href="https://github.com/enavarro222/esp32sim">esp32sim</a> (licence MIT, fork avec le modèle du
      CC600, voir le <a id="simreadme" href="#">README de l'émulateur</a>). ROM du S3 : Espressif, Apache-2.0. Firmware opencc600 : GPL-3.0,
-     avec les bibliothèques radio d'Espressif. Le stockage part vide à chaque chargement. Carte : © les contributeurs
+     avec les bibliothèques radio d'Espressif. Le stockage du compteur est gardé dans ton navigateur (IndexedDB), pour
+     chaque version, jamais envoyé. Carte : © les contributeurs
      d'<a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, <a href="https://leafletjs.com">Leaflet</a>.</p>
 </footer>
 <script type="module">
@@ -196,6 +199,7 @@ function onMessage(ev) {
   if (m.ready) reply('ready', true);
   if (m.created !== undefined) reply('created', m.created);
   if (m.loaded !== undefined) reply('load' + m.loaded, m.ok);
+  if (m.read !== undefined) reply('read' + m.read, m.data);
   if (m.started !== undefined && !m.started) status('Le démarrage a échoué : ' + (m.error || 'voir la console'));
 }
 
@@ -204,6 +208,7 @@ const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Er
 let versions = [], build = null, files = null;
 async function boot() {
   status('Démarrage du compteur…');
+  store.live = false;   // no save while the flash is being loaded
   const own = !files.elf;
   // ROM, flash image, application ELF (symbols for the virtual BLE controller; none in a vendor dump)
   const loads = [[0, files.rom], [5, files.flash], ...(own ? [] : [[4, files.elf]])];
@@ -212,11 +217,71 @@ async function boot() {
     const copy = data.slice(0);
     if (!await ask('load' + kind, { op: 'load', kind, data: copy }, [copy])) throw new Error('chargement ' + kind);
   }
+  const kept = own ? null : await store.get();
+  if (kept && !await ask('loadat' + STORAGE.at, { op: 'load', at: STORAGE.at, data: kept }, [kept])) throw new Error('chargement de la sauvegarde');
   if (!own) { const elf = files.elf.slice(0); worker.postMessage({ op: 'ble', data: elf }, [elf]); }
   worker.postMessage({ op: 'start', appDirect: false });
+  store.live = !own; store.show();
 }
+
+// the storage partition (tools/demo/partitions.csv: rides, settings, pairings), kept per version in
+// IndexedDB, gzipped; written when it changed, every 30 s and when the page goes to the background
+const STORAGE = { at: 0x860000, len: 0x79e000 };
+const store = {
+  db: null, last: 0, when: null, live: false,
+  key: () => 'storage:' + build.name,
+  async open() {
+    this.db ??= await new Promise((res, rej) => {
+      const r = indexedDB.open('opencc600-demo', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('flash');
+      r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+    return this.db;
+  },
+  async op(mode, f) {
+    const db = await this.open();
+    return new Promise((res, rej) => { const t = db.transaction('flash', mode), q = f(t.objectStore('flash')); t.oncomplete = () => res(q.result); t.onerror = () => rej(t.error); });
+  },
+  async get() {
+    try {
+      const v = await this.op('readonly', (s) => s.get(this.key()));
+      if (!v) { this.when = null; return null; }
+      this.when = v.when;
+      return await new Response(v.data.stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+    } catch (e) { out(`[page] sauvegarde illisible : ${e.message}\n`); return null; }
+  },
+  async save() {
+    if (!this.live) return;
+    // an emulator without the read op (an older build) never answers
+    const data = await Promise.race([ask('read' + STORAGE.at, { op: 'read', at: STORAGE.at, len: STORAGE.len }),
+      new Promise((res) => setTimeout(() => { waiting.delete('read' + STORAGE.at); res(null); }, 5000))]);
+    if (!data) return;
+    const w = new Uint32Array(data); let h = 2166136261;
+    for (let i = 0; i < w.length; i++) h = Math.imul(h ^ w[i], 16777619);
+    if (h === this.last) return;
+    const gz = await new Response(new Blob([data]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+    this.when = Date.now();
+    await this.op('readwrite', (s) => s.put({ data: gz, when: this.when }, this.key()));
+    this.last = h; this.show();
+  },
+  async forget() {
+    await this.op('readwrite', (s) => s.delete(this.key()));
+    this.last = 0; this.when = null;
+  },
+  show() {
+    const own = !files?.elf;
+    $('saved').textContent = own ? 'Ton image n\'est pas sauvegardée : elle repart de ton fichier à chaque chargement.'
+      : this.when ? `Stockage sauvegardé dans ce navigateur (${new Date(this.when).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}).`
+      : 'Stockage neuf : il sera sauvegardé dans ce navigateur.';
+    $('forget').hidden = own || !this.when;
+  },
+};
+setInterval(() => store.save().catch(() => {}), 30000);
+document.addEventListener('visibilitychange', () => { if (document.hidden) store.save().catch(() => {}); });
+
 // a fresh emulator from the build's worker and wasm, then `flash` (or the build's own image) on it
 async function run(name, flash) {
+  await store.save().catch(() => {});
   build = versions.find((v) => v.name === name) || versions[0];
   const base = `builds/${encodeURIComponent(build.name)}/`;
   $('simreadme').href = base + 'sim/README.md';
@@ -254,7 +319,11 @@ $('dump').onchange = async () => {
   if (f.size !== 16 << 20) { status(`Ce fichier fait ${f.size} octets : il faut l'image entière de la flash, 16 Mo.`); return; }
   run($('version').value, await f.arrayBuffer()).catch((e) => status('Échec : ' + e.message));
 };
-$('restart').onclick = () => { if (files) boot().catch((e) => status('Échec : ' + e.message)); };
+$('restart').onclick = async () => { if (!files) return; await store.save().catch(() => {}); boot().catch((e) => status('Échec : ' + e.message)); };
+$('forget').onclick = async () => {
+  if (!confirm('Effacer les sorties et réglages sauvegardés pour cette version ?')) return;
+  await store.forget(); boot().catch((e) => status('Échec : ' + e.message));
+};
 
 // the keys: the nRF's pseudo pins 64..66, held = long press
 const PIN = 64;
