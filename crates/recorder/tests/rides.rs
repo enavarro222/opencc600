@@ -283,12 +283,26 @@ fn a_ride_survives_any_power_cut() {
 #[test]
 fn odometer() {
     let mut o = Odometer::default();
-    assert_eq!(o.update(100, Some(8_000)), 0); // first speed: nothing to integrate yet
-    assert_eq!(o.update(101, Some(8_000)), 800);
-    assert_eq!(o.update(102, Some(300)), 800); // GNSS noise at rest
-    assert_eq!(o.update(103, None), 800); // no fix
-    assert_eq!(o.update(104, Some(10_000)), 800 + 2 * 1000); // 2 s since the last speed
-    assert_eq!(o.update(160, Some(10_000)), 2800 + 5 * 1000); // long gap: counted 5 s
+    assert_eq!(o.update(100, Some(8_000), true), 0); // first speed: nothing to integrate yet
+    assert_eq!(o.update(101, Some(8_000), true), 800);
+    assert_eq!(o.update(102, Some(300), true), 800); // GNSS noise at rest
+    assert_eq!(o.update(103, None, true), 800); // no fix
+    assert_eq!(o.update(104, Some(10_000), true), 800 + 2 * 1000); // 2 s since the last speed
+    assert_eq!(o.update(160, Some(10_000), true), 2800 + 5 * 1000); // long gap: counted 5 s
+}
+
+#[test]
+fn odometer_stands_still_while_paused() {
+    let mut o = Odometer::default();
+    o.update(100, Some(8_000), true);
+    assert_eq!(o.update(101, Some(8_000), true), 800);
+    // paused, still riding (or the GNSS track goes on): the distance holds, so does the average speed
+    for t in 102..200 {
+        assert_eq!(o.update(t, Some(8_000), false), 800);
+    }
+    // resumed: the first speed starts again, nothing for the gap since the last one counted
+    assert_eq!(o.update(200, Some(8_000), true), 800);
+    assert_eq!(o.update(201, Some(8_000), true), 1600);
 }
 
 #[test]

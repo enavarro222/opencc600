@@ -190,8 +190,13 @@ impl Odometer {
         }
     }
 
-    /// Adds the speed at FIT timestamp `timestamp`; returns the distance since the start, centimetres.
-    pub fn update(&mut self, timestamp: u32, speed_mm_s: Option<u32>) -> u32 {
+    /// Adds the speed at FIT timestamp `timestamp`; returns the distance since the start, centimetres. Paused
+    /// (`running` false), nothing counts, nor the time up to the first speed after the pause.
+    pub fn update(&mut self, timestamp: u32, speed_mm_s: Option<u32>, running: bool) -> u32 {
+        if !running {
+            self.last = None;
+            return self.distance_cm();
+        }
         if let (Some(last), Some(v)) = (self.last, speed_mm_s)
             && v >= MOVING_MM_S
         {

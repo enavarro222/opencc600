@@ -2352,7 +2352,9 @@ impl Ride {
         };
         self.last_timestamp = timestamp;
         let speed = fix.valid.then_some(fix.speed_mm_s).flatten();
-        let distance_cm = self.odometer.update(timestamp, speed);
+        let distance_cm = self
+            .odometer
+            .update(timestamp, speed, self.recorder.summary().running());
         let sensors = sensor_values();
         let record = fit::Record {
             timestamp,
