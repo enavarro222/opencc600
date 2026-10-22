@@ -84,8 +84,10 @@ Day to day:
 - `tools/serial_log.py`: prints the USB serial log for N seconds, each line with the host time (no reset);
   `--send T:TEXT` types a test command at T seconds (`key 2 click`, `sound off`, `gnss cold`, `gnss time on`,
   `rtc shift -300`, `screen ?`, `set tz UTC0`, `get sound`, `settings ?`, `bench map`, `fix LAT_E7 LON_E7
-  [MM_S [CDEG]]`, `fix off`, `light RAW` in place of the ambient light sensor, `light off`, `light ?` for the theme
-  and the backlight).
+  [MM_S [CDEG]]`, `fix off`, `light RAW` in place of the ambient light sensor, `light off`, `light ?` for the theme,
+  the backlight and the sensor's raw levels).
+- `tools/light_survey.py`: the ambient light sensor's raw levels in scenes set by hand (dark, a lamp, a headlamp),
+  with the backlight at 10 % and 100 % (does the sensor see the screen?), on one or more devices at once.
 - `crates/route-tool`: `cargo run -p route-tool -- build IN.gpx OUT [TOL_M]` makes a route file, `info FILE`
   describes one, `sim IN.gpx OUT_DIR [EVERY_S]` rides a GPX through the real UI and writes the screens as PNG.
 - `tools/check_fit.py`: decodes FIT files with the official Garmin FIT SDK.

@@ -260,9 +260,10 @@ pub(crate) async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>
                     Some(Command::BenchMap) => BENCH_MAP.signal(()),
                     Some(Command::StorageFill(fill)) => STORAGE_FILL.signal(fill),
                     Some(Command::Light) => info!(
-                        "light: theme {}, backlight {} %",
+                        "light: theme {}, backlight {} %, sensor {:?}",
                         if NIGHT.load(Ordering::Relaxed) { "night" } else { "day" },
-                        BACKLIGHT.load(Ordering::Relaxed)
+                        BACKLIGHT.load(Ordering::Relaxed),
+                        STATUS.lock(Cell::get).light
                     ),
                     Some(Command::SimLight(raw)) => {
                         info!("usb: ambient light {raw:?}");

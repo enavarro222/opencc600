@@ -65,7 +65,8 @@ pub enum Command<'a> {
     /// `light <raw>` in place of the ambient light sensor for the automatic backlight; `light off` (`None`) gives it
     /// back.
     SimLight(Option<u16>),
-    /// `light ?`: logs the theme shown and the backlight (`light: theme night, backlight 10 %`).
+    /// `light ?`: logs the theme shown, the backlight and the sensor's raw levels, tags 600, 2000 and 3000
+    /// (`light: theme night, backlight 10 %, sensor [Some(1012), Some(4), Some(3)]`).
     Light,
     /// `fix <lat_e7> <lon_e7> [<speed_mm_s> [<course_cdeg>]]`: a position in place of the receiver's for a few
     /// seconds (tools/replay_gpx.py); `fix off` (`None`) gives the receiver back at once.
