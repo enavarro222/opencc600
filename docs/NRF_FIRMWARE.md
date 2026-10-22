@@ -49,6 +49,14 @@ what reaches the ESP32 (link protocol in REVERSE_NOTES.md, "nRF link on the CC60
   power-on reasons (`SetStartMode`, `PowerOffNoChargeHandle`, `RestartMainBordHandle`, "PowerOnRestartFormtimer").
 - **ESP32 control**: "Enter EspProgram Mode, Boot Pin set!" (the nRF can put the ESP32 in its ROM bootloader),
   "Enter Reset Handle!", "Enter Check Mode!" (factory?), `GnssRtcReset`.
+- **ESP32 program mode** (`FUN_00013a34`, checked 2026-10-22): keys 1 and 2 (the bottom ones) held together ~3 s
+  drive P0.24 high (the ESP32 boot pin), reset the ESP32 (output 5) and set config word 7 to 0xa5a5a5a5: every
+  ESP32 reset then ends in the ROM bootloader (`boot:0x2`, black screen). In that mode the code beeps every ~3 s
+  with no key down, a long press of key 0 released (event 5) resets the nRF (`AIRCR`), and keys 1 and 2 held more
+  than 24 s ("Reset Handle") reset it after 1 s; at boot the nRF writes its default config (word 7 cleared).
+  Seen on the device: a long press of key 0 alone did nothing; keys 1 and 2 held ~30 s then released started the
+  beeps, the ESP32 still in its bootloader; a long press of key 0 after that and the ESP32 booted. Why both were
+  needed is not understood.
 - **Buzzer**: "set_buzzer_count:%d", "Buzzer Count: %d".
 - **RTC**: "current time_stamp:%s" (date formatting).
 - **UART to the ESP32**: `mg_drv_uart.c`, "UART_COMMUNICATION_ERROR".

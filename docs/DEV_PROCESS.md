@@ -78,7 +78,10 @@ never really power off (`power off dry`).
 - **Back to the vendor firmware**: `tools/flash.py --restore-vendor` writes that otadata back, so the
   bootloader loads the vendor slot again; `--storage dump/<mac>/storage.orig.bin` puts its storage partition back too.
 - Keep a full 16 MB flash dump of the device before the first write (REVERSE_NOTES.md, "Flash layout").
-- Recovery: holding the 3 keys hard-resets the ESP32; the ROM download mode is reachable over USB at any time.
+- Recovery: the ROM download mode is reachable over USB at any time. **Do not hold the two bottom keys**: after ~3 s
+  the nRF holds the ESP32's boot pin, every reset then lands in the ROM bootloader (black screen) and it beeps every
+  ~3 s. What got out of it (2026-10-22): the two bottom keys held ~30 s, released, then a long press of the top left
+  key; the top left key alone did not (NRF_FIRMWARE.md).
 - **Never** write the eFuses, the bootloader (0x0) or the partition table (0x8000).
 
 ## 3. Field
