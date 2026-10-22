@@ -761,6 +761,7 @@ async fn main(spawner: Spawner) -> ! {
             }
             panel.flush(&fb);
             shown = Some(screen);
+            SHOWN_FOUND.lock(|c| c.set(LISTED_FOUND.lock(Cell::get)));
             let (items, sel) = ui.menu(&view);
             let item = items.get(sel as usize).copied().flatten();
             SCREEN.lock(|s| s.set((ui.screen(), item, ui.role(), ui.scan_item(), ui.page())));
@@ -1366,14 +1367,14 @@ fn settings() -> settings::Settings {
     SETTINGS.lock(Cell::get).unwrap_or_default()
 }
 
-#[allow(
-    clippy::large_stack_frames,
-    reason = "littlefs file handle and a 512-byte buffer, once at boot from main"
-)]
 /// The role whose sensors are being looked for (the scan screen), as a `ble::ROLE_*` bit.
 static SCAN_ROLE: Mutex<CriticalSectionRawMutex, Cell<Option<u8>>> = Mutex::new(Cell::new(None));
-/// The sensors the scan screen lists, in its order: what [`ui::Command::Pair`] picks from.
+/// The sensors the scan screen shows, in its order: what [`ui::Command::Pair`] picks from. Set when the screen is
+/// drawn: [`sensors_view`] sorts the list again each time, by signal strength, and the order changes often.
 static SHOWN_FOUND: Mutex<CriticalSectionRawMutex, Cell<[Option<settings::Sensor>; ui::FOUND]>> =
+    Mutex::new(Cell::new([None; ui::FOUND]));
+/// The list of the last [`sensors_view`], for [`SHOWN_FOUND`] once drawn.
+static LISTED_FOUND: Mutex<CriticalSectionRawMutex, Cell<[Option<settings::Sensor>; ui::FOUND]>> =
     Mutex::new(Cell::new([None; ui::FOUND]));
 
 const ROLE_BITS: [u8; 3] = [ble::ROLE_HR, ble::ROLE_SPEED_CADENCE, ble::ROLE_POWER];
@@ -1457,7 +1458,7 @@ fn sensors_view() -> ui::Sensors {
             });
         }
     }
-    SHOWN_FOUND.lock(|c| c.set(shown));
+    LISTED_FOUND.lock(|c| c.set(shown));
     out.calibration = power_calibration();
     out
 }
