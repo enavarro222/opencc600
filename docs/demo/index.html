@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>opencc600 — démo du firmware</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root { color-scheme: light; --bg: #E9E7E2; --ink: #111; --mute: #555; --key: #3BB3E0; --dev: #141416; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Barlow Condensed', sans-serif; }
+header, main, footer { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+header { padding-top: 20px; }
+h1 { margin: 0 0 4px; font-size: 30px; }
+p { margin: 6px 0; font-size: 18px; line-height: 1.3; color: #333; }
+a { color: #1D4ED8; }
+main { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; padding-top: 24px; padding-bottom: 24px; }
+.device { position: relative; width: 300px; height: 480px; flex-shrink: 0; margin-top: 10px; border-radius: 36px; background: var(--dev); box-shadow: 0 12px 28px rgba(0,0,0,.25); touch-action: none; }
+.device canvas { position: absolute; left: 30px; top: 44px; width: 240px; height: 320px; background: #000; image-rendering: pixelated; }
+/* a key: the blue bar on the edge, in a larger target */
+.key { position: absolute; width: 96px; height: 40px; padding: 0; border: none; background: none; cursor: pointer; touch-action: none; -webkit-tap-highlight-color: transparent; }
+.key::before { content: ''; position: absolute; left: 10px; width: 76px; height: 12px; border-radius: 4px; background: var(--key); transition: transform .05s; }
+.key.tl { left: 26px; top: -24px; } .key.tl::before { top: 15px; }
+.key.bl { left: 26px; bottom: -24px; } .key.bl::before { top: 13px; }
+.key.br { right: 26px; bottom: -24px; } .key.br::before { top: 13px; }
+.key.down::before { background: #1F8FBA; transform: scaleY(.6); }
+.key:focus-visible { outline: 2px solid var(--key); outline-offset: 2px; border-radius: 8px; }
+.hint { position: absolute; font-size: 14px; color: #8a8a8a; }
+.side { flex: 1; min-width: 280px; }
+.status { font-size: 18px; font-weight: 600; min-height: 24px; }
+.status small { font-weight: 500; color: var(--mute); }
+.legend { margin: 10px 0 14px; padding: 0; list-style: none; font-size: 17px; }
+.legend li { margin: 3px 0; }
+kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid #bbb; border-bottom-width: 2px; border-radius: 4px; background: #fff; font: 600 14px/20px 'Barlow Condensed', sans-serif; text-align: center; }
+details { margin-top: 12px; }
+summary { cursor: pointer; font-size: 18px; font-weight: 600; }
+pre { height: 260px; margin: 8px 0 6px; padding: 8px 10px; overflow: auto; background: #1c1c1f; color: #ddd; border-radius: 8px; font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+form { display: flex; gap: 8px; }
+input[type=text] { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid #bbb; border-radius: 6px; font: 14px ui-monospace, Menlo, Consolas, monospace; }
+button.act { padding: 6px 12px; border: 1px solid #999; border-radius: 6px; background: #fff; font: 600 16px 'Barlow Condensed', sans-serif; cursor: pointer; }
+footer { padding-bottom: 28px; }
+footer p { font-size: 15px; color: var(--mute); }
+@media (max-width: 640px) { main { justify-content: center; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>opencc600 — le vrai firmware, dans le navigateur</h1>
+  <p>Ici tourne le firmware libre du compteur GEOID CC600, tel qu'il est flashé sur le compteur : l'ESP32-S3 est émulé
+     dans la page par <a href="https://github.com/mikroverk/esp32sim">esp32sim</a> (WebAssembly), son écran et sa
+     puce nRF52 (touches, horloge, batterie, baromètre) sont simulés. Rien n'est envoyé nulle part.</p>
+  <p>La maquette de l'interface est le <a href="../prototype/">prototype cliquable</a> ; le code est sur
+     <a href="https://github.com/enavarro222/opencc600">github.com/enavarro222/opencc600</a>.</p>
+</header>
+<main>
+  <div class="device" id="device">
+    <canvas id="screen" width="240" height="320" aria-label="Écran du compteur"></canvas>
+    <button class="key tl" data-key="0" aria-label="Touche haut gauche"></button>
+    <button class="key bl" data-key="1" aria-label="Touche bas gauche"></button>
+    <button class="key br" data-key="2" aria-label="Touche bas droite"></button>
+  </div>
+  <div class="side">
+    <div class="status" id="status">Chargement de l'émulateur…</div>
+    <ul class="legend">
+      <li><kbd>1</kbd> haut gauche · <kbd>2</kbd> bas gauche · <kbd>3</kbd> bas droite</li>
+      <li>Un clic : appui court. Maintenir ½ seconde : appui long (allumer, éteindre, arrêter une sortie).</li>
+      <li>L'heure vient de ton ordinateur, la batterie est à 80 %. Pas encore de GPS simulé : une sortie démarre
+          sans position.</li>
+    </ul>
+    <button class="act" id="restart">Redémarrer le compteur</button>
+    <details id="logs">
+      <summary>Console USB du firmware</summary>
+      <pre id="console"></pre>
+      <form id="cmd"><input type="text" id="line" placeholder="screen ?" autocomplete="off" aria-label="Commande USB"><button class="act">Envoyer</button></form>
+    </details>
+  </div>
+</main>
+<footer>
+  <p>Émulateur : <a href="https://github.com/enavarro222/esp32sim">esp32sim</a> (licence MIT, fork avec le modèle du
+     CC600, voir <a href="sim/README.md">sim/README.md</a>). ROM du S3 : Espressif, Apache-2.0. Firmware opencc600 : GPL-3.0,
+     avec les bibliothèques radio d'Espressif. Le stockage part vide à chaque chargement.</p>
+</footer>
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const status = (s) => { $('status').innerHTML = s; };
+const worker = new Worker('sim/wasm/worker.js', { type: 'module' });
+const waiting = new Map();
+const ask = (key, msg, transfer) => new Promise((res) => { waiting.set(key, res); worker.postMessage(msg, transfer || []); });
+const reply = (key, v) => { const r = waiting.get(key); waiting.delete(key); r && r(v); };
+const send = (obj) => worker.postMessage({ op: 'text', data: JSON.stringify(obj) });
+
+// the panel: RGB565 frames (type 1: w, h, pixels)
+const ctx = $('screen').getContext('2d');
+function frame(buf) {
+  const dv = new DataView(buf);
+  if (dv.getUint8(0) !== 1) return;
+  const w = dv.getUint16(1, true), h = dv.getUint16(3, true);
+  const img = ctx.createImageData(w, h), d = img.data;
+  for (let i = 0; i < w * h; i++) {
+    const p = dv.getUint16(5 + i * 2, true);
+    d[i * 4] = (p >> 11) * 255 / 31; d[i * 4 + 1] = ((p >> 5) & 63) * 255 / 63; d[i * 4 + 2] = (p & 31) * 255 / 31; d[i * 4 + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+// emulated seconds (`stat`) and emulated seconds per wall second (`pace`, null while unknown)
+let emulated = 0, speed = null;
+function showStatus() {
+  const pace = speed == null ? '' : speed >= 0.95 ? ' · temps réel' : ` · ${Math.round(speed * 100)} % du temps réel`;
+  status(`En marche <small>· ${emulated.toFixed(0)} s émulées${pace}</small>`);
+}
+
+// the USB console, ANSI colours stripped, the last lines kept
+let log = '';
+function out(text) {
+  log = (log + text.replace(/\x1b\[[0-9;]*m/g, '')).slice(-60000);
+  const pre = $('console'), atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
+  pre.textContent = log;
+  if (atEnd) pre.scrollTop = pre.scrollHeight;
+}
+
+worker.onmessage = (ev) => {
+  const m = ev.data;
+  if (m.bin !== undefined) { try { frame(m.bin); } finally { if (m.ack) worker.postMessage({ op: 'frame-ack' }); } return; }
+  if (m.text !== undefined) {
+    const t = JSON.parse(m.text);
+    if (t.t === 'serial' && t.src === 'usb') out(t.data);
+    if (t.t === 'stat') { emulated = t.time; showStatus(); }
+    return;
+  }
+  if (m.log !== undefined) { out('[emu] ' + m.log + '\n'); return; }
+  if (m.pace) { speed = m.pace.speed; showStatus(); }
+  if (m.ready) reply('ready', true);
+  if (m.created !== undefined) reply('created', m.created);
+  if (m.loaded !== undefined) reply('load' + m.loaded, m.ok);
+  if (m.started !== undefined && !m.started) status('Le démarrage a échoué : ' + (m.error || 'voir la console'));
+};
+
+const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(`${url} : ${r.status}`); return r.arrayBuffer(); };
+let files = null;
+async function boot() {
+  status('Démarrage du compteur…');
+  // ROM, flash image, application ELF (symbols for the virtual BLE controller)
+  const loads = [[0, files.rom], [5, files.flash], [4, files.elf]];
+  if (!await ask('created', { op: 'create', board: 'cc600', flash_mb: 16, psram_mb: 8, jit: true })) throw new Error('émulateur non créé');
+  for (const [kind, data] of loads) {
+    const copy = data.slice(0);
+    if (!await ask('load' + kind, { op: 'load', kind, data: copy }, [copy])) throw new Error('chargement ' + kind);
+  }
+  const elf = files.elf.slice(0);
+  worker.postMessage({ op: 'ble', data: elf }, [elf]);
+  worker.postMessage({ op: 'start', appDirect: false });
+}
+
+try {
+  const wasm = await get('sim/wasm/esp32sim.wasm');
+  const ready = ask('ready', { op: 'init', wasm, frameAck: true }, [wasm]);
+  const [rom, flash, elf] = await Promise.all(['fw/esp32s3_rev0_rom.elf', 'fw/cc600-flash.bin', 'fw/cc600.elf'].map(get));
+  files = { rom, flash, elf };
+  await ready;
+  await boot();
+} catch (e) { status('Impossible de lancer la démo : ' + e.message); }
+
+$('restart').onclick = () => { if (files) boot().catch((e) => status('Échec : ' + e.message)); };
+
+// the keys: the nRF's pseudo pins 64..66, held = long press
+const PIN = 64;
+function press(el, down) {
+  if (el.classList.contains('down') === down) return;
+  el.classList.toggle('down', down);
+  send({ t: 'btn', pin: PIN + Number(el.dataset.key), v: down ? 1 : 0 });
+}
+for (const el of document.querySelectorAll('.key')) {
+  el.onpointerdown = (e) => { e.preventDefault(); el.setPointerCapture(e.pointerId); press(el, true); };
+  el.onpointerup = el.onpointercancel = () => press(el, false);
+  el.onkeydown = (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press(el, true); } };
+  el.onkeyup = (e) => { if (e.key === ' ' || e.key === 'Enter') press(el, false); };
+}
+const byDigit = (e) => !e.target.closest('input') && document.querySelector(`.key[data-key="${Number(e.key) - 1}"]`);
+addEventListener('keydown', (e) => { const el = /^[123]$/.test(e.key) && byDigit(e); if (el && !e.repeat) press(el, true); });
+addEventListener('keyup', (e) => { const el = /^[123]$/.test(e.key) && byDigit(e); if (el) press(el, false); });
+
+$('cmd').onsubmit = (e) => {
+  e.preventDefault();
+  const line = $('line').value.trim(); if (!line) return;
+  out('> ' + line + '\n'); send({ t: 'serial', src: 'usb', line }); $('line').value = '';
+};
+</script>
+</body>
+</html>

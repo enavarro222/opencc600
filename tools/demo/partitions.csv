@@ -1,0 +1,9 @@
+# The CC600's partition table (read on the device), for the emulator demo image.
+# Name,     Type, SubType,  Offset,   Size
+nvs,        data, nvs,      0x9000,   0x4000
+otadata,    data, ota,      0xd000,   0x2000
+phy_init,   data, phy,      0xf000,   0x1000
+coredump,   data, coredump, 0x10000,  0x10000
+ota_0,      app,  ota_0,    0x20000,  0x420000
+ota_1,      app,  ota_1,    0x440000, 0x420000
+storage,    data, 0x83,     0x860000, 0x79e000
