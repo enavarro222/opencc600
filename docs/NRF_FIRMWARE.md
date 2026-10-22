@@ -5,10 +5,10 @@ what reaches the ESP32 (link protocol in REVERSE_NOTES.md, "nRF link on the CC60
 
 ## The image
 
-- **Where**: the vendor storage partition (backup `dump/storage.orig.bin`, littlefs) holds the update the ESP32
+- **Where**: the vendor storage partition (backup `dump/<mac>/storage.orig.bin`, littlefs) holds the update the ESP32
   pushes to the nRF (vendor log lines "SendtoSlave OTA_UPG_CMD", "Slave MCU Upgrade Success!"):
   `/APP/20260415221525_3592/N51_V1.602_A.bin`, 70 394 bytes. Our firmware never touches `/APP`.
-- **Extraction**: `tools/reverse/nrf_image.py dump/storage.orig.bin dump/nrf` (or `--file N51_*.bin`) writes the plain
+- **Extraction**: `tools/reverse/nrf_image.py dump/<mac>/storage.orig.bin dump/nrf` (or `--file N51_*.bin`) writes the plain
   application `N51_V1.602_A_app_0x12000.bin`. `dump/nrf/` is not in git.
 - **Format**: a 128-byte header XORed with `9A 92 45 42`, then the application XORed with `DA DC 05 0C` (both repeat
   every 4 bytes; the body key came from the vector table and the strings). Header, little endian:

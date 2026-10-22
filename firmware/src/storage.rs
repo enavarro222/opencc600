@@ -1,7 +1,7 @@
 //! The `storage` flash partition as a littlefs block device.
 //!
 //! The partition is ours (docs/PRODUCT.md, storage decision): the vendor's content is backed up in dump/ and
-//! goes back with `tools/flash_ota0.py --restore-vendor --storage`. [`open`] formats only a blank (erased)
+//! goes back with `tools/flash.py --restore-vendor --storage`. [`open`] formats only a blank (erased)
 //! partition, never one that fails to mount for another reason.
 
 use alloc::boxed::Box;
@@ -13,7 +13,7 @@ use littlefs2::driver::Storage;
 use littlefs2::fs::{Allocation, Filesystem};
 use littlefs2::io::{Error, Result};
 
-/// `storage` partition (data/0x83), checked against the device partition table by tools/flash_ota0.py.
+/// `storage` partition (data/0x83), checked against the device partition table by tools/flash.py.
 pub const OFFSET: u32 = 0x86_0000;
 pub const SIZE: usize = 0x79_E000;
 pub const BLOCK: usize = 4096;

@@ -96,7 +96,7 @@ async fn main(spawner: Spawner) -> ! {
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
-    info!("opencc600: booted from ota_0");
+    info!("opencc600: booted");
     info!("heap: {}", esp_alloc::HEAP.stats());
 
     // Panel before backlight, so the stale frame left in the GRAM is never shown.
@@ -132,7 +132,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut panel = Panel::new(bus, dma_buf);
     info!("panel initialised");
 
-    // Storage: our littlefs partition, formatted here only if blank (tools/flash_ota0.py --erase-storage).
+    // Storage: our littlefs partition, formatted here only if blank (tools/flash.py erases the vendor's).
     let mut partition = storage::Partition::new(FlashStorage::new(peripherals.FLASH));
     let mut alloc = Box::new(Allocation::new());
     let fs = match storage::open(&mut alloc, &mut partition) {

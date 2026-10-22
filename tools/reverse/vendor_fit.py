@@ -9,7 +9,7 @@ compressed container:
 The zlib chunks hold the FIT records (the header's data size, once inflated). Header + records + CRC is the
 original FIT file, byte for byte.
 
-usage: vendor_fit.py STORAGE.bin OUT_DIR     (raw image of the storage partition, e.g. dump/storage.orig.bin)
+usage: vendor_fit.py STORAGE.bin OUT_DIR     (raw image of the storage partition, e.g. dump/<mac>/storage.orig.bin)
        vendor_fit.py --container FILE.fit... OUT_DIR
 """
 import argparse

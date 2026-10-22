@@ -5,7 +5,7 @@ The vendor storage partition holds the update as /APP/<date>_<n>/N51_V<version>_
 with HEADER_KEY, then the application XORed with BODY_KEY (both repeat every 4 bytes). The output is the plain
 application, to load at its address (0x12000, after the ANT SoftDevice): Ghidra raw binary, `ARM:LE:32:Cortex`.
 
-usage: nrf_image.py STORAGE.bin OUT_DIR     (raw image of the storage partition, e.g. dump/storage.orig.bin)
+usage: nrf_image.py STORAGE.bin OUT_DIR     (raw image of the storage partition, e.g. dump/<mac>/storage.orig.bin)
        nrf_image.py --file N51_V1.602_A.bin OUT_DIR
 """
 import argparse
