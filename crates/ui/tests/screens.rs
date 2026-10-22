@@ -7,11 +7,38 @@ use embedded_graphics::prelude::*;
 use ui::fonts::Line;
 use ui::{Gnss, Key, Press, Profile, RideView, Theme, Ui, View};
 
-struct Fb(Vec<Rgb565>);
+/// A frame buffer, the panel's size or any other (the top bars' sheet).
+struct Fb {
+    w: u32,
+    h: u32,
+    px: Vec<Rgb565>,
+}
+
+impl Fb {
+    fn new(w: u32, h: u32, c: Rgb565) -> Self {
+        Fb { w, h, px: vec![c; (w * h) as usize] }
+    }
+
+    fn png(&self, name: &str) {
+        let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("screens");
+        let path = dir.join(format!("{name}.png"));
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let file = std::fs::File::create(path).unwrap();
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(file), self.w, self.h);
+        enc.set_color(png::ColorType::Rgb);
+        let mut w = enc.write_header().unwrap();
+        let data: Vec<u8> = self
+            .px
+            .iter()
+            .flat_map(|c| [c.r() << 3 | c.r() >> 2, c.g() << 2 | c.g() >> 4, c.b() << 3 | c.b() >> 2])
+            .collect();
+        w.write_image_data(&data).unwrap();
+    }
+}
 
 impl OriginDimensions for Fb {
     fn size(&self) -> Size {
-        Size::new(240, 320)
+        Size::new(self.w, self.h)
     }
 }
 
@@ -24,8 +51,8 @@ impl DrawTarget for Fb {
         pixels: I,
     ) -> Result<(), Self::Error> {
         for Pixel(p, c) in pixels {
-            if (0..240).contains(&p.x) && (0..320).contains(&p.y) {
-                self.0[p.y as usize * 240 + p.x as usize] = c;
+            if (0..self.w as i32).contains(&p.x) && (0..self.h as i32).contains(&p.y) {
+                self.px[(p.y as u32 * self.w + p.x as u32) as usize] = c;
             }
         }
         Ok(())
@@ -47,6 +74,7 @@ fn view() -> View {
         clock: Some((10, 29)),
         battery_pct: Some(81),
         plugged: false,
+        phone: false,
         gnss: Gnss::Fix { used: 9 },
         speed_mm_s: Some(9_000),
         altitude_dm: Some(6_120),
@@ -91,27 +119,15 @@ fn save(name: &str, ui: &Ui, v: &View, theme: &Theme) {
 
 /// [`save`] with the route of `file`.
 fn save_with(name: &str, ui: &Ui, v: &View, file: &[u8], theme: &Theme) {
-    let mut fb = Fb(vec![Rgb565::BLACK; 240 * 320]);
+    screen(ui, v, file, theme).png(name);
+}
+
+/// The whole panel.
+fn screen(ui: &Ui, v: &View, file: &[u8], theme: &Theme) -> Fb {
+    let mut fb = Fb::new(240, 320, Rgb565::BLACK);
     let r = route::Route::parse(file).unwrap();
     ui::draw(&mut fb, ui, v, v.route.map(|_| &r), None, theme).unwrap();
-    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("screens");
-    let path = dir.join(format!("{name}.png"));
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let file = std::fs::File::create(path).unwrap();
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), 240, 320);
-    enc.set_color(png::ColorType::Rgb);
-    let mut w = enc.write_header().unwrap();
-    let data: Vec<u8> =
-        fb.0.iter()
-            .flat_map(|c| {
-                [
-                    c.r() << 3 | c.r() >> 2,
-                    c.g() << 2 | c.g() >> 4,
-                    c.b() << 3 | c.b() >> 2,
-                ]
-            })
-            .collect();
-    w.write_image_data(&data).unwrap();
+    fb
 }
 
 /// A 6 km loop: 1.5 km north, a bend east, back south (synthetic, near the prototype's place).
@@ -178,6 +194,7 @@ fn every_screen() {
         };
         shot(&ui, &searching, "home-search");
         shot(&ui, &home, "home");
+        shot(&ui, &View { phone: true, ..home }, "home-phone");
         shot(&ui, &View { rides_stored: Some(14), record_hours: Some(3), ..home }, "home-storage-low");
         // a ride refused for want of room
         let mut refused = Ui::new();
@@ -252,6 +269,7 @@ fn every_screen() {
         shot(&ui, &View { battery_pct: Some(18), ..v }, "ride-battery-low");
         shot(&ui, &View { battery_pct: Some(7), ..v }, "ride-battery-very-low");
         shot(&ui, &View { battery_pct: Some(100), ..v }, "ride-battery-full");
+        shot(&ui, &View { phone: true, ..v }, "ride-phone");
         shot(&ui, &View { battery_pct: Some(64), plugged: true, ..v }, "ride-plugged");
         shot(&ui, &View { battery_pct: Some(100), plugged: true, ..v }, "ride-plugged-full");
         key(&mut ui, BottomRight);
@@ -338,6 +356,7 @@ fn every_screen() {
     ui.tick(2 + ui::OFF_ROUTE_ALERT_MS, Some(true), &far);
     ui.tick(2 + 2 * ui::OFF_ROUTE_ALERT_MS, Some(true), &far);
     save("route-off-far", &ui, &far, &ui::DAY);
+    save("route-off-far-phone", &ui, &View { phone: true, ..far }, &ui::DAY);
     save("route-off-far-plugged", &ui, &View { plugged: true, ..far }, &ui::DAY);
     ui.key(Key::BottomLeft, Press::Click, 0, &riding);
     save("route-essential", &ui, &riding, &ui::DAY);
@@ -631,5 +650,84 @@ fn climbs_of_a_gpx() {
             let along = c.start_dm + c.length_dm() * pct / 100;
             save_with(&format!("gpx/climb{:02}-{pct}", i + 1), &ui, &at(along), &file, &ui::DAY);
         }
+    }
+}
+
+/// Every top bar the screens can show, one under the other with what it shows, on one sheet
+/// (`top-bars.png`, `top-bars-night.png`): the clock, the warnings and the icons side by side at a glance.
+#[test]
+fn top_bars() {
+    use Key::*;
+    // the bar and its rule
+    const BAR: u32 = 31;
+    // a gap, then the label on its own background
+    const GAP: u32 = 12;
+    const LABEL: u32 = 250;
+    let v = view();
+    let home = Ui::new();
+    let mut ride = Ui::new();
+    ride.key(BottomRight, Press::Click, 0, &v);
+    ride.tick(0, Some(true), &v);
+    let mut paused = ride;
+    paused.key(BottomRight, Press::Click, 0, &v);
+    let lost = View { gnss: Gnss::Searching { in_view: 3, progress: 0 }, ..v };
+    let mut gps_lost = ride;
+    gps_lost.tick(1, Some(true), &lost);
+    // the map, off the route: the riding view and the screen state at each distance
+    let mut map = Ui::new();
+    map.set_context(true, false, false, false);
+    let riding = with_route(view(), true);
+    map.key(BottomRight, Press::Click, 0, &riding);
+    map.tick(0, Some(true), &riding);
+    let off = |dm| {
+        let mut off = riding;
+        if let Some(r) = off.route.as_mut() {
+            r.progress = r.progress.map(|p| route::Progress { off_dm: dm, ..p });
+        }
+        let mut ui = map;
+        ui.tick(1, Some(true), &off);
+        ui.tick(1 + ui::OFF_ROUTE_ALERT_MS, Some(true), &off);
+        (ui, off)
+    };
+    let (m85, km01, km99, km12) = (off(850), off(1_230), off(99_490), off(123_400));
+
+    let bars: &[(&str, &Ui, View)] = &[
+        ("Accueil", &home, v),
+        ("Accueil, ni heure ni batterie", &home, View { clock: None, battery_pct: None, ..v }),
+        ("Accueil, téléphone", &home, View { phone: true, ..v }),
+        ("Accueil, en charge", &home, View { battery_pct: Some(64), plugged: true, ..v }),
+        ("Accueil, chargé", &home, View { battery_pct: Some(100), plugged: true, ..v }),
+        ("Sortie", &ride, v),
+        ("Sortie, téléphone", &ride, View { phone: true, ..v }),
+        ("Sortie, tél., 23:59, 100 %", &ride, View { phone: true, clock: Some((23, 59)), battery_pct: Some(100), ..v }),
+        ("Sortie, mémoire presque pleine", &ride, View { sparse: true, ..v }),
+        ("Sortie, batterie 18 %", &ride, View { battery_pct: Some(18), ..v }),
+        ("Sortie, batterie 7 %", &ride, View { battery_pct: Some(7), ..v }),
+        ("Sortie, batterie 7 %, en charge", &ride, View { battery_pct: Some(7), plugged: true, ..v }),
+        ("Sortie, GPS perdu", &gps_lost, lost),
+        ("Sortie, GPS perdu, téléphone", &gps_lost, View { phone: true, ..lost }),
+        ("Pause, téléphone", &paused, View { phone: true, ..v }),
+        ("Carte, hors trace 85 m, tél.", &m85.0, View { phone: true, ..m85.1 }),
+        ("Carte, hors trace 0,1 km, tél.", &km01.0, View { phone: true, ..km01.1 }),
+        ("Carte, hors trace 9,9 km", &km99.0, km99.1),
+        ("Carte, hors trace 9,9 km, tél.", &km99.0, View { phone: true, ..km99.1 }),
+        ("Carte, hors trace 9,9 km, tél., charge", &km99.0, View { phone: true, plugged: true, ..km99.1 }),
+        ("Carte, hors trace 12 km, tél.", &km12.0, View { phone: true, ..km12.1 }),
+    ];
+    for (theme, suffix) in [(ui::DAY, ""), (ui::NIGHT, "-night")] {
+        let mut sheet = Fb::new(240 + GAP + LABEL, bars.len() as u32 * (BAR + 4), theme.rule);
+        let label = ui::fonts::Style::new(&ui::fonts::BODY, theme.fg, theme.chip);
+        for (i, (name, ui, v)) in bars.iter().enumerate() {
+            let fb = screen(ui, v, &test_route(), &theme);
+            let y0 = i as u32 * (BAR + 4) + 2;
+            for y in 0..BAR {
+                let row = (y * 240) as usize;
+                let at = ((y0 + y) * sheet.w) as usize;
+                sheet.px[at..at + 240].copy_from_slice(&fb.px[row..row + 240]);
+                sheet.px[at + (240 + GAP) as usize..at + sheet.w as usize].fill(theme.chip);
+            }
+            ui::fonts::text(&mut sheet, &label, name, (240 + GAP + 8) as i32, (y0 + BAR / 2) as i32, ui::fonts::Align::Left).unwrap();
+        }
+        sheet.png(&format!("top-bars{suffix}"));
     }
 }

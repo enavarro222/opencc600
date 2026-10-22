@@ -2529,6 +2529,7 @@ fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View {
             pct => Some(pct),
         },
         plugged: s.charger == Some(nrf_link::USB_POWERED),
+        phone: ble::app_linked(),
         stream_lost: stream_lost(),
         write_failure: ride.failure,
         sparse: ride.sparse,

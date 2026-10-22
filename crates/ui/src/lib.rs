@@ -442,6 +442,8 @@ pub struct View {
     pub battery_pct: Option<u8>,
     /// On USB power: charging, or charged.
     pub plugged: bool,
+    /// The phone's app (Musette) is connected over Bluetooth.
+    pub phone: bool,
     pub gnss: Gnss,
     /// Current speed, 0 when stopped.
     pub speed_mm_s: Option<u32>,

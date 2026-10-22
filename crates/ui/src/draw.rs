@@ -1759,11 +1759,16 @@ fn top_bar<D: DrawTarget<Color = Rgb565>>(
     }
     // the ride is recorded: a floppy disk before the battery, in its grey; red when the storage is nearly full (a
     // point every 5 s, the pause screen says so) or a write failed (a banner says so)
-    if matches!(ui.screen(), Screen::Ride | Screen::Paused) {
+    let recording = matches!(ui.screen(), Screen::Ride | Screen::Paused);
+    if recording {
         floppy(d, left - 6, cy, record_color(v, t), t.bg)?;
     }
-    // the clock in the middle of the room between the key and the floppy disk, whether it shows or not
-    let mid = (TOP_KEY + right - BATTERY_W - 6 - FLOPPY_W) / 2;
+    let rune_right = if recording { left - 6 - FLOPPY_W - 4 } else { left - 6 };
+    // the clock in the middle of the room between the key and the rune before the floppy disk, whether they show or
+    // not: it never moves
+    let mid = (TOP_KEY + left - 6 - FLOPPY_W - 4 - RUNE_W) / 2;
+    // where the text in the middle ends, when it is not centred
+    let mut taken = TOP_KEY;
     if ui.gps_warning() {
         let gps = Fmt::new(format_args!("GPS {}", icon::CROSS));
         fonts::text(
@@ -1775,13 +1780,13 @@ fn top_bar<D: DrawTarget<Color = Rgb565>>(
             Align::Center,
         )?;
     } else if let Some(dm) = ui.off_route_dm() {
-        // after the key (wider than the clock), three figures at most
+        // after the key (wider than the clock), two figures and the unit against them: room for the rune
         let off = match dm {
-            ..10_000 => Fmt::new(format_args!("{} {} m", icon::OFF_ROUTE, dm / 10)),
-            ..100_000 => Fmt::new(format_args!("{} {},{} km", icon::OFF_ROUTE, dm / 10_000, dm / 1_000 % 10)),
-            _ => Fmt::new(format_args!("{} {} km", icon::OFF_ROUTE, dm / 10_000)),
+            ..1_000 => Fmt::new(format_args!("{} {}m", icon::OFF_ROUTE, dm / 10)),
+            ..100_000 => Fmt::new(format_args!("{} {},{}km", icon::OFF_ROUTE, dm / 10_000, dm / 1_000 % 10)),
+            _ => Fmt::new(format_args!("{} {}km", icon::OFF_ROUTE, dm / 10_000)),
         };
-        fonts::text(
+        let ink = fonts::text(
             d,
             &bar.colored(t.warn),
             off.as_str(),
@@ -1789,6 +1794,7 @@ fn top_bar<D: DrawTarget<Color = Rgb565>>(
             cy,
             Align::Left,
         )?;
+        taken = ink.top_left.x + ink.size.width as i32;
     } else {
         fonts::value(
             d,
@@ -1800,11 +1806,17 @@ fn top_bar<D: DrawTarget<Color = Rgb565>>(
             Align::Center,
         )?;
     }
+    // the phone's app is connected: the Bluetooth rune before the floppy disk, or in its place; not over a long
+    // distance off the route
+    if v.phone && taken + 3 <= rune_right - RUNE_W {
+        rune(d, rune_right, cy, t.mute)?;
+    }
     hline(d, TOP, t)
 }
 
 const BATTERY_W: i32 = 18;
 const FLOPPY_W: i32 = 14;
+const RUNE_W: i32 = 8;
 
 fn record_color(v: &View, t: &Theme) -> Rgb565 {
     if v.sparse || v.write_failure.is_some() { t.danger } else { t.mute }
@@ -1828,6 +1840,25 @@ fn floppy<D: DrawTarget<Color = Rgb565>>(
     fill(d, rect(right - 7, top + 1, right - 6, top + 3), c)?;
     // the label
     fill(d, rect(l + 2, top + 7, right - 2, bottom - 1), bg)?;
+    Ok(())
+}
+
+/// The Bluetooth rune, a row a byte (bit 7: the left column), its stem 2 px wide.
+const RUNE: [u8; 13] = [
+    0b00011000, 0b00011100, 0b00011010, 0b10011001, 0b01011010, 0b00111100, 0b00011000, 0b00111100, 0b01011010,
+    0b10011001, 0b00011010, 0b00011100, 0b00011000,
+];
+
+/// The Bluetooth rune 8 × 13 px, right edge at `right`, centred on `cy`.
+fn rune<D: DrawTarget<Color = Rgb565>>(d: &mut D, right: i32, cy: i32, c: Rgb565) -> Result<(), D::Error> {
+    let (x0, y0) = (right - 7, cy - 6);
+    for (y, row) in RUNE.iter().enumerate() {
+        for x in 0..8 {
+            if row & (0x80 >> x) != 0 {
+                fill(d, rect(x0 + x, y0 + y as i32, x0 + x, y0 + y as i32), c)?;
+            }
+        }
+    }
     Ok(())
 }
 
