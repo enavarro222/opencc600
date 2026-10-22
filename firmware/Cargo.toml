@@ -7,7 +7,7 @@ license      = "GPL-3.0-or-later"
 
 [[bin]]
 name = "opencc600"
-path = "./src/bin/main.rs"
+path = "src/bin/opencc600/main.rs"
 
 [features]
 # Power-cut test of the ride store on the device (tools/hil_storage.py); never in a normal build.

@@ -139,7 +139,7 @@ Needs OpenOCD's `60-openocd.rules` udev rule for non-root USB access.
   pixels as little-endian RGB565 words with the default (native) byte order. Test pattern checked on the
   device: orientation, colour order, smooth 32-step ramps on R/G/B (all 16 data lines OK), no offset.
 
-- **Display timings** (boot bench in `firmware/src/bin/main.rs`, 240 MHz, 20-run averages):
+- **Display timings** (boot bench in `firmware/src/bin/opencc600/screen.rs`, 240 MHz, 20-run averages):
 
   | | PSRAM 40 MHz (esp-hal default), per-pixel copy | PSRAM 80 MHz (vendor setting), memcpy |
   |---|---|---|

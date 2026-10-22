@@ -1,7 +1,7 @@
 # Altitude and elevation gain (D+)
 
 How opencc600 combines the barometer and the GNSS altitude. Code: `crates/altitude` (filter), `crates/recorder`
-(D+), `firmware/src/bin/main.rs` (wiring). Requirement: a D+ at least as good as the vendor's ([PRODUCT.md](PRODUCT.md#product)).
+(D+), `crates/status` and `firmware/src/bin/opencc600/receiver.rs` (wiring). Requirement: a D+ at least as good as the vendor's ([PRODUCT.md](PRODUCT.md#product)).
 
 ## 1. The two sensors
 

@@ -5,7 +5,11 @@ field) is in [DEV_PROCESS.md](DEV_PROCESS.md), the hardware in [REVERSE_NOTES.md
 
 ## Code layout
 
-[firmware/](../firmware/) is a standalone Cargo project for the Xtensa target (`esp` toolchain from `espup`).
+[firmware/](../firmware/) is a standalone Cargo project for the Xtensa target (`esp` toolchain from `espup`). Its
+`src/` is the board layer (panel, storage, BLE, ANT+, GNSS UART); `src/bin/opencc600/` the application that wires
+the crates below to it: `main.rs` (boot and main loop), the tasks (`nrf.rs`, `receiver.rs`, `usb.rs` for the test
+hook) and one module per concern (`ride.rs`, `trip_log.rs`, `route_file.rs`, `pairing.rs`, `config.rs`, `app.rs`
+for the companion app, `screen.rs`).
 The hardware-independent `no_std` crates live in the host workspace at the root, on the stable toolchain, and are
 tested on a PC with `cargo test`:
 
