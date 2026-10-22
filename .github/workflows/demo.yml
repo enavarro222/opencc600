@@ -1,0 +1,97 @@
+# The firmware, built for the in-browser demo on GitHub Pages and, for a version tag, as a release.
+# Runs on a `v*` tag (the build is named after the tag) or by hand from the Actions tab (named `main` by
+# default). Each deployment keeps the builds already published (tools/demo/versions.py fetch).
+name: demo
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      name:
+        description: Name of the build on the demo page
+        default: main
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  NAME: ${{ github.ref_type == 'tag' && github.ref_name || inputs.name }}
+  SITE: https://enavarro222.github.io/opencc600
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xtensa toolchain and espflash
+        run: |
+          curl -sSfL https://github.com/esp-rs/espup/releases/download/v0.18.0/espup-x86_64-unknown-linux-gnu -o espup
+          chmod +x espup
+          ./espup install --targets esp32s3 --toolchain-version 1.97.0.0 --export-file "$HOME/export-esp.sh"
+          curl -sSfL https://github.com/esp-rs/espflash/releases/download/v4.6.0/espflash-x86_64-unknown-linux-gnu.zip -o espflash.zip
+          unzip -q espflash.zip -d "$HOME/.cargo/bin"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            firmware/target
+            target/demo
+          key: demo-${{ hashFiles('firmware/Cargo.lock', 'tools/demo/esp32sim.rev') }}
+          restore-keys: demo-
+
+      - name: Keep the published builds
+        run: python3 tools/demo/versions.py fetch "$SITE/demo" docs/demo --skip "$NAME"
+
+      - name: Build
+        run: tools/demo/build.sh "$NAME"
+
+      - name: Site
+        run: |
+          mkdir -p _site
+          cp -r docs/demo _site/demo
+          cp -r docs/prototype _site/prototype
+          printf '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=demo/"><a href="demo/">demo</a>\n' > _site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Release files
+        if: github.ref_type == 'tag'
+        run: |
+          mkdir -p dist
+          ELF=firmware/target/xtensa-esp32s3-none-elf/release/opencc600
+          espflash save-image --chip esp32s3 --flash-size 16mb "$ELF" "dist/opencc600-$NAME.bin"
+          cp docs/demo/builds/"$NAME"/fw/cc600.elf "dist/opencc600-$NAME.elf"
+          (cd dist && sha256sum * > SHA256SUMS)
+
+      - uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          files: dist/*
+          body: |
+            The application image for the free OTA slot of a CC600, to write with `tools/flash.py opencc600-${{ env.NAME }}.bin`
+            (it refuses any other offset and keeps the vendor firmware as a fallback, see docs/DEV_PROCESS.md).
+            Do not write it at 0x0. The ELF has the symbols, without debug info.
+
+            Try it first in the browser: ${{ env.SITE }}/demo/?v=${{ env.NAME }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

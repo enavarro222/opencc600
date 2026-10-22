@@ -25,3 +25,8 @@ __pycache__/
 
 # Private working notes
 docs/WIP.md
+
+# the in-browser demo: built by tools/demo/build.sh and the demo workflow, published on GitHub Pages
+docs/demo/builds/
+docs/demo/rom/
+docs/demo/versions.json

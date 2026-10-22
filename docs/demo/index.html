@@ -28,6 +28,8 @@ main { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; paddi
 .key.down::before { background: #1F8FBA; transform: scaleY(.6); }
 .key:focus-visible { outline: 2px solid var(--key); outline-offset: 2px; border-radius: 8px; }
 .hint { position: absolute; font-size: 14px; color: #8a8a8a; }
+.note { font-size: 16px; color: var(--mute); }
+code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 .side { flex: 1; min-width: 280px; }
 .status { font-size: 18px; font-weight: 600; min-height: 24px; }
 .status small { font-weight: 500; color: var(--mute); }
@@ -75,7 +77,16 @@ footer p { font-size: 15px; color: var(--mute); }
       <li>Un clic : appui court. Maintenir ½ seconde : appui long (allumer, éteindre, arrêter une sortie).</li>
       <li>L'heure vient de ton ordinateur, la batterie est à 80 %. Le GPS se cale sur le trajet simulé ci-dessous.</li>
     </ul>
-    <button class="act" id="restart">Redémarrer le compteur</button>
+    <div class="controls"><label>Version du firmware <select id="version" aria-label="Version du firmware"></select></label>
+      <button class="act" id="restart">Redémarrer le compteur</button></div>
+    <p class="note" id="buildinfo"></p>
+    <details id="own">
+      <summary>Ton firmware d'origine</summary>
+      <p class="note">Le firmware GEOID n'est pas diffusé ici. Si tu as lu la flash de ton compteur
+         (<code>esptool read-flash 0 ALL dump.bin</code>, 16 Mo), tu peux la faire tourner : le fichier reste dans ta page,
+         rien n'est envoyé. Il contient tes sorties, tes réglages et tes appairages : ne le partage pas.</p>
+      <label class="note">Image de la flash <input type="file" id="dump" accept=".bin,application/octet-stream"></label>
+    </details>
     <details id="logs">
       <summary>Console USB du firmware</summary>
       <pre id="console"></pre>
@@ -98,18 +109,18 @@ footer p { font-size: 15px; color: var(--mute); }
 </section>
 <footer>
   <p>Émulateur : <a href="https://github.com/enavarro222/esp32sim">esp32sim</a> (licence MIT, fork avec le modèle du
-     CC600, voir <a href="sim/README.md">sim/README.md</a>). ROM du S3 : Espressif, Apache-2.0. Firmware opencc600 : GPL-3.0,
+     CC600, voir le <a id="simreadme" href="#">README de l'émulateur</a>). ROM du S3 : Espressif, Apache-2.0. Firmware opencc600 : GPL-3.0,
      avec les bibliothèques radio d'Espressif. Le stockage part vide à chaque chargement. Carte : © les contributeurs
      d'<a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>, <a href="https://leafletjs.com">Leaflet</a>.</p>
 </footer>
 <script type="module">
 const $ = (id) => document.getElementById(id);
 const status = (s) => { $('status').innerHTML = s; };
-const worker = new Worker('sim/wasm/worker.js', { type: 'module' });
+let worker = null;
 const waiting = new Map();
 const ask = (key, msg, transfer) => new Promise((res) => { waiting.set(key, res); worker.postMessage(msg, transfer || []); });
 const reply = (key, v) => { const r = waiting.get(key); waiting.delete(key); r && r(v); };
-const send = (obj) => worker.postMessage({ op: 'text', data: JSON.stringify(obj) });
+const send = (obj) => worker?.postMessage({ op: 'text', data: JSON.stringify(obj) });
 
 // the panel: RGB565 frames (type 1: w, h, pixels)
 const ctx = $('screen').getContext('2d');
@@ -141,7 +152,7 @@ function out(text) {
   if (atEnd) pre.scrollTop = pre.scrollHeight;
 }
 
-worker.onmessage = (ev) => {
+function onMessage(ev) {
   const m = ev.data;
   if (m.bin !== undefined) { try { frame(m.bin); } finally { if (m.ack) worker.postMessage({ op: 'frame-ack' }); } return; }
   if (m.text !== undefined) {
@@ -156,33 +167,63 @@ worker.onmessage = (ev) => {
   if (m.created !== undefined) reply('created', m.created);
   if (m.loaded !== undefined) reply('load' + m.loaded, m.ok);
   if (m.started !== undefined && !m.started) status('Le démarrage a échoué : ' + (m.error || 'voir la console'));
-};
+}
 
 const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(`${url} : ${r.status}`); return r.arrayBuffer(); };
-let files = null;
+// a build of versions.json, or the visitor's own flash dump (run by the emulator of the build chosen)
+let versions = [], build = null, files = null;
 async function boot() {
   status('Démarrage du compteur…');
-  // ROM, flash image, application ELF (symbols for the virtual BLE controller)
-  const loads = [[0, files.rom], [5, files.flash], [4, files.elf]];
+  const own = !files.elf;
+  // ROM, flash image, application ELF (symbols for the virtual BLE controller; none in a vendor dump)
+  const loads = [[0, files.rom], [5, files.flash], ...(own ? [] : [[4, files.elf]])];
   if (!await ask('created', { op: 'create', board: 'cc600', flash_mb: 16, psram_mb: 8, jit: true })) throw new Error('émulateur non créé');
   for (const [kind, data] of loads) {
     const copy = data.slice(0);
     if (!await ask('load' + kind, { op: 'load', kind, data: copy }, [copy])) throw new Error('chargement ' + kind);
   }
-  const elf = files.elf.slice(0);
-  worker.postMessage({ op: 'ble', data: elf }, [elf]);
+  if (!own) { const elf = files.elf.slice(0); worker.postMessage({ op: 'ble', data: elf }, [elf]); }
   worker.postMessage({ op: 'start', appDirect: false });
+}
+// a fresh emulator from the build's worker and wasm, then `flash` (or the build's own image) on it
+async function run(name, flash) {
+  build = versions.find((v) => v.name === name) || versions[0];
+  const base = `builds/${encodeURIComponent(build.name)}/`;
+  $('simreadme').href = base + 'sim/README.md';
+  const date = new Date(build.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  $('buildinfo').innerHTML = flash ? 'Ton image de flash, avec l\'émulateur de cette version.'
+    : `Build <a href="https://github.com/enavarro222/opencc600/commit/${build.commit}">${build.commit.slice(0, 7)}</a> du ${date}.`;
+  status('Chargement de l\'émulateur…');
+  worker?.terminate(); waiting.clear(); log = ''; $('console').textContent = '';
+  worker = new Worker(base + 'sim/wasm/worker.js', { type: 'module' });
+  worker.onmessage = onMessage;
+  const wasm = await get(base + 'sim/wasm/esp32sim.wasm');
+  const ready = ask('ready', { op: 'init', wasm, frameAck: true }, [wasm]);
+  const [rom, image, elf] = await Promise.all(['rom/esp32s3_rev0_rom.elf', ...(flash ? [] : [base + 'fw/cc600-flash.bin', base + 'fw/cc600.elf'])].map(get));
+  files = { rom, flash: flash || image, elf: flash ? null : elf };
+  await ready;
+  await boot();
 }
 
 try {
-  const wasm = await get('sim/wasm/esp32sim.wasm');
-  const ready = ask('ready', { op: 'init', wasm, frameAck: true }, [wasm]);
-  const [rom, flash, elf] = await Promise.all(['fw/esp32s3_rev0_rom.elf', 'fw/cc600-flash.bin', 'fw/cc600.elf'].map(get));
-  files = { rom, flash, elf };
-  await ready;
-  await boot();
+  versions = JSON.parse(new TextDecoder().decode(await get('versions.json')));
+  if (!versions.length) throw new Error('aucune version publiée');
+  for (const v of versions) $('version').add(new Option(v.name, v.name));
+  const wanted = new URLSearchParams(location.search).get('v');
+  if (versions.some((v) => v.name === wanted)) $('version').value = wanted;
+  await run($('version').value);
 } catch (e) { status('Impossible de lancer la démo : ' + e.message); }
 
+$('version').onchange = () => {
+  const url = new URL(location.href); url.searchParams.set('v', $('version').value); history.replaceState(null, '', url);
+  $('dump').value = '';
+  run($('version').value).catch((e) => status('Échec : ' + e.message));
+};
+$('dump').onchange = async () => {
+  const f = $('dump').files[0]; if (!f) return;
+  if (f.size !== 16 << 20) { status(`Ce fichier fait ${f.size} octets : il faut l'image entière de la flash, 16 Mo.`); return; }
+  run($('version').value, await f.arrayBuffer()).catch((e) => status('Échec : ' + e.message));
+};
 $('restart').onclick = () => { if (files) boot().catch((e) => status('Échec : ' + e.message)); };
 
 // the keys: the nRF's pseudo pins 64..66, held = long press

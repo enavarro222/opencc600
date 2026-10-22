@@ -56,6 +56,26 @@ Host tests: `littlefs2` generates its C bindings with bindgen, which needs the c
 Hardware-in-the-loop tests on a device plugged in over USB (keys injected over USB, storage read back):
 `uv run --project tests/hil pytest tests/hil`, see [tests/hil/](../tests/hil/) and [DEV_PROCESS.md](DEV_PROCESS.md).
 
+## In-browser demo and releases
+
+[docs/demo/index.html](demo/index.html) runs the firmware, unmodified, in an emulated ESP32-S3: the screen, the
+keys and the USB console, a simulated nRF52 (clock, battery, barometer), the GNSS receiver fed from a GPX track
+and BLE through the emulator's virtual controller. The emulator is [esp32sim](https://github.com/mikroverk/esp32sim)
+in WebAssembly, from the fork [enavarro222/esp32sim](https://github.com/enavarro222/esp32sim) that adds the CC600
+board, at the commit in [tools/demo/esp32sim.rev](../tools/demo/esp32sim.rev).
+
+`tools/demo/build.sh NAME` builds one version into `docs/demo/builds/NAME/` (a clean flash image: espflash's IDF
+bootloader, [tools/demo/partitions.csv](../tools/demo/partitions.csv), our app, blank storage, nothing from a
+device; the ELF without debug info; the emulator) and rewrites `docs/demo/versions.json`, the page's version menu.
+`ESP32SIM=<checkout>` uses a local esp32sim instead of cloning the fork. Serve `docs/` (`python3 -m http.server -d
+docs`) and open `/demo/`. A visitor can also run the flash dump of their own device (vendor firmware included): it
+stays in their browser.
+
+The [demo workflow](../.github/workflows/demo.yml) publishes the page on GitHub Pages, with the prototype, keeping
+the builds already published. It runs on a `v*` tag (a build named after the tag, and a GitHub release with the
+application image for `tools/flash.py`, the ELF and their SHA-256) or by hand from the Actions tab (a build named
+`main` by default).
+
 ## Tools
 
 Day to day:
