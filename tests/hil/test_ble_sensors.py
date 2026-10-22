@@ -61,7 +61,10 @@ def pairing(dut):
     # read back: a line typed while the USB port comes back can arrive cut
     for role, value in before.items():
         for _ in range(5):
-            dut.send(f"set {role} {value}")
+            try:
+                dut.set(role, value)
+            except TimeoutError:
+                continue  # the line arrived cut: not saved
             mark = dut.mark()
             dut.send(f"get {role}")
             if dut.expect(rf"usb: {role}=(\S+)$", since=mark).group(1) == value:

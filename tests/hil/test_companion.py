@@ -158,7 +158,7 @@ def kept(dut, out_dir):
     dut.reset()
     for line in settings.splitlines():
         if "=" in line:
-            dut.send("set {} {}".format(*line.split("=", 1)))
+            dut.set(*line.split("=", 1))
     if route is not None:
         send_route.send(dut, route)
     else:

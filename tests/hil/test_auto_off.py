@@ -11,8 +11,11 @@ import pytest
 @pytest.fixture
 def auto_off_1min(dut):
     dut.send("set auto_off_min 1")
+    # still wherever the device lies: a real fix by a window moves it by its noise; the receiver kept silent until the
+    # next boot, its last fix expires
+    dut.send("gnss off 100")
     yield
-    dut.send("set auto_off_min 20")
+    dut.set("auto_off_min", 20)
 
 
 def test_a_key_cancels_the_power_off(dut, auto_off_1min):

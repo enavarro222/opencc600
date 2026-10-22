@@ -182,7 +182,7 @@ def test_a_free_ride_sets_the_route_aside(dut, out_dir):
     finally:
         dut.reset()
         dut.send("sound off")
-        dut.send("set follow_route on")
+        dut.set("follow_route", "on")
         dut.to_home()
         if kept_route is not None:
             send_route.send(dut, kept_route)

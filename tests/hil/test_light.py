@@ -65,7 +65,7 @@ def settings_kept(dut):
     dut.send("fix off")
     dut.send("light off")
     for k, v in before.items():
-        dut.send(f"set {k} {v}")
+        dut.set(k, v)
 
 
 def test_night_theme_from_sunset_to_sunrise(dut, settings_kept):

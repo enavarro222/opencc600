@@ -151,6 +151,13 @@ class Dut:
         b = bytes.fromhex(mac.replace(":", ""))
         return ":".join(f"{x:02X}" for x in bytes([b[0] | 0xC0]) + b[1:])
 
+    def set(self, key: str, value):
+        """Changes a setting and waits until it is saved: the main loop saves it at its next pass, and a reset before
+        that (the next test's) loses it."""
+        mark = self.mark()
+        self.send(f"set {key} {value}")
+        self.expect(r"settings: saved", timeout=5, since=mark)
+
     def press(self, key: int, long: bool = False):
         self.send(f"key {key} {'long' if long else 'click'}")
 
