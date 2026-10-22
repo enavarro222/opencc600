@@ -13,6 +13,7 @@
 #![no_std]
 
 mod draw;
+pub mod light;
 pub mod fonts;
 pub mod history;
 mod map;

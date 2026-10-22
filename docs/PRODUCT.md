@@ -139,7 +139,8 @@ its page with "–".
 | Page auto-scroll | done, toggled on the device | interval in the app |
 | Automatic power off when still during a ride | done | 20 min, 0 = never |
 | Day / night theme | done (manual) | day |
-| Night theme at sunset (from the GPS position) | later | on |
+| Night theme from sunset to sunrise (from the GPS position) | done | on |
+| Backlight from the ambient light sensor | done, curve to tune on the road | on |
 | Auto-pause (timer stops when not moving) | later | on |
 | Start reminder ("tu roules, démarrer ?"), never starts on its own | later | on |
 | Turn announcements (cues precomputed by the app) | later | off |

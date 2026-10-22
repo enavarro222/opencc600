@@ -55,7 +55,8 @@ The CC600 on USB-C, everything through that single cable (native USB-Serial/JTAG
   USB (`test_route`, `tools/replay_gpx.py`), BLE sensors against `tools/fake_sensor.py` on the PC
   (`test_ble_sensors`), ANT+ search and channels without a sensor (`test_ant_sensors`), the Musette link with the PC
   playing the app (`test_companion`), automatic power off (`test_auto_off`), a full storage
-  (`test_storage_full`), a silent GNSS receiver powered on again (`test_gnss`). The tests that change the route or
+  (`test_storage_full`), a silent GNSS receiver powered on again (`test_gnss`), the night theme at a position where it is
+  night and the backlight from a light level sent over USB (`test_light`). The tests that change the route or
   the pairings put them back afterwards.
 - **Crash recovery of the ride store**: `tools/hil_storage.py` with the `hil-storage` firmware build (back-to-back
   appends, reset 1–8 s after each boot, every byte checked against a known pattern). First run, 2026-10-19: 30

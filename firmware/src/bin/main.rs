@@ -164,6 +164,7 @@ async fn main(spawner: Spawner) -> ! {
         .as_ref()
         .map_or_else(|_| settings::Settings::default(), load_settings);
     SETTINGS.lock(|s| s.set(Some(loaded)));
+    NIGHT.store(loaded.theme == settings::Theme::Night, Ordering::Relaxed);
     SOUND_ON.store(loaded.sound, Ordering::Relaxed);
     ble::PAIRED.signal(paired(&loaded));
     ant::pair(&paired(&loaded));
@@ -220,6 +221,7 @@ async fn main(spawner: Spawner) -> ! {
         drive_mode: DriveMode::PushPull,
     })
     .unwrap();
+    BACKLIGHT.store(settings().backlight, Ordering::Relaxed);
     info!("backlight on ({} %)", settings().backlight);
 
     if RUN_BENCH {
@@ -265,6 +267,9 @@ async fn main(spawner: Spawner) -> ! {
     let mut rides_view = ui::RidesView::default();
     // the ride's switch to a point every 5 s, told once
     let mut sparse_told = false;
+    let mut auto_backlight = ui::light::AutoBacklight::new();
+    // the last position known, for the time of sunset and sunrise
+    let mut here: Option<(i32, i32)> = None;
     let mut effort_pick = ui::EffortPick::default();
     // the blocks the test hook's filler file leaves free (`storage fill`), while it is written
     let mut fill_left: Option<usize> = None;
@@ -354,7 +359,14 @@ async fn main(spawner: Spawner) -> ! {
             SOUND_ON.store(s.sound, Ordering::Relaxed);
             ble::PAIRED.signal(paired(&s));
             ant::pair(&paired(&s));
-            let _ = bl.set_duty(s.backlight);
+            if s.auto_backlight {
+                // set at the next light level
+                auto_backlight = ui::light::AutoBacklight::new();
+            } else {
+                info!("backlight: {} % (setting)", s.backlight);
+                let _ = bl.set_duty(s.backlight);
+                BACKLIGHT.store(s.backlight, Ordering::Relaxed);
+            }
             ui.set_scroll_s(s.scroll_s);
             ui.set_auto_off_min(s.auto_off_min);
         }
@@ -674,6 +686,24 @@ async fn main(spawner: Spawner) -> ! {
         view.route_set_aside = route.is_none() && route_data.is_some();
         route_shown = (view.route, view.route_set_aside);
         let s = settings();
+        if s.auto_backlight
+            && let Some(raw) = SIM_LIGHT.lock(Cell::get).or(state.light[0])
+            && let Some(pct) = auto_backlight.update(raw, Instant::now().as_millis())
+        {
+            info!("backlight: {pct} % (light {raw})");
+            let _ = bl.set_duty(pct);
+            BACKLIGHT.store(pct, Ordering::Relaxed);
+        }
+        if let Some(f) = fix {
+            here = Some((f.lat_e7, f.lon_e7));
+        }
+        let night = match (s.auto_night, here, now_unix(&state)) {
+            (true, Some((lat, lon)), Some(unix)) => ui::light::is_night(unix.into(), lat, lon),
+            _ => s.theme == settings::Theme::Night,
+        };
+        if NIGHT.swap(night, Ordering::Relaxed) != night {
+            info!("theme: {}", if night { "night" } else { "day" });
+        }
         // the Effort page with a power meter connected, else Cardio with a heart rate sensor
         let effort = effort_pick.update(ride_info.is_some(), &view.sensors, Instant::now().as_millis());
         // Climbs in place of Altitude when the route has climbs (a route of version 1 has none)
@@ -704,7 +734,7 @@ async fn main(spawner: Spawner) -> ! {
         }
         // the status screen shows (nearly) all of the status, the others only what is in the view
         let status_shown = (ui.screen() == ui::Screen::Status).then_some(state);
-        let screen = (ui, view, status_shown);
+        let screen = (ui, view, status_shown, night);
         if shown != Some(screen) {
             let t = Instant::now();
             ui::draw(&mut fb, &ui, &view, route.as_ref(), bg_map.as_ref(), &theme()).unwrap();
@@ -748,6 +778,9 @@ static STATUS_CHANGED: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 /// receiver's epochs are ignored.
 static SIM_FIX_AT: Mutex<CriticalSectionRawMutex, Cell<Option<Instant>>> = Mutex::new(Cell::new(None));
 const SIM_FIX_HOLD: Duration = Duration::from_secs(5);
+/// An ambient light level from USB (`light <raw>`), in place of the sensor's for the automatic backlight, until
+/// `light off` or a reset.
+static SIM_LIGHT: Mutex<CriticalSectionRawMutex, Cell<Option<u16>>> = Mutex::new(Cell::new(None));
 
 fn sim_fix_active() -> bool {
     SIM_FIX_AT.lock(Cell::get).is_some_and(|t| t.elapsed() < SIM_FIX_HOLD)
@@ -1876,10 +1909,16 @@ fn bench_map(fb: &mut FrameBuffer, r: &route::Route<'_>, m: Option<&route::map::
     );
 }
 
+/// The night theme is shown: the `theme` setting, or from sunset to sunrise with `auto_night`.
+static NIGHT: AtomicBool = AtomicBool::new(false);
+/// The backlight set, percent.
+static BACKLIGHT: AtomicU8 = AtomicU8::new(0);
+
 fn theme() -> ui::Theme {
-    match settings().theme {
-        settings::Theme::Day => ui::DAY,
-        settings::Theme::Night => ui::NIGHT,
+    if NIGHT.load(Ordering::Relaxed) {
+        ui::NIGHT
+    } else {
+        ui::DAY
     }
 }
 
@@ -2745,6 +2784,15 @@ async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>) {
                     Some(UsbCommand::RouteClear) => ROUTE_RECEIVED.signal(None),
                     Some(UsbCommand::BenchMap) => BENCH_MAP.signal(()),
                     Some(UsbCommand::StorageFill(fill)) => STORAGE_FILL.signal(fill),
+                    Some(UsbCommand::Light) => info!(
+                        "light: theme {}, backlight {} %",
+                        if NIGHT.load(Ordering::Relaxed) { "night" } else { "day" },
+                        BACKLIGHT.load(Ordering::Relaxed)
+                    ),
+                    Some(UsbCommand::SimLight(raw)) => {
+                        info!("usb: ambient light {raw:?}");
+                        SIM_LIGHT.lock(|c| c.set(raw));
+                    }
                     Some(UsbCommand::SimFix(Some((lat_e7, lon_e7, speed_mm_s, course_cdeg)))) => {
                         if !sim_fix_active() {
                             info!("usb: simulated position, the receiver's ignored");
@@ -2848,6 +2896,10 @@ enum UsbCommand<'a> {
     BenchMap,
     /// `storage fill N`, `storage unfill`: see [`STORAGE_FILL`].
     StorageFill(Option<u16>),
+    /// `light <raw>`, `light off`: see [`SIM_LIGHT`].
+    SimLight(Option<u16>),
+    /// `light ?`: logs the theme shown and the backlight (`light: theme night, backlight 10 %`).
+    Light,
     /// `fix <lat_e7> <lon_e7> [<speed_mm_s> [<course_cdeg>]]`: a position in place of the receiver's, for
     /// [`SIM_FIX_HOLD`] (tools/replay_gpx.py); `fix off` gives the receiver back at once.
     SimFix(Option<(i32, i32, Option<u32>, Option<u16>)>),
@@ -2906,6 +2958,9 @@ fn usb_command(line: &str) -> Option<UsbCommand<'_>> {
         ("bench", "map", None) => Some(UsbCommand::BenchMap),
         ("storage", "fill", Some(n)) => Some(UsbCommand::StorageFill(Some(n.parse().ok()?))),
         ("storage", "unfill", None) => Some(UsbCommand::StorageFill(None)),
+        ("light", "?", None) => Some(UsbCommand::Light),
+        ("light", "off", None) => Some(UsbCommand::SimLight(None)),
+        ("light", raw, None) => Some(UsbCommand::SimLight(Some(raw.parse().ok()?))),
         ("ble", "scan", Some(s)) => Some(UsbCommand::BleScan(s.parse().ok().filter(|&s| s > 0)?)),
         ("fix", "off", None) => Some(UsbCommand::SimFix(None)),
         ("fix", lat, Some(lon)) => {

@@ -22,7 +22,7 @@ measurement unless marked so.
 |---|---|---|---|
 | ESP32-S3 CPU (240 MHz, dual core) | us | runs at max clock, **never sleeps** today | async idle, lower clock, light sleep |
 | 2 MB quad PSRAM | us | on, 80 MHz | keep it, but avoid needless traffic (framebuffer copies) |
-| Backlight (GPIO45, LEDC 20 kHz) | us | fixed level (the `backlight` setting) | ambient light sensor (`F1 04`), timeout, dimming |
+| Backlight (GPIO45, LEDC 20 kHz) | us | from the ambient light sensor (`auto_backlight`, `ui::light`: 10 % dark to 100 % bright), else the `backlight` setting | curve, timeout, dimming |
 | ST7789 panel | us | full frame redrawn when the view changes, ≤ 5 Hz | redraw only on change, 1 Hz data screens, panel sleep / idle mode |
 | AG3352Q GNSS | us (power through the nRF, `$PAIR`) | 4 constellations, 1 Hz, ~2.6 KB/s of NMEA | constellations, sentences, power modes, off when not recording |
 | nRF co-processor | its own firmware | sensor stream 5 Hz once started, ANT+ | little; its UART traffic wakes the ESP32 |
@@ -77,7 +77,8 @@ Each lever below gets an A/B measurement before it becomes a default. Results go
 ## Levers, by expected gain
 
 1. **Backlight**: likely the largest consumer while the screen is lit. Automatic level from the ambient light
-   sensor (off in daylight if the panel stays readable, *to check: is the CC600 panel transflective?*), timeout
+   sensor, done; its curve rises with the light, to turn down in daylight if the panel stays readable (*to check:
+   is the CC600 panel transflective?*), timeout
    with wake on key press, lower default level, short boost on alerts.
 2. **CPU sleep and clock**: let the CPU sleep between events (light sleep with the UART / timer wake-ups that
    the links need), run at 80 or 160 MHz when 240 MHz is not needed (the display flush and FIT writes are short).

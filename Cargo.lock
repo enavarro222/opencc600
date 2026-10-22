@@ -200,7 +200,7 @@ dependencies = [
 [[package]]
 name = "climbs"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
+source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
 dependencies = [
  "track",
 ]
@@ -710,7 +710,7 @@ dependencies = [
 [[package]]
 name = "protocol-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
+source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
 
 [[package]]
 name = "quick-error"
@@ -808,7 +808,7 @@ dependencies = [
 [[package]]
 name = "route-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
+source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
 dependencies = [
  "climbs",
  "libm",
@@ -914,7 +914,7 @@ dependencies = [
 [[package]]
 name = "settings-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
+source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
 
 [[package]]
 name = "shlex"
@@ -1014,7 +1014,7 @@ dependencies = [
 [[package]]
 name = "track"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3#fb47e78ff0f0349c839f486e8b0ea85f1ba10ad3"
+source = "git+https://github.com/enavarro222/musette?rev=fcf458a6b4192bc2176240dbca30846a7f1fdf40#fcf458a6b4192bc2176240dbca30846a7f1fdf40"
 
 [[package]]
 name = "typenum"
