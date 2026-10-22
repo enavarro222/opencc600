@@ -11,12 +11,21 @@
 <style>
 :root { color-scheme: light; --bg: #E9E7E2; --ink: #111; --mute: #555; --key: #3BB3E0; --dev: #141416; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Barlow Condensed', sans-serif; }
-header, main, footer { max-width: 860px; margin: 0 auto; padding: 0 16px; }
+header, main, footer, section.ride { max-width: 1240px; margin: 0 auto; padding: 0 16px; box-sizing: border-box; }
 header { padding-top: 20px; }
 h1 { margin: 0 0 4px; font-size: 30px; }
 p { margin: 6px 0; font-size: 18px; line-height: 1.3; color: #333; }
+header p, section.ride > p { max-width: 920px; }
 a { color: #1D4ED8; }
-main { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; padding-top: 24px; padding-bottom: 24px; }
+/* the device, its controls and the app side by side on a large screen; device and app on a tablet, controls
+   below; one column on a phone */
+main { display: grid; grid-template-columns: 300px minmax(280px, 1fr) 380px; grid-template-areas: "device side app";
+  gap: 28px 36px; align-items: start; padding-top: 24px; padding-bottom: 28px; }
+main > .device { grid-area: device; } main > .side { grid-area: side; } main > .app { grid-area: app; }
+@media (max-width: 1140px) { main { grid-template-columns: 300px 380px; grid-template-areas: "device app" "side side"; justify-content: center; } }
+@media (max-width: 760px) { main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "device" "side" "app"; justify-items: center; }
+  main > .side { justify-self: stretch; } }
+.colhead { margin: 0 0 6px; font-size: 22px; }
 .device { position: relative; width: 300px; height: 480px; flex-shrink: 0; margin-top: 14px; touch-action: none; }
 /* the case: black, a rounded top, a slightly flatter bottom, a soft rim */
 .device .case { position: absolute; inset: 0; border-radius: 58px 58px 44px 44px / 52px 52px 40px 40px;
@@ -50,7 +59,7 @@ main { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; paddi
 .note { font-size: 16px; color: var(--mute); }
 button.act.small { padding: 1px 8px; font-size: 14px; }
 code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
-.side { flex: 1; min-width: 280px; }
+.side { min-width: 0; }
 .status { font-size: 18px; font-weight: 600; min-height: 24px; }
 .status small { font-weight: 500; color: var(--mute); }
 .legend { margin: 10px 0 14px; padding: 0; list-style: none; font-size: 17px; }
@@ -62,11 +71,15 @@ pre { height: 260px; margin: 8px 0 6px; padding: 8px 10px; overflow: auto; backg
 form { display: flex; gap: 8px; }
 input[type=text] { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid #bbb; border-radius: 6px; font: 14px ui-monospace, Menlo, Consolas, monospace; }
 button.act { padding: 6px 12px; border: 1px solid #999; border-radius: 6px; background: #fff; font: 600 16px 'Barlow Condensed', sans-serif; cursor: pointer; }
-section.ride, section.app { max-width: 860px; margin: 0 auto 24px; padding: 0 16px; }
-section.app h2 { margin: 0 0 6px; font-size: 24px; }
-.phone { width: 390px; max-width: 100%; height: 760px; margin-top: 10px; padding: 14px 10px; border-radius: 34px; background: #111; box-shadow: 0 12px 28px rgba(0,0,0,.25); box-sizing: border-box; }
-.phone iframe { width: 100%; height: 100%; border: 0; border-radius: 22px; background: #fff; }
-.phone[hidden] { display: none; }
+section.ride { margin-bottom: 24px; }
+.app { width: 380px; max-width: 100%; }
+.app .colhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.phone { position: relative; padding: 14px 10px; border-radius: 34px; background: #111; box-shadow: 0 12px 28px rgba(0,0,0,.25); box-sizing: border-box; }
+.phone.open { height: 700px; }
+.phone iframe, .phone .intro { width: 100%; height: 100%; border: 0; border-radius: 22px; background: #fff; box-sizing: border-box; }
+.phone .intro { display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 28px; background: #F5F4F0; }
+.phone .intro p { margin: 0; }
+.phone [hidden] { display: none; }
 section.ride h2 { margin: 0 0 6px; font-size: 24px; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 8px 0; font-size: 17px; }
 .controls label { display: inline-flex; gap: 6px; align-items: center; }
@@ -75,7 +88,7 @@ section.ride h2 { margin: 0 0 6px; font-size: 24px; }
 #trackinfo { font-size: 16px; color: var(--mute); }
 footer { padding-bottom: 28px; }
 footer p { font-size: 15px; color: var(--mute); }
-@media (max-width: 640px) { main { justify-content: center; } }
+
 </style>
 </head>
 <body>
@@ -129,15 +142,21 @@ footer p { font-size: 15px; color: var(--mute); }
       <form id="cmd"><input type="text" id="line" placeholder="screen ?" autocomplete="off" aria-label="Commande USB"><button class="act">Envoyer</button></form>
     </details>
   </div>
+  <div class="app">
+    <h2 class="colhead">L'app Musette <button class="act small" id="musette-reload" hidden>Recharger</button></h2>
+    <div class="phone" id="phone">
+      <div class="intro" id="musette-intro">
+        <p><b>Musette</b>, l'application compagnon, dans sa version web, branchée sur le compteur d'à côté : envoie-lui
+           une trace, change ses réglages, récupère ses sorties.</p>
+        <p class="note">La liaison Bluetooth est simulée par l'émulateur, aucun vrai Bluetooth n'est utilisé. Dans
+           Musette : « Connecter un compteur », puis « Connecter le compteur de la démo ».</p>
+        <p><button class="act" id="musette-open">Ouvrir Musette</button></p>
+        <p class="note" id="musette-state"></p>
+      </div>
+      <iframe id="musette" title="Musette" allow="clipboard-write" hidden></iframe>
+    </div>
+  </div>
 </main>
-<section class="app">
-  <h2>L'application Musette</h2>
-  <p>Musette, l'application compagnon, tourne ici dans sa version web et se connecte au compteur émulé ci-dessus :
-     envoie-lui une trace, change ses réglages, récupère ses sorties. La liaison Bluetooth est simulée par
-     l'émulateur, aucun vrai Bluetooth n'est utilisé. Dans Musette : « Connecter le compteur de la démo ».</p>
-  <div class="controls"><button class="act" id="musette-open">Ouvrir Musette</button><span class="note" id="musette-state"></span></div>
-  <div class="phone" id="phone" hidden><iframe id="musette" title="Musette" allow="clipboard-write"></iframe></div>
-</section>
 <section class="ride">
   <h2>Trajet simulé</h2>
   <p>Le récepteur GPS du compteur reçoit, chaque seconde, la position le long de cette trace. Charge un fichier GPX
@@ -283,9 +302,10 @@ const musette = {
     const url = new URL(MUSETTE, location.href);
     url.searchParams.set('emulator', location.origin);
     this.frame.src = url.href;
-    $('phone').hidden = false;
-    $('musette-open').textContent = 'Recharger Musette';
-    $('musette-state').textContent = url.origin === location.origin ? '' : `(${url.host})`;
+    this.frame.hidden = false;
+    $('phone').classList.add('open');
+    $('musette-intro').hidden = true;
+    $('musette-reload').hidden = false;
   },
 };
 addEventListener('message', (e) => {
@@ -296,7 +316,8 @@ addEventListener('message', (e) => {
     .then((r) => musette.post({ gatt: 'reply', id: m.id, ok: true, ...r }),
           (err) => musette.post({ gatt: 'reply', id: m.id, ok: false, error: err.message }));
 });
-$('musette-open').onclick = () => musette.open();
+$('musette-open').onclick = $('musette-reload').onclick = () => musette.open();
+if (new URL(MUSETTE, location.href).origin !== location.origin) $('musette-state').textContent = `Depuis ${new URL(MUSETTE, location.href).host}.`;
 
 const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(`${url} : ${r.status}`); return r.arrayBuffer(); };
 // a build of versions.json, or the visitor's own flash dump (run by the emulator of the build chosen)
