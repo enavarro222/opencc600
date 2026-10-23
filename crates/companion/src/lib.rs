@@ -17,15 +17,17 @@ extern crate alloc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use protocol_cc600::payload::{ActivityEntry, ReadActivity};
+use protocol_cc600::payload::{ActivityEntry, DeviceInfo, ReadActivity};
 use protocol_cc600::transfer::{self, Begin, Chunk, Kind, Partial, Receiver};
 use protocol_cc600::{
     CRC16_INIT, ErrorCode, Frame, HEADER_LEN, MAX_FRAME, MAX_PAYLOAD, Op, TRAILER_LEN, crc16_update,
 };
 
-/// File bytes the app may send before an acknowledgement. Each chunk takes a packet of the BLE host's pool (16 of
-/// 251 bytes in `trouble-host`, shared with the sensors): 4 KB in flight ran it out (`OutOfMemory`, the write lost).
-pub const WINDOW: u16 = 1024;
+/// File bytes the app may send before an acknowledgement: the acks, not the radio, set the speed. Each chunk takes a
+/// packet of the BLE host's pool (`trouble-host`, shared with the sensors; firmware/Cargo.toml). Measured on a CC600
+/// from BlueZ, 42 KB, MTU 247: 1 KB with 16 packets, 4.2 KB/s; 2 KB with 32 packets and an L2CAP queue of 16,
+/// 10 KB/s; 4 KB ran the pool out (`OutOfMemory`, the writes lost and sent again: slower).
+pub const WINDOW: u16 = 2048;
 
 /// What the device does for the link.
 #[allow(async_fn_in_trait)]
@@ -35,6 +37,8 @@ pub trait Device {
     fn set_settings(&mut self, s: settings::Settings);
     /// The largest file of this kind the device takes now, or why it takes none.
     fn max_file(&self, kind: Kind) -> Result<u32, ErrorCode>;
+    /// Bytes free for rides, `None` before the storage was read.
+    fn storage_free(&self) -> Option<u32>;
     /// A complete file, its size, CRC and format checked: to store and use.
     fn file_received(&mut self, kind: Kind, data: Vec<u8>) -> Result<(), ErrorCode>;
     /// The finished rides, in the order the app lists them.
@@ -153,7 +157,16 @@ impl Session {
 
     async fn handle(&mut self, op: Op, seq: u8, payload: &[u8], device: &mut impl Device) {
         match op {
-            Op::Hello => self.reply(Op::DeviceInfo, seq, &[]),
+            Op::Hello => {
+                // the room for each file, for the app to make one that fits (0: no room now); asked again before
+                // each file
+                let info = DeviceInfo {
+                    route_max: device.max_file(Kind::Route).unwrap_or(0),
+                    map_max: device.max_file(Kind::Map).unwrap_or(0),
+                    free: device.storage_free().unwrap_or(DeviceInfo::UNKNOWN),
+                };
+                self.reply(Op::DeviceInfo, seq, &info.to_bytes())
+            }
             Op::GetSettings => {
                 let mut text = String::new();
                 let _ = device.settings().write(&mut text);
@@ -251,6 +264,16 @@ impl Session {
                     self.file = Vec::new();
                 }
                 self.file.truncate(ready.next as usize);
+                // the whole file at once, not grown chunk by chunk (each growth holds two copies a moment): a file
+                // the memory cannot hold is refused here, not a panic halfway
+                let more = (begin.size as usize).saturating_sub(self.file.len());
+                if self.file.try_reserve_exact(more).is_err() {
+                    // nothing held: the transfer the receiver just began goes too
+                    self.file = Vec::new();
+                    self.receiver = Receiver::new(WINDOW);
+                    self.partial = None;
+                    return self.error(seq, ErrorCode::NoSpace);
+                }
                 self.partial = self.receiver.progress();
                 self.events.push(Event::Receiving {
                     kind: begin.kind,

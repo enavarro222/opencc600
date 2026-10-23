@@ -1,7 +1,7 @@
 //! The session driven as the app drives it: frames cut in BLE-sized writes, files sent with the app's `Sender`.
 
 use companion::{Device, Event, Session};
-use protocol_cc600::payload::{ActivityEntry, ReadActivity};
+use protocol_cc600::payload::{ActivityEntry, DeviceInfo, ReadActivity};
 use protocol_cc600::transfer::{Ack, Begin, Kind, Ready, Sender, chunk_header};
 use protocol_cc600::{ErrorCode, Frame, Op, crc16_ccitt};
 
@@ -21,6 +21,9 @@ impl Device for FakeDevice {
     }
     fn set_settings(&mut self, s: settings::Settings) {
         self.settings = s;
+    }
+    fn storage_free(&self) -> Option<u32> {
+        Some(5_000_000)
     }
     fn max_file(&self, kind: Kind) -> Result<u32, ErrorCode> {
         match kind {
@@ -176,13 +179,21 @@ fn send(
     }
 }
 
+/// `DeviceInfo` of a device that takes routes of 64 KB and maps of `map_max`.
+fn info(map_max: u32) -> Vec<u8> {
+    DeviceInfo { route_max: 64 * 1024, map_max, free: 5_000_000 }.to_bytes().to_vec()
+}
+
 #[test]
 fn answers_hello_written_in_pieces() {
     let (mut s, mut d) = (Session::new(), FakeDevice::default());
-    assert_eq!(
-        request(&mut s, &mut d, Op::Hello, 7, &[]),
-        [(Op::DeviceInfo, 7, vec![])]
-    );
+    assert_eq!(request(&mut s, &mut d, Op::Hello, 7, &[]), [(Op::DeviceInfo, 7, info(0))]);
+}
+
+#[test]
+fn hello_says_the_room_for_each_file() {
+    let mut d = FakeDevice { map: Some(Ok(700_000)), ..FakeDevice::default() };
+    assert_eq!(request(&mut Session::new(), &mut d, Op::Hello, 1, &[]), [(Op::DeviceInfo, 1, info(700_000))]);
 }
 
 #[test]
@@ -202,7 +213,7 @@ fn a_damaged_frame_is_dropped_and_the_next_one_answered() {
     bad[2] ^= 0xFF;
     bad.extend(frame(Op::Hello, 2, &[]));
     block_on(s.on_write(&bad, &mut d));
-    assert_eq!(answers(&s.take_output()), [(Op::DeviceInfo, 2, vec![])]);
+    assert_eq!(answers(&s.take_output()), [(Op::DeviceInfo, 2, info(0))]);
 }
 
 fn with_rides() -> FakeDevice {
