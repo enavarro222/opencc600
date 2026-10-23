@@ -62,7 +62,7 @@ littlefs2 = { version = "0.8.1", default-features = false, features = ["c-stubs"
 esp-storage = { version = "0.10.0", features = ["embedded-storage", "esp32s3"] }
 embedded-storage = "0.3.2"
 esp-radio = { version = "1.0.0-beta.1", features = ["esp32s3", "ble", "log-04", "unstable", "esp-alloc"] }
-trouble-host = { version = "0.7.0", features = ["log", "central", "peripheral", "gatt", "scan", "gatt-client-notification-max-subscribers-2", "gatt-client-notification-queue-size-4"] }
+trouble-host = { version = "0.7.0", features = ["log", "central", "peripheral", "gatt", "scan", "gatt-client-notification-max-subscribers-2", "gatt-client-notification-queue-size-4", "default-packet-pool-size-32", "l2cap-rx-queue-size-16"] }
 bt-hci = "0.9"
 embassy-futures = "0.1"
 heapless = "0.9"
