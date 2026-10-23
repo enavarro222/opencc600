@@ -200,7 +200,7 @@ dependencies = [
 [[package]]
 name = "climbs"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
+source = "git+https://github.com/enavarro222/musette?rev=94ee6d1225afff79164ca39907500fe34099864a#94ee6d1225afff79164ca39907500fe34099864a"
 dependencies = [
  "track",
 ]
@@ -714,7 +714,7 @@ dependencies = [
 [[package]]
 name = "protocol-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
+source = "git+https://github.com/enavarro222/musette?rev=94ee6d1225afff79164ca39907500fe34099864a#94ee6d1225afff79164ca39907500fe34099864a"
 
 [[package]]
 name = "quick-error"
@@ -812,7 +812,7 @@ dependencies = [
 [[package]]
 name = "route-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
+source = "git+https://github.com/enavarro222/musette?rev=94ee6d1225afff79164ca39907500fe34099864a#94ee6d1225afff79164ca39907500fe34099864a"
 dependencies = [
  "climbs",
  "libm",
@@ -918,7 +918,7 @@ dependencies = [
 [[package]]
 name = "settings-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
+source = "git+https://github.com/enavarro222/musette?rev=94ee6d1225afff79164ca39907500fe34099864a#94ee6d1225afff79164ca39907500fe34099864a"
 
 [[package]]
 name = "shlex"
@@ -951,6 +951,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "status"
+version = "0.1.0"
+dependencies = [
+ "altitude",
+ "fit",
+ "gnss",
+ "nrf-link",
+]
+
+[[package]]
 name = "syn"
 version = "2.0.119"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -959,16 +969,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "status"
-version = "0.1.0"
-dependencies = [
- "altitude",
- "fit",
- "gnss",
- "nrf-link",
 ]
 
 [[package]]
@@ -1037,7 +1037,7 @@ dependencies = [
 [[package]]
 name = "track"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=2d2a801d913f8eb940f353d581f68f13d71ec8ed#2d2a801d913f8eb940f353d581f68f13d71ec8ed"
+source = "git+https://github.com/enavarro222/musette?rev=94ee6d1225afff79164ca39907500fe34099864a#94ee6d1225afff79164ca39907500fe34099864a"
 
 [[package]]
 name = "typenum"
