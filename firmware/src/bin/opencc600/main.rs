@@ -73,7 +73,7 @@ use nrf::{NRF_COMMANDS, NRF_KEYS, SOUND_ON, STREAM_AT, nrf_link};
 use pairing::{LISTED_FOUND, ROLE_BITS, SCAN_ROLE, SHOWN_FOUND, calibrate_power, paired, role_index, set_sensor};
 use receiver::gnss_task;
 use ride::{Ride, StartError, StoredRide, ride_card, stored_rides};
-use route_file::{ROUTE_RECEIVED, bench_map, load_route, map_for, store_route};
+use route_file::{MAP_RECEIVED, ROUTE_RECEIVED, bench_map, load_map, load_route, store_map, store_route};
 use screen::{BACKLIGHT, NIGHT, bench, draw_message, draw_status, theme, view_of};
 use trip_log::TripLog;
 use usb::{BENCH_MAP, DRY_POWER_OFF, SCREEN, SHOWN_RIDE, SIM_LIGHT, STORAGE_FILL, storage_fill, storage_fill_start, usb_keys};
@@ -295,9 +295,13 @@ async fn main(spawner: Spawner) -> ! {
     let mut fill_left: Option<usize> = None;
     // the free space, for the hours of riding left on the home screen: read again now and then
     let mut storage_read = Instant::now();
-    // the route (`/route`) and where the rider is on it
+    // the route (`/route`), its background map (`/map`) and where the rider is on it; read once the BLE controller has
+    // its internal RAM (never blocking the boot for long)
+    let _ = with_timeout(Duration::from_secs(3), ble::CONTROLLER_UP.wait()).await;
     let mut route_data = fs.as_ref().ok().and_then(load_route);
-    let mut bg_map = map_for(route_data.as_deref());
+    let mut map_data = fs.as_ref().ok().and_then(|fs| load_map(fs, route_data.as_deref()));
+    // why the last map received was not kept, for its banner
+    let mut map_refused: Option<&'static str> = None;
     let mut nav = ui::nav::Nav::default();
     let mut route_shown: (Option<ui::RouteView>, bool) = (None, false);
     let mut auto_off: Option<ui::Command> = None;
@@ -339,12 +343,32 @@ async fn main(spawner: Spawner) -> ! {
             && let Ok(fs) = fs.as_ref()
         {
             route_data = store_route(fs, new);
-            bg_map = map_for(route_data.as_deref());
+            // the stored map stays for the route it was made for (the app sends the new one right after); the one
+            // shown goes first: two maps at once may not fit the PSRAM
+            drop(map_data.take());
+            map_data = load_map(fs, route_data.as_deref());
+            // the room the app asks for next
+            refresh_storage(fs);
             nav = ui::nav::Nav::default();
             // a route sent is the one to follow
             if route_data.is_some() && !settings().follow_route {
                 follow_route(true);
             }
+        }
+        // after the route: a map comes right after its route
+        if let Some(new) = MAP_RECEIVED.try_take()
+            && let Ok(fs) = fs.as_ref()
+        {
+            // the map shown goes first, as above
+            drop(map_data.take());
+            map_data = match store_map(fs, new, route_data.as_deref()) {
+                Ok(map) => Some(map),
+                Err(why) => {
+                    map_refused = Some(why);
+                    load_map(fs, route_data.as_deref())
+                }
+            };
+            refresh_storage(fs);
         }
         // what the companion app did, said on the screen
         if let Some(e) = ble::APP.try_take() {
@@ -353,7 +377,7 @@ async fn main(spawner: Spawner) -> ! {
                 companion::Event::Receiving { kind, received, size } => {
                     let what = if kind == Kind::Route { "Réception de la trace" } else { "Réception de la carte" };
                     let pct = u64::from(received) * 100 / u64::from(size.max(1));
-                    ui.inform(what, ui::fonts::Line::new(format_args!("{pct} %")), now);
+                    ui.progress(what, ui::fonts::Line::new(format_args!("{pct} %")), received, size, now);
                 }
                 companion::Event::Received(Kind::Route) => {
                     let name = route_data
@@ -362,9 +386,10 @@ async fn main(spawner: Spawner) -> ! {
                         .map_or_else(String::new, |r| String::from(r.name()));
                     ui.inform("Trace reçue", ui::fonts::Line::new(format_args!("{name}")), now);
                 }
-                companion::Event::Received(Kind::Map) => {
-                    ui.inform("Carte reçue", ui::fonts::Line::new(format_args!("")), now)
-                }
+                companion::Event::Received(Kind::Map) => match map_refused.take() {
+                    Some(why) => ui.inform("Carte refusée", ui::fonts::Line::new(format_args!("{why}")), now),
+                    None => ui.inform("Carte reçue", ui::fonts::Line::new(format_args!("")), now),
+                },
                 companion::Event::SettingsChanged => {
                     ui.inform("Réglages reçus", ui::fonts::Line::new(format_args!("Depuis l'appli")), now)
                 }
@@ -665,6 +690,8 @@ async fn main(spawner: Spawner) -> ! {
         let route = route_data
             .as_deref()
             .and_then(|d| route::Route::parse(d).ok());
+        // checked whole once, when it came: read at every frame, the CRC of a big map would take tens of ms
+        let bg_map = map_data.as_deref().and_then(|d| route::map::Map::read(d).ok());
         if BENCH_MAP.try_take().is_some()
             && let Some(r) = route.as_ref()
         {
@@ -802,6 +829,7 @@ fn storage_summary(fs: &Filesystem<'_, storage::Partition<'_>>) -> Result<(u16, 
     let mut rides = 0u16;
     ride_store::finished(fs, |_, _| rides += 1).map_err(|e| e.code())?;
     let free = fs.available_blocks().map_err(|e| e.code())? as u16;
+    app::FLASH_FREE_BLOCKS.store(u32::from(free), Ordering::Relaxed);
     let logs = room::logs_bytes(fs).map_err(|e| e.code())?.div_ceil(storage::BLOCK) as u16;
     let total = fs.total_blocks() as u16;
     info!(

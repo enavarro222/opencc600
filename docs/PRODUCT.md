@@ -150,12 +150,12 @@ its page with "–".
 | Strava segments (needs a Live Segments licence) | maybe | off |
 
 ## Corridor map around the route
-No global map, but a map restricted to the loaded route fits the CC600 (prototype on 2026-10-20, not in the
-firmware yet):
-- **One route at a time**, so the storage stays bounded.
-- **Prepared off the device**: OSM clipped to a ±1 km corridor and projected by the app, sent over BLE with the
-  route (5–20 KB/s, so a few hundred KB at most); Wi-Fi to download it later. The device only draws polylines and
-  areas.
+No global map, but a map restricted to the loaded route fits the CC600 (in the firmware since 2026-10-23):
+- **One route at a time**, so the storage stays bounded: the map is stored in `/map` for the route it was made for
+  (a map for another route is refused, or removed when the route changes).
+- **Prepared off the device**: OSM vector tiles clipped to a corridor (500 m to 2 km) and projected by Musette, as
+  detailed as the device has room for (it says so in `DeviceInfo`), sent over BLE after the route (~10 KB/s, 512 KB
+  at most: it is held whole in the PSRAM); Wi-Fi to download it later. The device only draws polylines and areas.
 - **Two views, both essential**: the whole ride on its background, and the few km around the rider. Two levels of
   detail cut in cells (500 m for the detail), the device reads only the cells in view.
 - Measured: 0.5 KB/km² in the country, 2.3 in forests, 10 in a town centre: 100–400 KB for 100 km outside big
@@ -185,7 +185,7 @@ To do:
 - **ANT+** with real sensors (written and tested on the PC, on the device only without a sensor).
 - The open questions below: each one explained, or its impact known and accepted.
 
-After the MVP: the corridor map, then Wi-Fi sync.
+After the MVP: Wi-Fi sync (the corridor map is done).
 
 ## Open questions
 Each one: what we know, why it matters, how to find out. Details in [REVERSE_NOTES.md](REVERSE_NOTES.md).

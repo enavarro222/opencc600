@@ -34,6 +34,8 @@ A GPX route sent from Musette over BLE (or over USB), the climbs found by the ap
 - **Climbs**: the last one done, the next ones with their distance; in a climb, distance, D+ and time left to the
   top, its profile coloured by gradient with the rider on it.
 - **Free ride**: set the route aside from the menu, even mid-ride, without deleting it.
+- **Background map** around the route (roads, paths, water, forests, villages from OpenStreetMap), made and sent by
+  Musette after the route, as detailed as the device has room for; a banner shows what is received.
 
 ## Sensors
 
@@ -62,6 +64,7 @@ A GPX route sent from Musette over BLE (or over USB), the climbs found by the ap
 
 ## Companion app (Musette, over BLE)
 
-Settings, routes (with their climbs) sent to the device, rides listed, downloaded and acknowledged. The file
+Settings, routes (with their climbs and background map) sent to the device, rides listed, downloaded and
+acknowledged; the device tells the app its free room (`DeviceInfo`). The file
 formats and the protocol are shared crates in the MIT [musette](https://github.com/enavarro222/musette)
 repository.

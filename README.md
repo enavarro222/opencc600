@@ -64,8 +64,8 @@ Plug the device in over USB-C. Everything goes through that cable; no button to 
 ## Roadmap
 
 MVP status in [docs/PRODUCT.md](docs/PRODUCT.md#mvp). Next: battery life ([docs/POWER.md](docs/POWER.md)), faster
-GPS fix, more beeps and key lock, faster ride sync, ANT+ with real sensors. Later: an OSM background map around the
-route, Wi-Fi upload, a web tool to send routes from a browser.
+GPS fix, more beeps and key lock, faster ride sync, ANT+ with real sensors. Later: Wi-Fi upload, a web tool to send
+routes from a browser. Done since: the OSM background map around the route, sent by Musette.
 
 Out of scope: global maps and on-device routing.
 

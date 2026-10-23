@@ -1,17 +1,21 @@
 //! What the companion app (BLE, crates/companion) reads and changes: the settings, the route, the rides; the rides
 //! served by the main loop, which owns the storage.
 
+use core::cell::Cell;
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
 use littlefs2::io::Error;
 use log::{info, warn};
+use opencc600_firmware::storage;
 use protocol_cc600::transfer::Kind;
 
 use alloc::vec::Vec;
 
 use crate::config::{SETTINGS, SETTINGS_CHANGED, settings};
 use crate::Fs;
-use crate::route_file::{ROUTE_MAX, ROUTE_RECEIVED};
+use crate::route_file::{MAP_BYTES, MAP_LEAVES_FREE, MAP_MAX, MAP_RECEIVED, ROUTE_MAX, ROUTE_RECEIVED};
 
 /// What the companion app (BLE, [`ble::run`]) reads and changes: the settings, the route, the rides.
 #[derive(Default)]
@@ -22,6 +26,29 @@ pub(crate) struct App {
 
 /// Bytes of a ride read from the storage for each request of the app (the most a frame carries).
 pub(crate) const READ_AHEAD: u16 = protocol_cc600::MAX_PAYLOAD as u16;
+
+/// Bytes free for rides (the logs give way to them), as last read.
+fn storage_free() -> Option<usize> {
+    crate::STATUS
+        .lock(Cell::get)
+        .storage
+        .and_then(|r| r.ok())
+        .map(|(_, free, _)| usize::from(free) * storage::BLOCK)
+}
+
+/// Blocks of the flash free as last read, the logs not counted (they give way to rides, not to a map); `u32::MAX`
+/// before the storage was read, or when it cannot be.
+pub(crate) static FLASH_FREE_BLOCKS: AtomicU32 = AtomicU32::new(u32::MAX);
+
+/// The largest map the device takes now: the free flash and the map it replaces, less what is left for the rides,
+/// up to what the PSRAM holds; none while the free flash is not known.
+fn map_room() -> usize {
+    let stored = MAP_BYTES.load(Ordering::Relaxed) as usize;
+    match FLASH_FREE_BLOCKS.load(Ordering::Relaxed) {
+        u32::MAX => 0,
+        blocks => (blocks as usize * storage::BLOCK + stored).saturating_sub(MAP_LEAVES_FREE).min(MAP_MAX),
+    }
+}
 
 /// What the app asks of the rides, served by the main loop (it owns the storage).
 pub(crate) enum RideRequest {
@@ -100,11 +127,14 @@ impl companion::Device for App {
         SETTINGS_CHANGED.signal(());
     }
 
+    fn storage_free(&self) -> Option<u32> {
+        storage_free().map(|f| f.min(u32::MAX as usize - 1) as u32)
+    }
+
     fn max_file(&self, kind: Kind) -> Result<u32, protocol_cc600::ErrorCode> {
         match kind {
             Kind::Route => Ok(ROUTE_MAX as u32),
-            // not stored yet (`bench-map` only)
-            Kind::Map => Err(protocol_cc600::ErrorCode::BadRequest),
+            Kind::Map => Ok(map_room() as u32),
         }
     }
 
@@ -115,7 +145,10 @@ impl companion::Device for App {
                 ROUTE_RECEIVED.signal(Some(data));
                 Ok(())
             }
-            Kind::Map => Err(protocol_cc600::ErrorCode::BadRequest),
+            Kind::Map => {
+                MAP_RECEIVED.signal(data);
+                Ok(())
+            }
         }
     }
 

@@ -49,6 +49,10 @@ pub static PAIRED: Signal<CriticalSectionRawMutex, Paired> = Signal::new();
 /// end (0: stop now).
 pub static SCAN: Signal<CriticalSectionRawMutex, u16> = Signal::new();
 
+/// The controller took its memory (or failed to): what is loaded at boot (the route, its map) waits for it, or a big
+/// route takes the internal RAM first and the controller fails (`btdm_controller_init returned -4`).
+pub static CONTROLLER_UP: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Paired {
     pub hr: Sensor,
@@ -151,10 +155,12 @@ pub async fn run(bt: BT<'static>, me: &'static identity::Identity, mut device: i
         Ok(c) => c,
         Err(e) => {
             warn!("ble: controller init failed: {e:?}");
+            CONTROLLER_UP.signal(());
             return;
         }
     };
     info!("ble: controller up, heap {}", esp_alloc::HEAP.stats());
+    CONTROLLER_UP.signal(());
     let controller: Ctrl = ExternalController::new(connector);
     // a static random address, from the MAC address: one per device, the same at every boot
     let address = Address::random(me.ble_address);
