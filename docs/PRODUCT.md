@@ -81,8 +81,10 @@ kept in step with `crates/ui`.
   never moves (`top-bars.png` of the screens test shows every case).
 - Nothing changes size: fixed-width top key, key bar in 3 fixed columns, fixed-height rows; long text is cut with
   "…" (`tools/check_prototype_layout.py`, and the screens test of `crates/ui`).
-- One banner at a time, floating above the page, never over the key bar: information (blue, 3 s), attention
-  (amber, while true: GPS searching or lost, off route, storage full, automatic power off coming).
+- One banner at a time, floating above the page, never over the key bar: information (blue, 3 s, gone without a
+  countdown), progress (blue, an arrow and a bar of what is done on its track, while it moves: a route or a map
+  coming from the app; gone 5 s after the last news; a bar always means something moving on), attention (amber,
+  while true: GPS searching or lost, off route, storage full, automatic power off coming).
 - GPS: the home screen shows the acquisition; a ride can start before the fix (the distance starts at the fix).
 - Pause: bottom-right resume, bottom-left "Terminer…" (confirmed), top "≡ Menu" (sensors, route, switch off,
   status, abandon). Switched off while paused, the ride resumes after power-on.

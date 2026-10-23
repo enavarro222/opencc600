@@ -29,6 +29,9 @@ pub const MAX_PAGES: usize = 4;
 pub const SCROLL_MS: u64 = 4_000;
 /// An information banner stays this long.
 pub const INFO_MS: u64 = 3_000;
+
+/// A progress goes this long after its last news (a transfer cut short).
+pub const PROGRESS_MS: u64 = 5_000;
 /// A power or heart rate zone shows once the value has stayed this long in it: at a bound, the screen does not
 /// flicker from one colour to the other.
 pub const ZONE_HOLD_MS: u64 = 3_000;
@@ -408,16 +411,20 @@ pub struct Banner {
     pub kind: BannerKind,
     pub title: &'static str,
     pub detail: Line,
-    /// When it was shown (an information goes after [`INFO_MS`]).
+    /// When it was shown, or a progress last moved (an information goes after [`INFO_MS`], a progress after
+    /// [`PROGRESS_MS`] without news).
     pub since_ms: u64,
-    /// For an information: what is left of its time, in tenths (the line under it).
-    pub left_tenths: u8,
+    /// For a progress, what is done, in thousandths: the bar under it. An information and an attention have no bar (a
+    /// bar always means something moving on).
+    pub bar_permille: u16,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BannerKind {
-    /// Blue, for [`INFO_MS`].
+    /// Blue, for [`INFO_MS`], gone without a sign before.
     Info,
+    /// Blue, with an arrow and a bar of what is done, while it moves (a file coming from the app).
+    Progress,
     /// Amber, while it is true.
     Attention,
 }
@@ -968,14 +975,19 @@ impl Ui {
 
     /// Shows an information for [`INFO_MS`] (an attention stays first).
     pub fn inform(&mut self, title: &'static str, detail: Line, now_ms: u64) {
+        self.show(BannerKind::Info, title, detail, 0, now_ms);
+    }
+
+    /// Shows how far something has come, `done` of `total`, while it moves (an attention stays first). The banner
+    /// goes [`PROGRESS_MS`] after the last call; an information (the end) replaces it.
+    pub fn progress(&mut self, title: &'static str, detail: Line, done: u32, total: u32, now_ms: u64) {
+        let permille = (u64::from(done.min(total)) * 1000 / u64::from(total.max(1))) as u16;
+        self.show(BannerKind::Progress, title, detail, permille, now_ms);
+    }
+
+    fn show(&mut self, kind: BannerKind, title: &'static str, detail: Line, bar_permille: u16, now_ms: u64) {
         if !self.banner.is_some_and(|b| b.kind == BannerKind::Attention) {
-            self.banner = Some(Banner {
-                kind: BannerKind::Info,
-                title,
-                detail,
-                since_ms: now_ms,
-                left_tenths: 10,
-            });
+            self.banner = Some(Banner { kind, title, detail, since_ms: now_ms, bar_permille });
         }
     }
 
@@ -1290,7 +1302,7 @@ impl Ui {
                     title,
                     detail,
                     since_ms: now_ms,
-                    left_tenths: 10,
+                    bar_permille: 0,
                 });
             }
             (None, Some(b)) if b.kind == BannerKind::Attention => {
@@ -1311,12 +1323,12 @@ impl Ui {
             self.had_fix = true;
         }
         self.fix = fix;
-        if let Some(b) = self.banner.as_mut().filter(|b| b.kind == BannerKind::Info) {
+        if let Some(b) = self.banner {
             let age = now_ms.saturating_sub(b.since_ms);
-            if age >= INFO_MS {
-                self.banner = None;
-            } else {
-                b.left_tenths = (10 - age * 10 / INFO_MS) as u8;
+            match b.kind {
+                BannerKind::Info if age >= INFO_MS => self.banner = None,
+                BannerKind::Progress if age >= PROGRESS_MS => self.banner = None,
+                _ => {}
             }
         }
         power_off.then_some(Command::PowerOff)
@@ -2032,6 +2044,30 @@ mod tests {
             (BannerKind::Info, "GPS retrouvé", "9 satellites")
         );
         ui.tick(300 + INFO_MS, Some(true), &view());
+        assert_eq!(ui.banner(), None);
+    }
+
+    #[test]
+    fn a_progress_shows_what_is_done_while_it_moves() {
+        let mut ui = Ui::new();
+        let pct = |p: u32| Line::new(format_args!("{p} %"));
+        ui.progress("Réception de la trace", pct(25), 2_500, 10_000, 0);
+        ui.tick(4_000, Some(true), &view());
+        let b = ui.banner().unwrap();
+        assert_eq!((b.kind, b.bar_permille), (BannerKind::Progress, 250), "no clock on the bar");
+        // news within PROGRESS_MS: it stays, longer than an information would
+        ui.progress("Réception de la trace", pct(70), 7_000, 10_000, 4_000);
+        ui.tick(4_000 + PROGRESS_MS - 1, Some(true), &view());
+        assert_eq!(ui.banner().unwrap().bar_permille, 700);
+        // the end says so, with no bar: it goes after INFO_MS without a sign
+        ui.inform("Trace reçue", Line::new(format_args!("Col")), 9_000);
+        let b = ui.banner().unwrap();
+        assert_eq!((b.kind, b.bar_permille), (BannerKind::Info, 0));
+        ui.tick(9_000 + INFO_MS - 1, Some(true), &view());
+        assert_eq!(ui.banner().unwrap().bar_permille, 0);
+        // no news: a transfer cut short does not stay on the screen
+        ui.progress("Réception de la carte", pct(10), 1, 10, 10_000);
+        ui.tick(10_000 + PROGRESS_MS, Some(true), &view());
         assert_eq!(ui.banner(), None);
     }
 

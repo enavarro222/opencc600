@@ -325,6 +325,10 @@ fn every_screen() {
             0,
         );
         shot(&info, &home, "home-info");
+        // a file coming from the app: the arrow and the bar of what is done
+        let mut receiving = Ui::new();
+        receiving.progress("Réception de la carte", Line::new(format_args!("37 %")), 37, 100, 0);
+        shot(&receiving, &home, "home-receiving");
     }
     // with a route: home, then the map at each zoom, the whole route before the fix, off the route
     let mut ui = Ui::new();

@@ -1928,8 +1928,11 @@ fn banner<D: DrawTarget<Color = Rgb565>>(
 ) -> Result<(), D::Error> {
     let area = rect(6, 221, 233, 272);
     rounded(d, area, 6, t.banner_bg, t.bg)?;
+    let mut arrow = [0; 4];
     let (circle, mark, mark_fg) = match b.kind {
         BannerKind::Info => (t.info, "i", rgb(0xFFFFFF)),
+        // something coming in: the arrow, not the information's "i"
+        BannerKind::Progress => (t.info, &*icon::DOWN.encode_utf8(&mut arrow), rgb(0xFFFFFF)),
         BannerKind::Attention => (t.attention, "!", rgb(0x111111)),
     };
     disc(d, 29.5, 246.5, 14.0, circle, t.banner_bg)?;
@@ -1945,11 +1948,13 @@ fn banner<D: DrawTarget<Color = Rgb565>>(
     fonts::text(d, &s, b.title, 54, 235, Align::Left)?;
     let s = Style::new(&fonts::SUB, t.banner_fg, t.banner_bg);
     fonts::text(d, &s, b.detail.as_str(), 54, 255, Align::Left)?;
-    if b.kind == BannerKind::Info {
-        // what is left of its time, in tenths
-        let w = (area.size.width as i32 - 12) * b.left_tenths as i32 / 10;
+    // only a progress has a bar: what is done, on its track
+    if b.kind == BannerKind::Progress {
+        let full = area.size.width as i32 - 12;
+        let w = full * i32::from(b.bar_permille) / 1000;
+        fill(d, rect(12, 266, 12 + full - 1, 269), t.rule)?;
         if w > 0 {
-            fill(d, rect(12, 268, 12 + w - 1, 269), t.info)?;
+            fill(d, rect(12, 266, 12 + w - 1, 269), t.info)?;
         }
     }
     Ok(())
