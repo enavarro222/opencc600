@@ -307,6 +307,8 @@ async fn main(spawner: Spawner) -> ! {
     let mut auto_off: Option<ui::Command> = None;
     let mut auto_off_announced = false;
     let mut unplugged_at: Option<Instant> = None;
+    // when the logo was shown: at boot, or at the wake up from the charging screen
+    let mut splash_at = Instant::from_ticks(0);
     loop {
         // the charging screen's animation: 20 frames a second (a redraw and flush take ~25 ms, nothing else runs)
         let animated = ui.screen() == ui::Screen::Charging;
@@ -438,7 +440,7 @@ async fn main(spawner: Spawner) -> ! {
         // the charger's state is known (the nRF sends it ~5 s after a cold start): straight to the charging screen
         // when plugged in, not through the home screen
         if ui.screen() == ui::Screen::Splash {
-            let up_ms = Instant::now().as_millis();
+            let up_ms = splash_at.elapsed().as_millis();
             let stream = STREAM_AT.lock(Cell::get).is_some();
             let charger_known = STATUS.lock(Cell::get).charger.is_some();
             if (up_ms >= 1_500 && stream) || (up_ms >= 3_500 && charger_known) || up_ms >= 8_000 {
@@ -578,7 +580,10 @@ async fn main(spawner: Spawner) -> ! {
                 }
                 (ui::Command::Forget(role), _, _) => set_sensor(role, settings::Sensor::None),
                 (ui::Command::Calibrate, _, _) => calibrate_power(),
-                (ui::Command::WakeUp, _, _) => info!("charging screen: switched on"),
+                (ui::Command::WakeUp, _, _) => {
+                    info!("charging screen: switched on");
+                    splash_at = Instant::now();
+                }
                 (ui::Command::DeleteRide(i), None, Ok(fs)) => {
                     if let Some(r) = stored.take().and_then(|list| list.into_iter().nth(usize::from(i))) {
                         match ride_store::remove(fs, r.id) {

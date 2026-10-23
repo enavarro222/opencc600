@@ -414,6 +414,8 @@ fn every_screen() {
         if name == "charging" {
             save("charging-night", &ui, &v, &ui::NIGHT);
             assert_eq!(ui.key(Key::TopLeft, Press::Long, at, &v), Some(ui::Command::WakeUp));
+            assert_eq!(ui.screen(), ui::Screen::Splash);
+            ui.end_splash();
             assert_eq!(ui.screen(), ui::Screen::Home);
         }
     }

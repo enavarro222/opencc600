@@ -283,7 +283,8 @@ pub enum Command {
     Calibrate,
     /// Follow the loaded route (`true`), or set it aside for a free ride: it stays stored.
     FollowRoute(bool),
-    /// Switched on from the charging screen (the long press starts the nRF's sensor stream).
+    /// Switched on from the charging screen (the long press starts the nRF's sensor stream, ~400 ms later): the logo
+    /// until it comes, as at power-on.
     WakeUp,
     /// Delete this entry of the rides screen ([`Ui::ride_item`]).
     DeleteRide(u16),
@@ -1069,7 +1070,7 @@ impl Ui {
                 (Home, None)
             }
             (Home, TopLeft, Long) => (Home, Some(Command::PowerOff)),
-            (Charging, TopLeft, Long) => (self.back, Some(Command::WakeUp)),
+            (Charging, TopLeft, Long) => (Splash, Some(Command::WakeUp)),
             (Home, BottomLeft, Click) => {
                 self.item = 0;
                 self.back = Home;
@@ -1622,6 +1623,8 @@ mod tests {
             }
         }
         assert_eq!((wake_ups, others), (1, 0));
+        assert_eq!(ui.screen(), Screen::Splash);
+        ui.end_splash();
         assert_eq!(ui.screen(), Screen::Home);
         // released, pressed long again: switched off
         assert_eq!(ui.key(TopLeft, Long, 4_000, &view()), Some(Command::PowerOff));
