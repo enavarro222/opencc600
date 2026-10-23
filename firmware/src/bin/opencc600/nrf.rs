@@ -135,7 +135,13 @@ pub(crate) async fn nrf_rx(mut rx: UartRx<'static, Async>) -> ! {
             }
             // the barometer only: on a charger start the nRF still sends one clock frame
             if matches!(msg, Message::Baro { .. }) {
-                STREAM_AT.lock(|c| c.set(Some(Instant::now())));
+                let last = STREAM_AT.lock(|c| c.replace(Some(Instant::now())));
+                if last.is_none_or(|at| at.elapsed() >= Duration::from_secs(1)) {
+                    info!("nrf: sensor stream (re)started");
+                }
+            }
+            if let Message::PowerOnReason(r) = msg {
+                info!("nrf: power-on reason {r}");
             }
             if let Message::Key { key, action } = msg {
                 log_key(key, action, false);
