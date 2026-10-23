@@ -242,8 +242,8 @@ function onMessage(ev) {
 const MUSETTE = new URLSearchParams(location.search).get('musette') || 'https://enavarro222.github.io/musette/';
 const hex4 = (h) => '0x' + h.toString(16).padStart(4, '0');
 const gatt = {
-  device: null, connected: false, chars: new Map(), waiters: [], queue: Promise.resolve(),
-  reset() { this.connected = false; this.chars.clear(); for (const w of this.waiters) w.reject(new Error('compteur redémarré')); this.waiters = []; },
+  device: null, connected: false, mtu: 0, chars: new Map(), waiters: [], queue: Promise.resolve(),
+  reset() { this.connected = false; this.mtu = 0; this.chars.clear(); for (const w of this.waiters) w.reject(new Error('compteur redémarré')); this.waiters = []; },
   // a line of the virtual central: state, then whoever waits for it
   heard(m) {
     if (m.error) { const w = this.waiters.shift(); w?.reject(new Error(m.error)); return; }
@@ -252,7 +252,7 @@ const gatt = {
       const names = [...l.matchAll(/name="([^"]*)"/g)].map((x) => x[1]);
       this.device = { name: names[names.length - 1] || 'CC600', serviceUuid: f('service') };
     } else if (l.startsWith('connected ')) this.connected = true;
-    else if (l === 'disconnected') { this.connected = false; this.chars.clear(); }
+    else if (l === 'disconnected') { this.connected = false; this.mtu = 0; this.chars.clear(); }
     else if (l.startsWith('characteristic ')) this.chars.set(f('uuid'), { value: parseInt(f('handle')), props: parseInt(f('properties')) });
     else if (l.startsWith('notification ')) {
       const h = parseInt(f('handle')), uuid = [...this.chars].find(([, c]) => c.value === h)?.[0];
@@ -277,8 +277,11 @@ const gatt = {
         return this.device;
       case 'connect':
         if (!this.connected) await this.run('connect', (l) => l.startsWith('connected '));
+        // the largest ATT MTU, as a phone asks: writes of up to 244 bytes instead of 20 (an emulator without the
+        // command answers an error: the default 23)
+        if (!this.mtu) this.mtu = await this.run('mtu 247', (l) => l.startsWith('mtu ')).then((l) => parseInt(l.slice(4)), () => 23);
         if (!this.chars.size) await this.run('discover', (l) => l === 'discovery complete');
-        return {};
+        return { mtu: this.mtu };
       case 'disconnect': return {};   // the emulated link stays up: nothing on the device side to undo
       case 'subscribe': {
         // the CCCD right after the value: trouble-host's layout (its descriptor discovery is unusable in 0.7)

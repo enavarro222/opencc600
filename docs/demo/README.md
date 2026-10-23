@@ -87,9 +87,11 @@ GitHub settings, once: Pages → source *GitHub Actions*; Environments → `gith
 `?emulator=<this page's origin>`. With that parameter, and only in its web build, Musette replaces Web Bluetooth with
 `EmulatorGattTransport` (`app/src/lib/transport/emulator.ts`): its GATT operations go to this page by
 `postMessage`, to that origin only. The page turns each one into commands of esp32sim's virtual central
-(`{t: 'ble', line: 'connect' | 'discover' | 'write H HEX' | 'write-cmd H HEX' | 'subscribe CCC'}`) and answers when
-the line it waits for comes back; notifications are relayed to the app. The app then syncs settings, routes and
-rides with the emulated device as with a real one, at the emulated link's 20 bytes per write.
+(`{t: 'ble', line: 'connect' | 'mtu 247' | 'discover' | 'write H HEX' | 'write-cmd H HEX' | 'subscribe CCC'}`) and
+answers when the line it waits for comes back; notifications are relayed to the app. At connection the page asks
+for an ATT MTU of 247, as a phone does, and tells the app the MTU it got: writes of up to 244 bytes (an emulator
+without the `mtu` command keeps 23, 20 bytes a write). The app then syncs settings, routes and rides with the
+emulated device as with a real one.
 
 The CCCD is taken right after its characteristic's value (trouble-host's layout): trouble-host 0.7 answers the
 descriptor discovery in a malformed format.
@@ -116,5 +118,4 @@ they would take as pull requests; the rest stays in the fork.
 ## Limits
 
 - The emulator runs the firmware at about real time on a recent computer; the first boot takes a few seconds.
-- The emulated BLE link uses a 23-byte MTU.
 - The nRF and GNSS models cover what the open and the vendor firmware use, not the whole of those chips.
