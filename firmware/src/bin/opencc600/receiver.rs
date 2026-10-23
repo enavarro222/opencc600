@@ -141,9 +141,10 @@ pub(crate) async fn gnss_task(mut uart: GnssUart) {
         if silence.poll(n, now_ms) {
             link.silences = silence.count;
             warn!(
-                "gnss: no data for {} s (receiver off, or DMA stopped), powering it on",
+                "gnss: no data for {} s (receiver off, or DMA stopped), restarting the DMA and powering it on",
                 silence.silent_ms(now_ms) / 1000
             );
+            uart.restart_rx();
             if GNSS_POWER_LOST.load(Ordering::Relaxed) > 0 {
                 GNSS_POWER_LOST.fetch_sub(1, Ordering::Relaxed);
                 warn!("gnss: power-on dropped by the test hook");

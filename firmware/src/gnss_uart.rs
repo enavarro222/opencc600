@@ -3,7 +3,9 @@
 //!
 //! Received through UHCI DMA into a ring of descriptors in internal RAM: the DMA keeps writing while the CPU is
 //! stalled by a flash write (sector erase ~45 ms, i.e. ~4 KB at this baud rate; the UART FIFO holds 128 bytes).
-//! [`GnssUart::drain`] hands over what arrived; call it at least every couple of seconds.
+//! [`GnssUart::drain`] hands over what arrived; call it at least every couple of seconds. Once the ring is full the DMA
+//! stops for good (each idle EOF closes a descriptor, so 16 short lines are enough, e.g. the receiver's boot lines
+//! before the first drain): [`GnssUart::restart_rx`] starts it again.
 
 use esp_hal::Blocking;
 use esp_hal::dma::{DmaRxStreamBuf, DmaTxBuf};
@@ -18,7 +20,8 @@ const RING: usize = 16 * 1024;
 const CHUNK: usize = 1024;
 
 pub struct GnssUart {
-    rx: UhciDmaRxTransfer<'static, Blocking, DmaRxStreamBuf>,
+    /// `None` only while [`GnssUart::restart_rx`] runs.
+    rx: Option<UhciDmaRxTransfer<'static, Blocking, DmaRxStreamBuf>>,
     /// For the `$PAIR` commands; `None` only while a write is in flight.
     tx: Option<(UhciTx<'static, Blocking>, DmaTxBuf)>,
 }
@@ -51,7 +54,7 @@ impl GnssUart {
             .unwrap_or_else(|(e, ..)| panic!("gnss dma: {e:?}"));
         let buf = dma_tx_buffer!(MAX_COMMAND).unwrap();
         Self {
-            rx,
+            rx: Some(rx),
             tx: Some((tx, buf)),
         }
     }
@@ -81,14 +84,21 @@ impl GnssUart {
     pub fn drain(&mut self, mut f: impl FnMut(&[u8])) -> usize {
         let mut total = 0;
         loop {
-            let data = self.rx.peek();
+            let rx = self.rx.as_mut().unwrap();
+            let data = rx.peek();
             if data.is_empty() {
                 return total;
             }
             let n = data.len();
             f(data);
-            self.rx.consume(n);
+            rx.consume(n);
             total += n;
         }
+    }
+
+    /// Restarts the reception on an empty ring, dropping what it held: the way out of a full ring (stopped DMA).
+    pub fn restart_rx(&mut self) {
+        let (rx, ring) = self.rx.take().unwrap().cancel();
+        self.rx = Some(rx.read(ring).unwrap_or_else(|(e, ..)| panic!("gnss dma: {e:?}")));
     }
 }
