@@ -17,6 +17,10 @@ use crate::pairing::sensor_values;
 
 /// What the screen shows of the ride.
 #[derive(Clone, Copy, Default, PartialEq)]
+#[allow(
+    clippy::large_stack_frames,
+    reason = "Default of a 528-byte struct (the altitude history), built once a frame on the 215 KB main stack"
+)]
 pub(crate) struct RideInfo {
     pub(crate) running: bool,
     pub(crate) timer_s: u32,
@@ -251,6 +255,10 @@ impl Ride {
     }
 
     /// Records the latest GNSS epoch if it is new.
+    #[allow(
+        clippy::large_stack_frames,
+        reason = "a fix and a record, once a second from main (215 KB stack)"
+    )]
     pub(crate) fn sample(&mut self, fs: &Fs<'_>, s: &Status) {
         let Some(fix) = s.fix else { return };
         if fix.time.is_none() || fix.time == self.last_epoch {
@@ -341,6 +349,10 @@ impl Ride {
         }
     }
 
+    #[allow(
+        clippy::large_stack_frames,
+        reason = "returns a RideInfo (528 bytes), once a frame from main (215 KB stack)"
+    )]
     pub(crate) fn info(&self) -> RideInfo {
         let t = self.recorder.summary().totals();
         RideInfo {
