@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenCC600 · firmware libre pour compteur vélo</title>
+<meta name="description" content="Un firmware ouvert pour les compteurs vélo GEOID CC600 et CC700, et son application compagnon Musette.">
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1d1d1b; --mute: #6b6a66; --rule: #e3e1db; --accent: #1f6feb; --card: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15161a; --fg: #ecebe6; --mute: #9a9993; --rule: #2c2d33; --accent: #6ea8ff; --card: #1c1d22; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 17px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 680px; margin: 0 auto; padding: 40px 16px 64px; }
+  .logo { display: block; width: 300px; max-width: 100%; margin: 0 auto 8px; }
+  .lead { text-align: center; color: var(--mute); margin: 0 0 32px; }
+  .screens { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 0 0 32px; }
+  .screens img { width: 120px; height: auto; border-radius: 8px; border: 1px solid var(--rule); }
+  .card {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 12px;
+    padding: 20px 22px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 1.2rem; margin: 0 0 6px; }
+  .card p, .card ul { margin: 0 0 12px; }
+  .card ul { padding-left: 1.2em; }
+  .links { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .warn { font-size: 0.9rem; color: var(--mute); }
+  footer { margin-top: 40px; font-size: 0.9rem; color: var(--mute); text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="logo-wide-night.svg">
+    <img class="logo" src="logo-wide.svg" alt="OpenCC600">
+  </picture>
+  <p class="lead">Un firmware libre pour les compteurs vélo GEOID CC600 et CC700. Rouler en liberté.</p>
+
+  <div class="screens">
+    <img src="screens/ride-page1.png" alt="Page Essentiel">
+    <img src="screens/ride-page2.png" alt="Page Altitude">
+    <img src="screens/route-map-1km.png" alt="Carte de la trace">
+    <img src="screens/climbs-in.png" alt="Dans une montée">
+  </div>
+
+  <section class="card">
+    <h2>Le firmware</h2>
+    <ul>
+      <li>Pages de sortie choisies selon la trace et les capteurs, grands chiffres, thème de nuit.</li>
+      <li>Altitude et D+ au baromètre, calés sur le GPS.</li>
+      <li>Traces depuis le téléphone : carte orientée, alerte hors trace, montées à venir.</li>
+      <li>Capteurs BLE : cardio, vitesse / cadence, puissance avec zones et calibration.</li>
+      <li>Sorties en FIT, qui survivent à une coupure de courant.</li>
+    </ul>
+    <p>Il s'installe à côté du firmware d'origine, qui reste sur l'appareil : une commande le remet.</p>
+    <div class="links">
+      <a href="demo/">Essayer dans le navigateur</a>
+      <a href="https://github.com/enavarro222/opencc600/releases">Versions</a>
+      <a href="https://github.com/enavarro222/opencc600">Code source (GPL-3.0)</a>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Musette</h2>
+    <p>L'application compagnon : envoie les traces et les réglages au compteur, récupère les sorties. Dans le
+      navigateur, sur Android et iOS, sans compte : les sorties restent sur votre appareil.</p>
+    <div class="links">
+      <a href="https://enavarro222.github.io/musette/">Ouvrir Musette</a>
+      <a href="https://github.com/enavarro222/musette">Code source (MIT)</a>
+    </div>
+  </section>
+
+  <p class="warn">Projet amateur non officiel, sans lien avec GEOID ni Magene. Installer un autre firmware peut
+    annuler la garantie ou rendre l'appareil inutilisable : à vos risques.</p>
+
+  <footer><a href="https://github.com/enavarro222">enavarro222</a></footer>
+</main>
+</body>
+</html>

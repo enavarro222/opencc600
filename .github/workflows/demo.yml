@@ -30,6 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # the tags, for the version shown on the device (crates/ui/build.rs)
+          fetch-depth: 0
 
       - name: Xtensa toolchain and espflash
         run: |
@@ -60,7 +63,10 @@ jobs:
           mkdir -p _site
           cp -r docs/demo _site/demo
           cp -r docs/prototype _site/prototype
-          printf '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=demo/"><a href="demo/">demo</a>\n' > _site/index.html
+          # the presentation page, the address of the device's about screen (crates/ui ABOUT_URL)
+          cp docs/site/index.html docs/logo-wide.svg docs/logo-wide-night.svg _site/
+          mkdir -p _site/screens
+          cp docs/screens/{ride-page1,ride-page2,route-map-1km,climbs-in}.png _site/screens/
 
       - uses: actions/upload-pages-artifact@v3
         with:
