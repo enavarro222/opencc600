@@ -101,6 +101,8 @@ pub enum Screen {
     Rides,
     /// "Delete this ride?"
     ConfirmDelete,
+    /// The version and a QR code to the project's page ([`ABOUT_URL`]).
+    About,
 }
 
 /// A ride page, picked when the ride starts ([`pages`]).
@@ -429,8 +431,15 @@ pub enum BannerKind {
     Attention,
 }
 
-/// The software version, on the splash screen.
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The project's page, on [`Screen::About`].
+pub const ABOUT_URL: &str = "https://enavarro222.github.io/opencc600/";
+
+/// The software version, the last `v*` git tag (`+N` commits after it), on the splash screen and [`Screen::About`]
+/// (crates/ui/build.rs).
+pub const VERSION: &str = env!("VERSION");
+
+/// The commit the software is built from (crates/ui/build.rs), on [`Screen::About`].
+pub const GIT_SHA: &str = env!("GIT_SHA");
 
 /// A `Long` this soon after the last one of the same key is its repeat (the nRF sends one every ~200 ms).
 pub const LONG_REPEAT_MS: u64 = 600;
@@ -465,7 +474,7 @@ pub(crate) fn off_distance(dm: u32) -> Line {
 }
 
 /// Entries of a menu at most.
-pub const MENU: usize = 5;
+pub const MENU: usize = 6;
 
 /// Entries of the menus.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -478,6 +487,7 @@ pub enum Item {
     Sensors,
     Rides,
     Status,
+    About,
     PowerOff,
     /// Erase the paused ride (after confirmations).
     Discard,
@@ -488,6 +498,7 @@ impl Item {
         match self {
             Item::ResumeLast => "\u{e00d} Reprendre la sortie",
             Item::Status => "État du compteur",
+            Item::About => "À propos",
             Item::Sensors => "Capteurs",
             Item::Rides => "Sorties enregistrées",
             Item::FreeRide => "Rouler sans trace",
@@ -499,7 +510,7 @@ impl Item {
 
     /// The entry opens a screen (a chevron says so); the others act at once.
     pub fn opens(self) -> bool {
-        matches!(self, Item::Sensors | Item::Rides | Item::Status)
+        matches!(self, Item::Sensors | Item::Rides | Item::Status | Item::About)
     }
 
     /// The select key's label on this entry: a chevron when it opens a screen.
@@ -508,7 +519,7 @@ impl Item {
             Item::ResumeLast => "Reprendre",
             Item::FreeRide => "Sans trace",
             Item::FollowRoute => "Suivre",
-            Item::Sensors | Item::Rides | Item::Status => "Ouvrir \u{e00b}",
+            Item::Sensors | Item::Rides | Item::Status | Item::About => "Ouvrir \u{e00b}",
             Item::PowerOff => "Éteindre",
             Item::Discard => "Effacer…",
         }
@@ -1006,6 +1017,7 @@ impl Ui {
                 Some(Item::Sensors),
                 Some(Item::Rides),
                 Some(Item::Status),
+                Some(Item::About),
             ],
             // a strap that drops during a ride is paired again from the pause, the route set aside there too
             // abandoning last, the furthest from the first entry
@@ -1081,6 +1093,7 @@ impl Ui {
                     }
                     // the status goes back to its menu, the menu to where it was opened from
                     Some(Item::Status) => (Status, None),
+                    Some(Item::About) => (About, None),
                     Some(Item::Sensors) => {
                         self.calibrate_row = false;
                         (Sensors, None)
@@ -1099,7 +1112,7 @@ impl Ui {
                     None => (self.screen, None),
                 }
             }
-            (Status | Sensors, TopLeft, Click) => (if self.back == Home { Menu } else { PauseMenu }, None),
+            (Status | Sensors | About, TopLeft, Click) => (if self.back == Home { Menu } else { PauseMenu }, None),
             // after the power meter, its calibration once it is paired
             (Sensors, BottomLeft, Click) => {
                 if self.calibrate_row {
@@ -1354,7 +1367,7 @@ impl Ui {
                     None => [BACK, NEXT, NOTHING],
                 }
             }
-            Status => [BACK, NOTHING, NOTHING],
+            Status | About => [BACK, NOTHING, NOTHING],
             Charging | Splash => [NOTHING, NOTHING, NOTHING],
             Sensors if self.calibrate_row => [BACK, NEXT, Hint::new("Ouvrir \u{e00b}").kind(Kind::Select)],
             Sensors => [BACK, NEXT, Hint::new("Chercher \u{e00b}").kind(Kind::Select)],

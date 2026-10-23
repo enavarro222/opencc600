@@ -242,6 +242,7 @@ pub fn draw<D: DrawTarget<Color = Rgb565>>(
         Screen::Saved => saved(d, v, t)?,
         Screen::Rides => rides(d, ui, v, t)?,
         Screen::ConfirmDelete => confirm_delete(d, v, t)?,
+        Screen::About => about(d, ui, t)?,
     }
     if let Some(b) = ui.banner() {
         banner(d, b, t)?;
@@ -1239,13 +1240,14 @@ fn menu<D: DrawTarget<Color = Rgb565>>(
     title: Option<&str>,
     (note_title, note): (&str, &str),
 ) -> Result<(), D::Error> {
-    const ROW: i32 = 43;
+    let (items, sel) = ui.menu(v);
+    // six entries fit a little tighter
+    let row = if items.iter().flatten().count() > 5 { 41 } else { 43 };
     let mut y = TOP + 1;
     if let Some(title) = title {
         fonts::text(d, &t.label(&fonts::LABEL), title, MARGIN, 47, Align::Left)?;
         y = 62;
     }
-    let (items, sel) = ui.menu(v);
     let mut buf = [0; 4];
     let chevron = char_str(icon::CHEVRON, &mut buf);
     for (i, item) in items.iter().flatten().enumerate() {
@@ -1256,15 +1258,15 @@ fn menu<D: DrawTarget<Color = Rgb565>>(
             (false, true) => (t.bg, t.danger),
             (false, false) => (t.bg, t.fg),
         };
-        fill(d, rect(0, y, W - 1, y + ROW - 2), bg)?;
-        hline(d, y + ROW - 1, t)?;
+        fill(d, rect(0, y, W - 1, y + row - 2), bg)?;
+        hline(d, y + row - 1, t)?;
         let s = Style::new(&fonts::MENU, fg, bg);
-        let cy = y + ROW / 2 - 1;
+        let cy = y + row / 2 - 1;
         fonts::text(d, &s, item.label(), MARGIN, cy, Align::Left)?;
         if item.opens() {
             fonts::text(d, &s, chevron, W - MARGIN, cy, Align::Right)?;
         }
-        y += ROW;
+        y += row;
     }
     let mut cy = y + 20;
     // four entries leave no room for the note
@@ -1350,8 +1352,70 @@ fn splash<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, t: &Theme) -> Resul
     fonts::text(d, &t.style(&fonts::TITLE), cc, x0 + wo, 214, Align::Left)?;
     fonts::text(d, &t.mute(&fonts::BODY), "Rouler en liberté", W / 2, 246, Align::Center)?;
     fonts::text(d, &t.mute(&fonts::NOTE), ui.ble_name(), W / 2, 278, Align::Center)?;
-    let version = Fmt::new(format_args!("v{}", crate::VERSION));
-    fonts::text(d, &t.mute(&fonts::NOTE), version.as_str(), W / 2, 300, Align::Center)?;
+        fonts::text(d, &t.mute(&fonts::NOTE), crate::VERSION, W / 2, 300, Align::Center)?;
+    Ok(())
+}
+
+/// The QR code of [`crate::ABOUT_URL`], a row a word, bit `x` the module `x`: `segno.make(ABOUT_URL, error='m')`
+/// (Python), version 3, to make again when the address changes.
+const ABOUT_QR: [u32; 29] = [
+    0x1fd85f7f,
+    0x10473b41,
+    0x1749a85d,
+    0x174ab15d,
+    0x1749825d,
+    0x10583841,
+    0x1fd5557f,
+    0x000ad700,
+    0x1a4f1aed,
+    0x11f95d90,
+    0x0d964ff9,
+    0x10f4bea8,
+    0x068a3ef1,
+    0x1c7bf504,
+    0x1cca466d,
+    0x096dd69b,
+    0x0ba044df,
+    0x0ea2ba26,
+    0x04229471,
+    0x055a4780,
+    0x07fe217a,
+    0x1f1f3900,
+    0x0b5b3f7f,
+    0x131c9f41,
+    0x1df2485d,
+    0x13a1f75d,
+    0x148e2b5d,
+    0x0bd93241,
+    0x0870b97f,
+];
+
+/// The name, the version and the commit, a QR code to the project's page and its address.
+fn about<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, t: &Theme) -> Result<(), D::Error> {
+    fonts::text(d, &t.label(&fonts::LABEL), "À PROPOS", MARGIN, 47, Align::Left)?;
+    // the name like the splash screen, the version on its line
+    let (open, cc) = ("Open", ui.model());
+    let wo = fonts::TITLE.width(open, 0);
+    fonts::text(d, &t.mute(&fonts::TITLE), open, MARGIN, 78, Align::Left)?;
+    fonts::text(d, &t.style(&fonts::TITLE), cc, MARGIN + wo, 78, Align::Left)?;
+        fonts::text(d, &t.mute(&fonts::BODY), crate::VERSION, W - MARGIN, 78, Align::Right)?;
+    let build = Fmt::new(format_args!("Build {}", crate::GIT_SHA));
+    fonts::text(d, &t.mute(&fonts::NOTE), build.as_str(), MARGIN, 102, Align::Left)?;
+    // dark modules on white whatever the theme, two modules of quiet zone around
+    const MODULE: i32 = 4;
+    const QUIET: i32 = 2;
+    let n = ABOUT_QR.len() as i32;
+    let side = (n + 2 * QUIET) * MODULE;
+    let (x0, y0) = ((W - side) / 2, 114);
+    fill(d, rect(x0, y0, x0 + side - 1, y0 + side - 1), Rgb565::WHITE)?;
+    for (y, bits) in (0..).zip(ABOUT_QR) {
+        for x in (0..n).filter(|x| bits >> x & 1 == 1) {
+            let (px, py) = (x0 + (QUIET + x) * MODULE, y0 + (QUIET + y) * MODULE);
+            fill(d, rect(px, py, px + MODULE - 1, py + MODULE - 1), Rgb565::BLACK)?;
+        }
+    }
+    let host = crate::ABOUT_URL.trim_start_matches("https://").trim_end_matches('/');
+    fonts::text(d, &t.mute(&fonts::NOTE), host, W / 2, y0 + side + 16, Align::Center)?;
     Ok(())
 }
 

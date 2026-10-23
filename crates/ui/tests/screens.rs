@@ -245,6 +245,18 @@ fn every_screen() {
         shot(&menu, &listed, "rides-confirm-delete");
         key(&mut ui, BottomLeft);
         shot(&ui, &home, "menu");
+        // the last entry
+        let mut about = ui;
+        while let (items, at) = about.menu(&v)
+            && items[at as usize] != Some(ui::Item::About)
+        {
+            key(&mut about, BottomLeft);
+        }
+        key(&mut about, BottomRight);
+        assert_eq!(about.screen(), ui::Screen::About);
+        shot(&about, &home, "about");
+        key(&mut about, TopLeft);
+        assert_eq!(about.screen(), ui::Screen::Menu);
         key(&mut ui, TopLeft);
         key(&mut ui, BottomRight);
         ui.tick(0, Some(true), &v);
