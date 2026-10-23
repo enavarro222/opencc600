@@ -5,8 +5,9 @@
 # the WebAssembly emulator and a build.json; the S3 mask ROM goes to docs/demo/rom/, then versions.json is
 # rewritten from every build present.
 #
-# The emulator comes from the esp32sim fork with the CC600 board (github.com/enavarro222/esp32sim) at the
-# commit in tools/demo/esp32sim.rev, cloned into target/demo/esp32sim, or from the checkout in $ESP32SIM.
+# The emulator comes from the esp32sim fork with the CC600 board (github.com/enavarro222/esp32sim): its release
+# when tools/demo/esp32sim.rev names a `cc600-*` tag (fetched and checked by tools/demo/fetch_esp32sim.py, nothing
+# built), else the commit it names, cloned into target/demo/esp32sim and built; or the checkout in $ESP32SIM.
 #
 # usage: [ESP32SIM=~/workspace_perso/esp32sim] tools/demo/build.sh [NAME]     (NAME: local by default)
 set -eu
@@ -20,15 +21,24 @@ REV=$(cat tools/demo/esp32sim.rev)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-if [ -z "${ESP32SIM:-}" ]; then
-  ESP32SIM=target/demo/esp32sim
-  [ -d "$ESP32SIM/.git" ] || git clone -q https://github.com/enavarro222/esp32sim "$ESP32SIM"
-  git -C "$ESP32SIM" fetch -q origin "$REV" 2>/dev/null || git -C "$ESP32SIM" fetch -q origin
-  git -C "$ESP32SIM" checkout -q "$REV"
-elif [ "$(git -C "$ESP32SIM" rev-parse HEAD)" != "$REV" ]; then
-  echo "note: $ESP32SIM is not at tools/demo/esp32sim.rev ($REV)" >&2
+if [ -z "${ESP32SIM:-}" ] && [ "${REV#cc600-}" != "$REV" ]; then
+  # a release of the fork: fetched, checked, nothing built
+  SIM=$(python3 tools/demo/fetch_esp32sim.py "$REV" wasm)
+  "$SIM/tools/fetch-rom-elfs.sh" "$SIM/fw" >/dev/null
+  WASM=$SIM; ROMS=$SIM/fw; SIM_LICENSE=$SIM/LICENSE; sim=$REV
+else
+  if [ -z "${ESP32SIM:-}" ]; then
+    ESP32SIM=target/demo/esp32sim
+    [ -d "$ESP32SIM/.git" ] || git clone -q https://github.com/enavarro222/esp32sim "$ESP32SIM"
+    git -C "$ESP32SIM" fetch -q origin "$REV" 2>/dev/null || git -C "$ESP32SIM" fetch -q origin
+    git -C "$ESP32SIM" checkout -q "$REV"
+  elif [ "$(git -C "$ESP32SIM" rev-parse "$REV^{commit}" 2>/dev/null)" != "$(git -C "$ESP32SIM" rev-parse HEAD)" ]; then
+    echo "note: $ESP32SIM is not at tools/demo/esp32sim.rev ($REV)" >&2
+  fi
+  (cd "$ESP32SIM" && tools/wasm-build.sh >/dev/null && tools/fetch-rom-elfs.sh web/wasm/fw >/dev/null)
+  WASM=$ESP32SIM/web/wasm; ROMS=$ESP32SIM/web/wasm/fw; SIM_LICENSE=$ESP32SIM/LICENSE
+  sim=$(git -C "$ESP32SIM" rev-parse HEAD)
 fi
-(cd "$ESP32SIM" && tools/wasm-build.sh >/dev/null && tools/fetch-rom-elfs.sh web/wasm/fw >/dev/null)
 
 unset BINDGEN_EXTRA_CLANG_ARGS   # host-test setting: breaks the littlefs bindings of the firmware
 (cd firmware && . ~/export-esp.sh >/dev/null && cargo build --release)
@@ -47,17 +57,16 @@ EOF
 STRIP=$(ls ~/.rustup/toolchains/esp/xtensa-esp-elf/*/xtensa-esp-elf/bin/xtensa-esp32s3-elf-strip | head -1)
 "$STRIP" --strip-debug -o "$DIR/fw/cc600.elf" "$ELF"
 
-cp "$ESP32SIM/web/wasm/fw/esp32s3_rev0_rom.elf" "$OUT/rom/"
-for f in worker.js jit.mjs pacing.mjs experiments.mjs esp32sim.wasm; do cp "$ESP32SIM/web/wasm/$f" "$DIR/sim/wasm/"; done
-cp "$ESP32SIM/LICENSE" "$DIR/sim/LICENSE"
-sim=$(git -C "$ESP32SIM" rev-parse HEAD)
+cp "$ROMS/esp32s3_rev0_rom.elf" "$OUT/rom/"
+for f in worker.js jit.mjs pacing.mjs experiments.mjs esp32sim.wasm; do cp "$WASM/$f" "$DIR/sim/wasm/"; done
+cp "$SIM_LICENSE" "$DIR/sim/LICENSE"
 cat > "$DIR/sim/README.md" <<EOF
 # esp32sim, built for this demo
 
 The WebAssembly ESP32-S3 emulator and its worker, from [esp32sim](https://github.com/mikroverk/esp32sim)
 (MIT, \`LICENSE\`), built from the fork [enavarro222/esp32sim](https://github.com/enavarro222/esp32sim) at
-commit \`$sim\`: the GEOID CC600 board (ST7789 on LCD_CAM, the nRF52 on UART2, the GNSS receiver on
-UART0) and the virtual BLE controller for esp-radio firmware.
+\`$sim\` (a commit, or a release tag): the GEOID CC600 board (ST7789 on LCD_CAM, the nRF52 on UART2, the GNSS
+receiver on UART0) and the virtual BLE controller for esp-radio firmware.
 
 \`../../../rom/esp32s3_rev0_rom.elf\` is Espressif's ESP32-S3 mask ROM
 ([esp-rom-elfs](https://github.com/espressif/esp-rom-elfs), Apache-2.0).
