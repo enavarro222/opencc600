@@ -128,13 +128,16 @@ class Run:
         return out
 
 
-def run(script: Script, out: Path, image: Path, max_seconds: float, psram_mb: int = 2) -> Run:
+def run(script: Script, out: Path, image: Path, max_seconds: float, psram_mb: int = 2,
+        tft_png: Path | None = None, stop_after: float = 3.0) -> Run:
     """Runs the firmware with `script`, until its `stop` (or `max_seconds` emulated), with the CC600's 2 MB of PSRAM
     unless told otherwise."""
-    (out / "script.txt").write_text(script.text())
+    (out / "script.txt").write_text(script.text(stop_after=stop_after))
     cmd = [str(esp32sim()), "--chip", "s3", "--board", "cc600", "--boot", "rom", "--rom", str(rom()),
            "--flash-image", str(image), "--elf", str(ELF), "--flash-mb", "16", "--psram-mb", str(psram_mb), "--ble",
            "--script", str(out / "script.txt"), "--max-seconds", str(max_seconds), "--console", "usb", "--no-dump"]
+    if tft_png is not None:
+        cmd += ["--tft-png", str(tft_png)]
     p = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     log = p.stdout + p.stderr
     (out / "run.log").write_text(log)

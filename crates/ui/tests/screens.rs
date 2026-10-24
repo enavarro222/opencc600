@@ -711,14 +711,14 @@ fn climb_distances_are_hidden_without_a_confident_gps_position() {
     };
 
     // The next-climb row's right-hand column contains "DANS" and its value only with a trustworthy position.
-    let has_distance = |frame: &Fb| {
+    let distance_area_has_non_background_content = |frame: &Fb| {
         (117..164).any(|y| {
             (190..228).any(|x| frame.px[y * frame.w as usize + x] != ui::DAY.next)
         })
     };
-    assert!(has_distance(&rendered(&on_route_view)), "on-route fix should show the distance");
-    assert!(!has_distance(&rendered(&no_fix_view)), "no current fix must hide the distance");
-    assert!(!has_distance(&rendered(&off_route_view)), "off-route fix must hide the distance");
+    assert!(distance_area_has_non_background_content(&rendered(&on_route_view)), "on-route fix should show the distance");
+    assert!(!distance_area_has_non_background_content(&rendered(&no_fix_view)), "no current fix must hide the distance");
+    assert!(!distance_area_has_non_background_content(&rendered(&off_route_view)), "off-route fix must hide the distance");
 }
 
 /// The climbs page on a representative test route. For each climb, save the list 500 m before its foot,
