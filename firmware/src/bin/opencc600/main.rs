@@ -78,8 +78,19 @@ use screen::{BACKLIGHT, NIGHT, bench, draw_message, draw_status, theme, view_of}
 use trip_log::TripLog;
 use usb::{BENCH_MAP, DRY_POWER_OFF, SCREEN, SHOWN_RIDE, SIM_LIGHT, STORAGE_FILL, storage_fill, storage_fill_start, usb_keys};
 
-// App descriptor read by the ESP-IDF second-stage bootloader (the vendor one stays in place).
-esp_bootloader_esp_idf::esp_app_desc!();
+// App descriptor read by the ESP-IDF second-stage bootloader (the vendor one stays in place); its version the git
+// tag and the commit, not the crate's.
+esp_bootloader_esp_idf::esp_app_desc!(
+    ui::BUILD,
+    env!("CARGO_PKG_NAME"),
+    esp_bootloader_esp_idf::BUILD_TIME,
+    esp_bootloader_esp_idf::BUILD_DATE,
+    esp_bootloader_esp_idf::ESP_IDF_COMPATIBLE_VERSION,
+    esp_bootloader_esp_idf::MMU_PAGE_SIZE,
+    0,
+    u16::MAX,
+    esp_bootloader_esp_idf::SECURE_VERSION
+);
 
 #[allow(
     clippy::large_stack_frames,

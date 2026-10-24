@@ -442,6 +442,10 @@ pub const VERSION: &str = env!("VERSION");
 /// The commit the software is built from (crates/ui/build.rs), on [`Screen::About`].
 pub const GIT_SHA: &str = env!("GIT_SHA");
 
+/// The version and the commit, in the image's app descriptor (32 bytes at most): what `tools/flash.py --status`
+/// shows of each slot.
+pub const BUILD: &str = concat!(env!("VERSION"), " ", env!("GIT_SHA"));
+
 /// A `Long` this soon after the last one of the same key is its repeat (the nRF sends one every ~200 ms).
 pub const LONG_REPEAT_MS: u64 = 600;
 
