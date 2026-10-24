@@ -59,8 +59,8 @@ What the firmware is for, the rules it follows, where it stands. Hardware and re
   the free blocks; the reserve keeps the storage from staying nearly full.
 
 ## UI rules
-Clickable prototype: https://enavarro222.github.io/opencc600/prototype/ (source in [prototype/](prototype/)),
-kept in step with `crates/ui`.
+Clickable prototype (source in [prototype/](prototype/)) is kept as an unpublished archive; `crates/ui` is the
+current interface.
 - Every screen shows what each of the 3 keys does, next to the key: bottom-right = main action (start, pause,
   resume, OK), bottom-left = menu / next, top-left = back / contextual. The 3 labels have the same size and a blue
   mark (the colour of the physical keys) on the key's side.

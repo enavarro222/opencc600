@@ -1,8 +1,8 @@
 # opencc600 features
 
 The screens below are the firmware's own drawing code, rendered on a PC by `cargo test -p ui --test screens`
-(synthetic rides and routes; the UI is in French for now). Clickable mock-up of the whole UI:
-**https://enavarro222.github.io/opencc600/prototype/**
+(synthetic rides and routes; the UI is in French for now). The earlier clickable mock-up remains in
+[`prototype/`](prototype/) as an unpublished archive.
 
 ## Ride pages picked for the ride
 

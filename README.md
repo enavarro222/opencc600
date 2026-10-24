@@ -34,10 +34,10 @@ It installs next to the vendor firmware, which stays on the device: one command 
 - **Rides that survive a power cut**, saved as standard FIT files, resumable after a power off.
 - **Companion app** [Musette](https://github.com/enavarro222/musette): routes, settings and rides synced over BLE.
 
-All the screens and details: [docs/FEATURES.md](docs/FEATURES.md). Clickable mock-up of the whole UI (in French for
-now): **https://enavarro222.github.io/opencc600/prototype/**
+All the screens and details: [docs/FEATURES.md](docs/FEATURES.md). The earlier clickable mock-up is kept in
+[`docs/prototype/`](docs/prototype/) as an unpublished archive.
 
-The real firmware in your browser, on an emulated device (in French too): **https://enavarro222.github.io/opencc600/demo/** ([how it works](docs/demo/README.md))
+Try the real firmware in your browser, on an emulated device (in French too): **https://enavarro222.github.io/opencc600/** ([how it works](docs/demo/README.md))
 
 ## Supported devices
 

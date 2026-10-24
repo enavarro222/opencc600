@@ -37,7 +37,7 @@
   <!-- the page -->
   <rect x="34" y="108" width="380" height="548" rx="12" class="demo"/>
   <text x="50" y="132" class="t">Page de démo</text>
-  <text x="50" y="149" class="m">opencc600 · docs/demo/index.html (HTML + JS, thread principal)</text>
+  <text x="50" y="149" class="m">opencc600 · docs/site/index.html (HTML + JS, thread principal)</text>
 
   <rect x="50" y="162" width="348" height="64" rx="8" fill="#fff" stroke="#E8590C"/>
   <text x="62" y="182" class="s" font-weight="700">Boîtier, écran et touches</text>

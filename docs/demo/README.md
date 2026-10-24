@@ -1,7 +1,7 @@
 # The firmware in the browser
 
-[index.html](index.html) runs the opencc600 firmware, unmodified, on an emulated CC600:
-**https://enavarro222.github.io/opencc600/demo/** (the page is in French). The screen, the three keys and the USB
+[The main page](../site/index.html) runs the opencc600 firmware, unmodified, on an emulated CC600:
+**https://enavarro222.github.io/opencc600/** (the page is in French). The screen, the three keys and the USB
 console work as on the device. A simulated nRF52 provides the clock, the battery and the barometer, a simulated GNSS
 receiver follows a GPX track played on a map, and BLE goes through the emulator's virtual controller. Nothing leaves
 the page.
@@ -16,7 +16,7 @@ The emulator is [esp32sim](https://github.com/mikroverk/esp32sim) compiled to We
 
 | What | Where | Specific to the demo? |
 |---|---|---|
-| The page: case, keys and clickable screen hints, simulated ride, USB console, version menu, visitor's own dump, saved storage, the bridge to Musette | `docs/demo/index.html` | yes |
+| The page: case, keys and clickable screen hints, simulated ride, USB console, version menu, visitor's own dump, saved storage, the bridge to Musette | `docs/site/index.html` | yes |
 | Build and publication | `.github/workflows/demo.yml`, `tools/demo/` (`build.sh`, `versions.py`, `partitions.csv`, `esp32sim.rev`) | yes |
 | The firmware | `firmware/` | no: the same ELF as on the device |
 | The emulated ESP32-S3, the worker and its message protocol, the virtual BLE controller, the flash read-back | esp32sim fork, generic branches | no: written so they could go upstream |
@@ -57,7 +57,6 @@ vendor firmware is not distributed here.
 
 ```sh
 tools/demo/build.sh main                     # -> docs/demo/builds/main/, docs/demo/rom/, docs/demo/versions.json
-python3 -m http.server -d docs 8795          # http://127.0.0.1:8795/demo/
 ```
 
 `build.sh` builds the firmware (the `esp` toolchain from `espup`, as in [DEVELOPMENT.md](../DEVELOPMENT.md)) and makes a
@@ -72,9 +71,10 @@ docs/demo/builds/main/fw/cc600-flash.bin --elf docs/demo/builds/main/fw/cc600.el
 
 ## Publication and releases
 
-The [demo workflow](../../.github/workflows/demo.yml) runs on a `v*` tag or by hand from the Actions tab (a build named
+The [site workflow](../../.github/workflows/demo.yml) runs on a `v*` tag or by hand from the Actions tab (a build named
 `main` by default), not on every push. It builds, fetches the builds already published so that a deployment keeps
-them (`versions.py fetch`), and deploys the demo and the [prototype](../prototype/) on GitHub Pages.
+them (`versions.py fetch`) and deploys the main page and simulator assets. The prototype stays in the repository as
+an archive and is not published.
 
 A tag also gets a GitHub release: `opencc600-<tag>.bin`, the application image for
 [tools/flash.py](../../tools/flash.py) (the free OTA slot, never 0x0), the ELF and their SHA-256.
