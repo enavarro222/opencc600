@@ -668,14 +668,65 @@ fn climbs_page() {
     }
 }
 
-/// The climbs page on a real route: `ROUTE_GPX=route.gpx cargo test -p ui --test screens climbs_of_a_gpx --
-/// --ignored`. For each climb, the list 500 m before its foot, then the climb at 10, 50 and 90 % of it, in
-/// `target/tmp/screens/gpx/`.
+/// A distance to a climb is shown only with a current fix close enough to the route to locate the rider on it.
 #[test]
-#[ignore]
+fn climb_distances_are_hidden_without_a_confident_gps_position() {
+    let file = climbs_route();
+    let r = route::Route::parse(&file).unwrap();
+    let fix = |lat_e7, lon_e7| {
+        Some(ui::nav::Fix {
+            lat_e7,
+            lon_e7,
+            speed_mm_s: Some(3_000),
+            course_cdeg: Some(0),
+        })
+    };
+    let mut nav = ui::nav::Nav::default();
+    let on_route = nav.update(&r, fix(434_500_000, 20_500_000));
+    assert!(on_route.progress.unwrap().off_dm <= ui::OFF_ROUTE_DM);
+    let on_route_view = View { route: Some(on_route), ..view() };
+
+    // A lost fix leaves previous route progress available, but it is no longer current.
+    let no_fix = nav.update(&r, None);
+    assert!(no_fix.progress.is_some());
+    let no_fix_view = View {
+        gnss: Gnss::Searching { in_view: 4, progress: 50 },
+        route: Some(no_fix),
+        ..view()
+    };
+
+    // About 4 km east of this route: a valid GNSS position, but not one that identifies route progress.
+    let off_route = ui::nav::Nav::default().update(&r, fix(434_500_000, 21_000_000));
+    assert!(off_route.progress.unwrap().off_dm > ui::OFF_ROUTE_DM);
+    let off_route_view = View { route: Some(off_route), ..view() };
+
+    let rendered = |v: &View| {
+        let mut ui = Ui::new();
+        ui.set_context(true, true, false, ui::Effort::None);
+        ui.key(Key::BottomRight, Press::Click, 0, v);
+        while ui.page() != Some(ui::Page::Climbs) {
+            ui.key(Key::BottomLeft, Press::Click, 0, v);
+        }
+        screen(&ui, v, &file, &ui::DAY)
+    };
+
+    // The next-climb row's right-hand column contains "DANS" and its value only with a trustworthy position.
+    let has_distance = |frame: &Fb| {
+        (117..164).any(|y| {
+            (190..228).any(|x| frame.px[y * frame.w as usize + x] != ui::DAY.next)
+        })
+    };
+    assert!(has_distance(&rendered(&on_route_view)), "on-route fix should show the distance");
+    assert!(!has_distance(&rendered(&no_fix_view)), "no current fix must hide the distance");
+    assert!(!has_distance(&rendered(&off_route_view)), "off-route fix must hide the distance");
+}
+
+/// The climbs page on a representative test route. For each climb, save the list 500 m before its foot,
+/// then the climb at 10, 50 and 90 % of it, in `target/tmp/screens/gpx/`.
+#[test]
 fn climbs_of_a_gpx() {
-    let path = std::env::var("ROUTE_GPX").expect("ROUTE_GPX");
-    let file = route::build(&route::parse_gpx(&std::fs::read_to_string(path).unwrap()).unwrap(), 3.0);
+    let gpx = include_str!("fixtures/climbs.gpx");
+    let file = route::build(&route::parse_gpx(gpx).unwrap(), 3.0);
     let r = route::Route::parse(&file).unwrap();
     let mut ui = Ui::new();
     ui.set_context(true, true, false, ui::Effort::None);

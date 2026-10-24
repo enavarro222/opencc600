@@ -4,11 +4,17 @@
 
 use route::{Progress, Route};
 
-use crate::RouteView;
 use crate::fonts::Line;
+use crate::{OFF_ROUTE_DM, RouteView};
 
 /// Above this speed the GNSS course is the heading; below, the last one stays.
 pub const MOVING_MM_S: u32 = 1_000;
+
+/// Whether a route position is good enough to show distances to climbs. No fix means its last progress is stale; a
+/// current fix farther from the route than the off-route tolerance cannot locate the rider along it reliably.
+pub fn has_confident_route_position(fix: bool, progress: Option<Progress>) -> bool {
+    fix && progress.is_some_and(|p| p.off_dm <= OFF_ROUTE_DM)
+}
 
 /// A GNSS fix, what the navigation needs of it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -46,5 +52,39 @@ impl Nav {
             heading_cdeg: self.heading_cdeg,
             progress: self.progress,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn progress(off_dm: u32) -> Option<Progress> {
+        Some(Progress {
+            along_dm: 12_345,
+            off_dm,
+            segment: 0,
+        })
+    }
+
+    #[test]
+    fn route_distances_need_a_current_fix_within_the_off_route_tolerance() {
+        assert!(
+            !has_confident_route_position(false, progress(0)),
+            "no current fix"
+        );
+        assert!(
+            !has_confident_route_position(true, None),
+            "no route progress yet"
+        );
+        assert!(has_confident_route_position(true, progress(0)));
+        assert!(
+            has_confident_route_position(true, progress(OFF_ROUTE_DM)),
+            "tolerance included"
+        );
+        assert!(
+            !has_confident_route_position(true, progress(OFF_ROUTE_DM + 1)),
+            "outside tolerance"
+        );
     }
 }

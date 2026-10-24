@@ -773,10 +773,17 @@ fn ride_climbs<D: DrawTarget<Color = Rgb565>>(
 ) -> Result<(), D::Error> {
     const ROW: i32 = 93;
     let Some(r) = route else { return Ok(()) };
-    // before the first fix: from the start
-    let at = v.route.and_then(|rv| rv.progress).map_or(0, |p| p.along_dm);
+    let progress = v.route.and_then(|rv| rv.progress);
+    let position_known = crate::nav::has_confident_route_position(
+        matches!(v.gnss, Gnss::Fix { .. }),
+        progress,
+    );
+    // Without a current fix near the route, its along-distance is not a reliable place to measure from.
+    let at = if position_known { progress.map_or(0, |p| p.along_dm) } else { 0 };
     let count = r.climbs().len();
-    if let Some((i, c)) = r.climbs().enumerate().find(|(_, c)| (c.start_dm..c.end_dm).contains(&at)) {
+    if position_known
+        && let Some((i, c)) = r.climbs().enumerate().find(|(_, c)| (c.start_dm..c.end_dm).contains(&at))
+    {
         return climb_live(d, v, r, (i, count), c, at, t);
     }
     let value = t.style(&fonts::VALUE);
@@ -811,7 +818,7 @@ fn ride_climbs<D: DrawTarget<Color = Rgb565>>(
         if y + h > BOTTOM {
             break;
         }
-        climb_row(d, (i, c), at, is_next, rect(0, y, W - 1, y + h - 1), t)?;
+        climb_row(d, (i, c), at, is_next, position_known, rect(0, y, W - 1, y + h - 1), t)?;
         y += h;
         if y < BOTTOM {
             hline(d, y - 1, t)?;
@@ -826,6 +833,7 @@ fn climb_row<D: DrawTarget<Color = Rgb565>>(
     (i, c): (usize, route::Climb),
     at: u32,
     is_next: bool,
+    position_known: bool,
     area: Rectangle,
     t: &Theme,
 ) -> Result<(), D::Error> {
@@ -874,15 +882,17 @@ fn climb_row<D: DrawTarget<Color = Rgb565>>(
     if done {
         return Ok(());
     }
-    let away = distance(c.start_dm - at.min(c.start_dm));
-    if is_next {
-        let (lc, vc) = (fonts::LABEL_SMALL.cap as i32, fonts::STAT.cap as i32);
-        let top = cy - (lc + 5 + vc) / 2;
-        fonts::text(d, &Style::new(&fonts::LABEL_SMALL, t.mute, bg), "DANS", W - MARGIN, top + lc / 2, Align::Right)?;
-        // by the advance: a changing distance keeps its right edge
-        fonts::value(d, &Style::new(&fonts::STAT, t.fg, bg), away.as_str(), "", W - MARGIN, top + lc + 5 + vc / 2, Align::Right)?;
-    } else {
-        fonts::value(d, &Style::new(&fonts::BODY_BOLD, t.fg, bg), away.as_str(), "", W - MARGIN, cy, Align::Right)?;
+    if position_known {
+        let away = distance(c.start_dm - at.min(c.start_dm));
+        if is_next {
+            let (lc, vc) = (fonts::LABEL_SMALL.cap as i32, fonts::STAT.cap as i32);
+            let top = cy - (lc + 5 + vc) / 2;
+            fonts::text(d, &Style::new(&fonts::LABEL_SMALL, t.mute, bg), "DANS", W - MARGIN, top + lc / 2, Align::Right)?;
+            // by the advance: a changing distance keeps its right edge
+            fonts::value(d, &Style::new(&fonts::STAT, t.fg, bg), away.as_str(), "", W - MARGIN, top + lc + 5 + vc / 2, Align::Right)?;
+        } else {
+            fonts::value(d, &Style::new(&fonts::BODY_BOLD, t.fg, bg), away.as_str(), "", W - MARGIN, cy, Align::Right)?;
+        }
     }
     Ok(())
 }
