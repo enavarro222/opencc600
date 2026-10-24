@@ -9,7 +9,7 @@ exclude  = ["firmware"]
 edition      = "2024"
 license      = "GPL-3.0-or-later"
 rust-version = "1.95"
-version      = "0.1.0"
+version      = "0.0.3"
 
 # Formats and protocol shared with the companion app Musette (MIT): the only copy of them. While changing them, point
 # at a local clone with a `[patch."https://github.com/enavarro222/musette"]` in an untracked `.cargo/config.toml`.

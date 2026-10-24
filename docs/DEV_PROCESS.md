@@ -39,14 +39,21 @@ it set when building the firmware.
 
 The CC600 on USB-C, everything through that single cable (native USB-Serial/JTAG, eFuses open):
 
-- **Flash** the OTA slot the vendor firmware does not use, with `tools/flash.py`, which refuses any other offset
-  (never the bootloader, the partition table or the eFuses). The vendor firmware stays in its slot as a fallback.
+- **Flash** with `make flash CC600_PORT=/dev/serial/by-id/...`. It first checks that the selected port responds as an
+  ESP32-S3 with the known CC600 / CC700 partition layout and a preserved vendor fallback, then builds the current
+  firmware image and asks for confirmation before writing. The preflight resets the device into ROM download mode and
+  back to its firmware. `tools/flash.py` then finds the inactive OTA slot and refuses any other offset (never
+  the bootloader, partition table or eFuses). The vendor firmware stays in its slot as a fallback. Both `make flash`
+  and `make test-hil` default to `/dev/ttyACM0`; set `CC600_PORT` to the specific `/dev/serial/by-id/...` path to
+  select one device when several are connected. Scripts can pass `FLASH_AUTO_CONFIRM=1` to skip only the prompt;
+  the preflight remains mandatory. Interactive confirmation is on by default.
 - **USB test hook** in the normal build: keys (`key <0-2> <click|long>`; the keys are on the nRF, there is no GPIO
   to poke), `sound off` (tests run next to people), `fix` (positions in place of the receiver's), `route
   begin/data/end`, `set` / `get`, `storage fill`, `gnss cold`... (list in [DEVELOPMENT.md](DEVELOPMENT.md#tools), `tools/serial_log.py`). The
   link loses ~5 % of the lines when the log is busy: the host numbers each command and resends it until the
   firmware logs `usb ack <seq>`; a repeated number runs once.
-- **Framework**: pytest in `tests/hil/` (`uv run --project tests/hil pytest tests/hil`). The `dut` fixture resets
+- **Framework**: pytest in `tests/hil/` (`make test-hil`, or `make test-hil CC600_PORT=/dev/serial/by-id/...`). The
+  `dut` fixture resets
   the device and mutes it; `dut.press(1)`, `dut.send(...)` (acknowledged, resent), `dut.expect(regex)` on the log,
   `dut.read_storage()` (esptool read of the storage partition, mounted on the PC with littlefs-python; the device
   resets afterwards). Assertions go on what the device stored (FIT files checked with the Garmin FIT SDK) rather
@@ -70,8 +77,8 @@ never really power off (`power off dry`).
 
 ## Flash and rollback
 
-- Build with `cargo build --release` in `firmware/`, then `espflash save-image --chip esp32s3 --flash-size 16mb` for
-  an app image.
+- `make flash` builds the firmware and asks for confirmation before flashing. To build an image without flashing,
+  use `make firmware-image`. The lower-level `tools/flash.py IMAGE.bin --port DEVICE` command remains available.
 - `tools/flash.py` finds the slot the vendor firmware boots (from `otadata` and the images' app descriptors), writes
   the image to the other one and an `otadata` that boots it, after checking the device has the known
   CC600 / CC700 partition layout; it saves the original otadata once (`dump/<mac>/otadata.orig.bin`, one directory per
@@ -84,6 +91,18 @@ never really power off (`power off dry`).
   ~3 s. What got out of it (2026-10-22): the two bottom keys held ~30 s, released, then a long press of the top left
   key; the top left key alone did not (NRF_FIRMWARE.md).
 - **Never** write the eFuses, the bootloader (0x0) or the partition table (0x8000).
+
+## Release versions
+
+The Git tag (`vX.Y.Z`) is the source of the firmware version shown on the device; commits after a tag show as
+`vX.Y.Z+N`. Cargo package versions are static metadata, so `make prepare-release VERSION=X.Y.Z` updates the shared
+host workspace version, the separate firmware version and both lockfiles together. It requires no modified tracked
+files, checks that the version is newer and the tag does not already exist, and does not commit, tag or publish. Review
+and commit the four changed Cargo files after its `make check` passes. Disable local Cargo `[patch]` entries before
+running it; otherwise lockfiles would contain paths unavailable to CI. Then push the matching tag to trigger the Pages
+build and GitHub release. CI checks that the tag matches both Cargo manifests and locked package metadata, and fails
+before publishing if preparation was skipped. See [DEVELOPMENT.md](DEVELOPMENT.md#preparing-a-release) for the exact
+sequence.
 
 ## 3. Field
 

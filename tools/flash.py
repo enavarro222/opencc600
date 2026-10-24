@@ -18,6 +18,7 @@ firmware stays in its slot as a fallback.
   dump/<mac>/storage.orig.bin and erases it: our firmware formats a blank partition at its next boot.
 
 usage: flash.py --status [-p /dev/ttyACM0]      (slots, what they hold, which one boots, the storage)
+       flash.py --preflight [-p /dev/ttyACM0]   (check the port and CC600 / CC700 layout; writes nothing)
        flash.py IMAGE.bin [-p /dev/ttyACM0] [--dry-run] [--keep-storage]
        flash.py --restore-vendor [-p /dev/ttyACM0]   (boot the vendor slot again)
        flash.py --restore-vendor --storage dump/<mac>/storage.orig.bin
@@ -158,6 +159,19 @@ def print_state(slots, boot):
         print(f"ota_{i}: {kind} {version}{'   <- boots' if i == boot else ''}")
 
 
+def preflight(port):
+    if not Path(port).exists():
+        sys.exit(f"serial port {port} is not available")
+    mac = read_mac(port)  # esptool also verifies that the connected chip is an ESP32-S3
+    try:
+        _, slots, boot = read_state(port)  # checks the supported CC600 / CC700 partition layout
+        backups = DUMP / mac
+        vendor = vendor_slot(backups / "otadata.orig.bin", slots, boot)
+        print(f"compatible ESP32-S3 device {mac}: known CC600 / CC700 layout; vendor fallback in ota_{vendor}")
+    finally:
+        esptool(port, "read-mac")  # return from ROM download mode to the running firmware
+
+
 def storage_kind(superblocks):
     """'blank' | 'ours' | 'vendor' | 'unknown', from the first two blocks of the storage partition."""
     if set(superblocks) == {0xFF}:
@@ -219,6 +233,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("image", nargs="?", type=Path)
     ap.add_argument("-p", "--port", default="/dev/ttyACM0")
+    ap.add_argument("--preflight", action="store_true", help="check a connected ESP32-S3 and supported layout, write nothing")
     ap.add_argument("--status", action="store_true", help="show the slots and which one boots, write nothing")
     ap.add_argument("--dry-run", action="store_true", help="check only, write nothing")
     ap.add_argument("--restore-vendor", action="store_true", help="write the vendor otadata back (boots its slot)")
@@ -226,6 +241,12 @@ def main():
     ap.add_argument("--erase-storage", action="store_true", help="back up then erase the storage partition")
     ap.add_argument("--keep-storage", action="store_true", help="with IMAGE: leave the vendor's storage partition as is")
     a = ap.parse_args()
+
+    if a.preflight:
+        if a.image or a.status or a.restore_vendor or a.erase_storage or a.storage or a.dry_run or a.keep_storage:
+            ap.error("--preflight cannot be combined with other actions")
+        preflight(a.port)
+        return
 
     backups = DUMP / read_mac(a.port)
     otadata_orig = backups / "otadata.orig.bin"

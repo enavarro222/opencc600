@@ -2,7 +2,7 @@
 edition      = "2024"
 name         = "opencc600-firmware"
 rust-version = "1.95"
-version      = "0.1.0"
+version      = "0.0.3"
 license      = "GPL-3.0-or-later"
 
 [[bin]]
@@ -66,7 +66,7 @@ trouble-host = { version = "0.7.0", features = ["log", "central", "peripheral", 
 bt-hci = "0.9"
 embassy-futures = "0.1"
 heapless = "0.9"
-sensors = { version = "0.1.0", path = "../crates/sensors" }
+sensors = { path = "../crates/sensors" }
 companion = { path = "../crates/companion" }
 
 

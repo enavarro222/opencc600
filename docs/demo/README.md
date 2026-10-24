@@ -56,7 +56,8 @@ vendor firmware is not distributed here.
 ## Build and run locally
 
 ```sh
-tools/demo/build.sh main                     # -> docs/demo/builds/main/, docs/demo/rom/, docs/demo/versions.json
+make demo NAME=main                           # -> docs/demo/builds/main/, docs/demo/rom/, docs/demo/versions.json
+make preview NAME=main                        # build and serve the complete site locally
 ```
 
 `build.sh` builds the firmware (the `esp` toolchain from `espup`, as in [DEVELOPMENT.md](../DEVELOPMENT.md)) and makes a
@@ -72,12 +73,19 @@ docs/demo/builds/main/fw/cc600-flash.bin --elf docs/demo/builds/main/fw/cc600.el
 ## Publication and releases
 
 The [site workflow](../../.github/workflows/demo.yml) runs on a `v*` tag or by hand from the Actions tab (a build named
-`main` by default), not on every push. It builds, fetches the builds already published so that a deployment keeps
-them (`versions.py fetch`) and deploys the main page and simulator assets. The prototype stays in the repository as
-an archive and is not published.
+`main` by default), not on every push. It fetches the builds already published so that a deployment keeps them
+(`versions.py fetch`), then calls the same Makefile targets used locally to build and stage the page. The prototype
+stays in the repository as an archive and is not published.
 
 A tag also gets a GitHub release: `opencc600-<tag>.bin`, the application image for
 [tools/flash.py](../../tools/flash.py) (the free OTA slot, never 0x0), the ELF and their SHA-256.
+Before making a release tag, run `make prepare-release VERSION=X.Y.Z` with no modified tracked files and with local
+Cargo `[patch]` entries disabled. It updates the Cargo manifest and lockfile versions, then runs `make check`. Review
+and commit the changes, then push the matching
+`vX.Y.Z` tag. This keeps Cargo's package metadata aligned with the tag used for the version shown on the device. The
+command only prepares those files; it does not create the tag or publish the release. The tag workflow checks this
+alignment and fails before building or publishing if it is missing. See
+[DEVELOPMENT.md](../DEVELOPMENT.md#preparing-a-release) for details.
 
 GitHub settings, once: Pages → source *GitHub Actions*; Environments → `github-pages` → allow the tags `v*`.
 

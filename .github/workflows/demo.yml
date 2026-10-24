@@ -42,6 +42,12 @@ jobs:
           curl -sSfL https://github.com/esp-rs/espflash/releases/download/v4.6.0/espflash-x86_64-unknown-linux-gnu.zip -o espflash.zip
           unzip -q espflash.zip -d "$HOME/.cargo/bin"
 
+      - name: Check release tag versions
+        if: github.ref_type == 'tag'
+        run: |
+          . "$HOME/export-esp.sh"
+          python3 tools/prepare_release.py --check-tag "$NAME"
+
       - uses: actions/cache@v4
         with:
           path: |
@@ -56,30 +62,19 @@ jobs:
         run: python3 tools/demo/versions.py fetch "$SITE" docs/demo --skip "$NAME"
 
       - name: Build
-        run: tools/demo/build.sh "$NAME"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            make release NAME="$NAME" RELEASE_DIR=dist
+          else
+            make demo NAME="$NAME"
+          fi
 
       - name: Site
-        run: |
-          mkdir -p _site
-          cp docs/site/index.html _site/index.html
-          cp docs/demo/versions.json _site/
-          cp -r docs/demo/builds docs/demo/rom _site/
-          cp docs/logo-wide.svg _site/
-          mkdir -p _site/screens
-          cp docs/screens/{ride-page1,ride-page2,route-map-1km,climbs-in}.png _site/screens/
+        run: make site-copy SITE_DIR=_site
 
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
-
-      - name: Release files
-        if: github.ref_type == 'tag'
-        run: |
-          mkdir -p dist
-          ELF=firmware/target/xtensa-esp32s3-none-elf/release/opencc600
-          espflash save-image --chip esp32s3 --flash-size 16mb "$ELF" "dist/opencc600-$NAME.bin"
-          cp docs/demo/builds/"$NAME"/fw/cc600.elf "dist/opencc600-$NAME.elf"
-          (cd dist && sha256sum * > SHA256SUMS)
 
       - uses: softprops/action-gh-release@v2
         if: github.ref_type == 'tag'

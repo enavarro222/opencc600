@@ -44,9 +44,53 @@ The file formats and the protocol shared with the app live in the MIT
 [musette](https://github.com/enavarro222/musette) repository and come by git at a pinned `rev` (`Cargo.toml`):
 `protocol-cc600` (BLE protocol, resumable file transfer), `route-cc600` (route `OCRT` with its climbs, corridor
 map `OCMP`), `settings-cc600` (the settings file, POSIX time zones). To work on them, a `[patch]` towards a local
-clone in an untracked `.cargo/config.toml`; bump the `rev` once the musette commit is pushed.
+clone in an untracked `.cargo/config.toml`; bump the `rev` once the musette commit is pushed. Make targets omit
+Cargo's `--locked` flag while a local Cargo config exists, so Cargo can resolve that patch. This can rewrite lockfiles
+with local paths; do not commit those lockfile changes. Release preparation requires disabling local `[patch]` entries
+so the committed locks keep the pinned Git sources used by CI.
 
 ## Build and flash
+
+The root [Makefile](../Makefile) provides the common local and CI entry points. It expects the ESP Xtensa toolchain
+from `espup` in `~/export-esp.sh`; the demo and release targets also need `espflash`, Python, and the pinned
+esp32sim build or its release assets.
+
+```sh
+make help
+make firmware                         # firmware ELF
+make firmware-image                   # OTA-slot image at target/opencc600-ota.bin
+make flash CC600_PORT=/dev/serial/by-id/... # check, build, confirm, and flash a selected device
+make flash CC600_PORT=/dev/serial/by-id/... FLASH_AUTO_CONFIRM=1 # same preflight, no prompt (scripts)
+make demo                             # browser build named main
+make preview                          # build it, stage the site and serve localhost:8765
+make release NAME=v0.0.4              # build browser demo and release files under target/release/
+make prepare-release VERSION=0.0.4    # update Cargo versions and lockfiles before a release
+make test                             # host Rust tests
+make test-sim                         # firmware on the native CC600 emulator
+make test-hil CC600_PORT=/dev/serial/by-id/... # connected device
+make check                            # host and emulator tests, no device
+```
+
+`make preview` rebuilds `main` from the current checkout. Generated demo files stay ignored by Git. The Pages
+workflow uses the same `demo`, `release` and `site-copy` targets; it runs on a tag or when manually dispatched.
+
+### Preparing a release
+
+The Cargo version is kept at the latest release version: one value in the root workspace is shared by its crates,
+and the firmware has the same value in its separate manifest. Run `make prepare-release VERSION=0.0.4` with no
+modified tracked files to update both manifests and their lockfiles. Untracked local files are allowed, but disable
+local Cargo `[patch]` entries first so the lockfiles retain CI's pinned Git dependencies. It then runs `make check` to
+validate host tests, the native simulator and firmware build. Review and commit those four
+files, then tag and push the commit as `v0.0.4`. The Make target prints the commands; it does not commit, tag or
+publish. The Git tag remains the
+source for the version shown by the firmware (`v0.0.4`, or `v0.0.4+N` on later commits). The tag workflow checks
+that both Cargo manifests and the locked package metadata match before building; a mismatch fails the CI. Pushing the
+tag triggers the GitHub Pages build and GitHub release. `make release NAME=v0.0.4` only builds local demo and release
+assets; it does not prepare versions or publish them.
+
+For unattended flashing, pass `FLASH_AUTO_CONFIRM=1` to `make flash`. This skips only the interactive yes/no prompt;
+port, ESP32-S3, partition-layout and vendor-fallback checks still run before the firmware is built. The default is
+to ask for confirmation.
 
 ```sh
 cargo install espup espflash --locked && espup install --targets esp32s3 && uv tool install esptool

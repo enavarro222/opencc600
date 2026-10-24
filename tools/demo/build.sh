@@ -41,7 +41,9 @@ else
 fi
 
 unset BINDGEN_EXTRA_CLANG_ARGS   # host-test setting: breaks the littlefs bindings of the firmware
-(cd firmware && . ~/export-esp.sh >/dev/null && cargo build --release)
+LOCKED=--locked
+if [ -f .cargo/config ] || [ -f .cargo/config.toml ]; then LOCKED=; fi
+(cd firmware && . ~/export-esp.sh >/dev/null && cargo build --release $LOCKED)
 
 rm -rf "$DIR"
 mkdir -p "$DIR/fw" "$DIR/sim/wasm" "$OUT/rom"
