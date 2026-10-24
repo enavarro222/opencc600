@@ -13,7 +13,8 @@ from test_ride import decode, rides
 def fill(dut, left: int):
     m = dut.mark()
     dut.send(f"storage fill {left}")
-    dut.expect(r"storage fill: done", timeout=300, since=m)
+    # Filling ~1900 LittleFS blocks can exceed five minutes on the physical CC600.
+    dut.expect(r"storage fill: done", timeout=600, since=m)
 
 
 def unfill(dut):
@@ -69,13 +70,24 @@ def test_a_full_storage_offers_to_delete_rides_then_starts(dut, out_dir):
         dut.wait_screen("Rides")
         # only the test's own ride is deleted: the newest, the last one listed
         for _ in range(100):
-            if selected_ride(dut) == mine:
+            current = selected_ride(dut)
+            if current == mine:
                 break
             dut.press(1)  # next
+            # USB acknowledges a key when it is queued, before the UI handles it. Wait for the selection to
+            # change before sending another key, or a slow frame can leave extra clicks queued and wrap around.
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                if selected_ride(dut) != current:
+                    break
+                time.sleep(0.1)
+            else:
+                raise AssertionError(f"selection did not advance from ride {current}")
         else:
             raise AssertionError(f"ride {mine} not listed")
         dut.press(2)  # delete...
-        assert dut.screen() == "ConfirmDelete" and selected_ride(dut) == mine
+        dut.wait_screen("ConfirmDelete")
+        assert selected_ride(dut) == mine
         m = dut.mark()
         dut.press(2)  # ...confirmed
         dut.expect(rf"ride {mine}: deleted \(not sent\)", timeout=10, since=m)

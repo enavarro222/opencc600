@@ -196,8 +196,8 @@ impl Ant {
     pub const REQUEST_GAP_MS: u64 = 100;
     /// An open never answered is asked again after this (the radio answers within its 25 s search).
     pub const ASK_AGAIN_MS: u64 = 40_000;
-    /// Still searching after this long: opened again. The CC600's radio never says its search timed out (the
-    /// C606's does after 25 s): in case its search stopped without a word.
+    /// Still searching after this long: opened again. Some radios do not report their search timing out, so recover
+    /// if the search stopped without a word.
     pub const SEARCH_AGAIN_MS: u64 = 120_000;
     /// A connected channel without a page for this long is opened again.
     pub const LOST_MS: u64 = 30_000;
