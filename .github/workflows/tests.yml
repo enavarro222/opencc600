@@ -1,0 +1,80 @@
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    name: Host Rust tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install libclang headers
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run host tests with coverage
+        run: make coverage
+
+      - name: Upload HTML coverage report
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-coverage
+          path: target/llvm-cov/html
+          if-no-files-found: error
+
+  simulator:
+    name: CC600 simulator tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Xtensa toolchain and espflash
+        run: |
+          curl -sSfL https://github.com/esp-rs/espup/releases/download/v0.18.0/espup-x86_64-unknown-linux-gnu -o espup
+          chmod +x espup
+          ./espup install --targets esp32s3 --toolchain-version 1.97.0.0 --export-file "$HOME/export-esp.sh"
+          curl -sSfL https://github.com/esp-rs/espflash/releases/download/v4.6.0/espflash-x86_64-unknown-linux-gnu.zip -o espflash.zip
+          unzip -q espflash.zip -d "$HOME/.cargo/bin"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            firmware/target
+            target/demo
+          key: sim-${{ hashFiles('firmware/Cargo.lock', 'tools/demo/esp32sim.rev') }}
+          restore-keys: sim-
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build firmware and fetch the simulator ROM
+        run: make demo NAME=ci
+
+      - name: Check simulator prerequisites
+        run: |
+          PYTHONPATH=tests/sim uv run --project tests/hil python -c '
+          import sim, sys
+          reason = sim.missing()
+          if reason:
+              sys.exit(f"Simulator tests cannot run: {reason}")
+          '
+
+      - name: Run simulator tests
+        run: make test-sim

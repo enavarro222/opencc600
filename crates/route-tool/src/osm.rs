@@ -35,6 +35,64 @@ fn classify(tags: &Value) -> Option<u8> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::classify;
+    use route::map::class;
+    use serde_json::json;
+
+    #[test]
+    fn classifies_highways_and_link_roads() {
+        let cases = [
+            (json!({"highway": "primary"}), Some(class::MAJOR)),
+            (json!({"highway": "trunk_link"}), Some(class::MAJOR)),
+            (json!({"highway": "residential"}), Some(class::MINOR)),
+            (json!({"highway": "track"}), Some(class::TRACK)),
+            (json!({"highway": "cycleway"}), Some(class::PATH)),
+            (json!({"highway": "service"}), Some(class::SERVICE)),
+            (json!({"highway": "construction"}), None),
+        ];
+
+        for (tags, expected) in cases {
+            assert_eq!(classify(&tags), expected, "tags: {tags}");
+        }
+    }
+
+    #[test]
+    fn classifies_contours_by_elevation() {
+        assert_eq!(
+            classify(&json!({"contour": "elevation", "ele": "150"})),
+            Some(class::CONTOUR_MAJOR)
+        );
+        assert_eq!(
+            classify(&json!({"contour": "elevation", "ele": "175"})),
+            Some(class::CONTOUR)
+        );
+        assert_eq!(classify(&json!({"contour": "elevation"})), None);
+        assert_eq!(
+            classify(&json!({"contour": "elevation", "ele": "unknown"})),
+            None
+        );
+    }
+
+    #[test]
+    fn classifies_water_and_land_features() {
+        let cases = [
+            (json!({"waterway": "river"}), Some(class::RIVER)),
+            (json!({"waterway": "stream"}), Some(class::STREAM)),
+            (json!({"natural": "water"}), Some(class::WATER)),
+            (json!({"natural": "wood"}), Some(class::FOREST)),
+            (json!({"landuse": "forest"}), Some(class::FOREST)),
+            (json!({"landuse": "residential"}), Some(class::RESIDENTIAL)),
+            (json!({"building": "yes"}), None),
+        ];
+
+        for (tags, expected) in cases {
+            assert_eq!(classify(&tags), expected, "tags: {tags}");
+        }
+    }
+}
+
 pub fn run(gpx_path: &str, osm_path: &str, out: &str, corridor_m: f64) {
     let text = std::fs::read_to_string(gpx_path).unwrap_or_else(|e| fail(gpx_path, e));
     let gpx = parse_gpx(&text).unwrap_or_else(|e| fail(gpx_path, format!("{e:?}")));

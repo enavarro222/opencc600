@@ -26,7 +26,7 @@ endif
 FIRMWARE_ELF := firmware/target/xtensa-esp32s3-none-elf/release/opencc600
 
 .PHONY: help firmware firmware-image flash demo site site-copy preview release prepare-release \
-	test test-sim test-hil check
+	test coverage test-sim test-hil check
 
 help: ## Show common build and test targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-zA-Z0-9_-]+:.*## / { printf "%-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -87,6 +87,18 @@ test: ## Run host Rust tests (no hardware)
 		fi; \
 	fi; \
 	cargo test --workspace $(CARGO_LOCKED)
+
+coverage: ## Run host tests and write an HTML coverage report (requires cargo-llvm-cov)
+	@if [ -z "$${BINDGEN_EXTRA_CLANG_ARGS:-}" ] && [ -f "$$HOME/export-esp.sh" ]; then \
+		. "$$HOME/export-esp.sh" >/dev/null; \
+		for d in "$$LIBCLANG_PATH"/clang/*/include; do \
+			if [ -f "$$d/stdbool.h" ]; then clang_include="$$d"; fi; \
+		done; \
+		if [ -n "$${clang_include:-}" ]; then \
+			export BINDGEN_EXTRA_CLANG_ARGS="--target=$$(rustc -vV | sed -n 's/^host: //p') -isystem $$clang_include"; \
+		fi; \
+	fi; \
+	cargo llvm-cov --workspace $(CARGO_LOCKED) --html
 
 test-sim: firmware ## Run end-to-end tests on the native CC600 emulator
 	uv run --project tests/hil pytest tests/sim $(PYTEST_ARGS)

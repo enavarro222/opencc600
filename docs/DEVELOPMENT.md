@@ -40,6 +40,14 @@ tested on a PC with `cargo test`:
   `tools/build_fonts.py`); its test draws every screen to `target/tmp/screens/*.png` and stops on a missing glyph
   or a text out of the screen.
 
+### Host-only crate
+
+`route-tool` ([crates/route-tool/](../crates/route-tool/)) is the only host workspace crate that is not a direct
+dependency of the firmware. It is a PC command-line tool, not part of the firmware image. Its
+`build` command converts a GPX into the route file sent to the device, `map` builds a background map for a route,
+and `sim` replays a GPX through the UI and writes screenshots. The simulator tests also call it to create route
+and map files. Its coverage therefore belongs to host tooling; it does not measure firmware code coverage.
+
 The file formats and the protocol shared with the app live in the MIT
 [musette](https://github.com/enavarro222/musette) repository and come by git at a pinned `rev` (`Cargo.toml`):
 `protocol-cc600` (BLE protocol, resumable file transfer), `route-cc600` (route `OCRT` with its climbs, corridor
@@ -66,10 +74,17 @@ make preview                          # build it, stage the site and serve local
 make release NAME=v0.0.4              # build browser demo and release files under target/release/
 make prepare-release VERSION=0.0.4    # update Cargo versions and lockfiles before a release
 make test                             # host Rust tests
+make coverage                         # host tests + HTML coverage report
 make test-sim                         # firmware on the native CC600 emulator
 make test-hil CC600_PORT=/dev/serial/by-id/... # connected device
 make check                            # host and emulator tests, no device
 ```
+
+Install `cargo-llvm-cov` once with `cargo install cargo-llvm-cov --locked`, then run `make coverage`; its HTML
+report is written to `target/llvm-cov/html/index.html`. GitHub Actions runs the same coverage command on pull
+requests and pushes to `main` and attaches the HTML report to the workflow run. The simulator job builds the
+firmware and checks its emulator/ROM prerequisites before running pytest, so missing simulator dependencies
+cannot make the job pass by skipping all tests. Physical-device tests (`make test-hil`) remain local.
 
 `make preview` rebuilds `main` from the current checkout. Generated demo files stay ignored by Git. The Pages
 workflow uses the same `demo`, `release` and `site-copy` targets; it runs on a tag or when manually dispatched.

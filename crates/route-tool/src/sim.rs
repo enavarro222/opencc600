@@ -225,3 +225,30 @@ fn unproject(r: &Route<'_>, x: i32, y: i32) -> Option<(i32, i32)> {
     let lat = r.info.lat0_e7 as i64 + y as i64 * 10_000_000 / y1 as i64;
     Some((lat as i32, lon as i32))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::unproject;
+    use route::{Route, build, parse_gpx};
+
+    #[test]
+    fn unproject_round_trips_a_position_on_the_route_plane() {
+        let gpx = parse_gpx(include_str!("../../ui/tests/fixtures/climbs.gpx")).unwrap();
+        let file = build(&gpx, 3.0);
+        let route = Route::parse(&file).unwrap();
+        let position = (434_501_000, 20_500_500);
+
+        let (x, y) = route.project(position.0, position.1);
+        let restored = unproject(&route, x, y).unwrap();
+
+        // The route plane is quantized to decimetres, so allow about 15 cm of coordinate error.
+        assert!(
+            position.0.abs_diff(restored.0) <= 10,
+            "latitude: {position:?} -> {restored:?}"
+        );
+        assert!(
+            position.1.abs_diff(restored.1) <= 10,
+            "longitude: {position:?} -> {restored:?}"
+        );
+    }
+}
