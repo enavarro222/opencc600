@@ -1420,7 +1420,7 @@ impl Ui {
             ConfirmStop => [
                 Hint::new("\u{e003} Annuler"),
                 Hint::new("Annuler"),
-                Hint::new("Terminer \u{e002}").kind(Kind::Select),
+                Hint::new("Enregistrer").kind(Kind::Select),
             ],
             ConfirmEmpty => [
                 Hint::new("\u{e003} Annuler"),
