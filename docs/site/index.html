@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OpenCC600 — firmware vélo libre, à essayer</title>
-<meta name="description" content="Découvrez et essayez dans votre navigateur le firmware libre pour les compteurs vélo GEOID CC600 et CC700, avec l'application Musette.">
+<title>OpenCC600 — firmware alternatif pour compteurs vélo</title>
+<meta name="description" content="Découvrez dans votre navigateur un firmware alternatif et open source pour les compteurs vélo GEOID CC600 et CC700.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
@@ -13,25 +13,25 @@
 :root { color-scheme: light; --bg: #E9E7E2; --ink: #111; --mute: #555; --key: #3BB3E0; --dev: #141416; }
 body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Barlow Condensed', sans-serif; }
 header, main, footer, section.ride { max-width: 1240px; margin: 0 auto; padding: 0 16px; box-sizing: border-box; }
-header { padding-top: 18px; text-align: center; }
-.logo { display: block; width: 210px; max-width: 70%; margin: 0 auto 8px; }
-.companion-note { color: var(--mute); font-size: 15px; }
+header { max-width: 820px; padding-top: 24px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.logo { display: block; width: 360px; max-width: 78vw; margin: 0 auto 8px; }
 h1 { margin: 0 0 4px; font-size: clamp(32px, 5vw, 48px); }
 p { margin: 6px 0; font-size: 18px; line-height: 1.3; color: #333; }
 header p, section.ride > p { max-width: 920px; }
+header .intro-copy { text-align: center; }
 a { color: #1D4ED8; }
-/* Keep the counter central; on wide screens, controls unfold beside it. */
-main { display: grid; grid-template-columns: 300px 250px 380px; grid-template-areas: "device options app" "side options app";
-  gap: 18px 28px; align-items: start; justify-content: center; padding-top: 24px; padding-bottom: 28px; }
-main > .device { grid-area: device; } main > .side { grid-area: side; } main > .options { grid-area: options; min-width: 0; } main > .app { grid-area: app; }
-@media (max-width: 1100px) { main { grid-template-columns: 300px minmax(0, 380px); grid-template-areas: "device app" "side app" "options app"; justify-content: center; } }
-@media (max-width: 760px) { main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "device" "side" "options" "app"; justify-items: center; }
-  main > .side, main > .options { justify-self: stretch; } }
+/* Keep the counter central; the simulation controls live below it. */
+main { display: grid; grid-template-columns: 300px 380px; grid-template-areas: "device app" "side app";
+  gap: 18px clamp(40px, 10vw, 120px); align-items: start; justify-content: center; padding-top: 24px; padding-bottom: 28px; }
+main > .device { grid-area: device; } main > .side { grid-area: side; } main > .app { grid-area: app; }
+@media (max-width: 1100px) { main { grid-template-columns: 300px minmax(0, 380px); grid-template-areas: "device app" "side app"; justify-content: center; } }
+@media (max-width: 760px) { main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "device" "side" "app"; justify-items: center; }
+  main > .side { justify-self: stretch; } }
 body:not(.running) main { grid-template-columns: 1fr; grid-template-areas: "device"; justify-items: center; padding-top: 84px; }
-body:not(.running) .side, body:not(.running) .options, body:not(.running) section.ride, body:not(.running) footer { display: none; }
+body:not(.running) .side, body:not(.running) section.ride, body:not(.running) footer { display: none; }
 .colhead { margin: 0 0 6px; font-size: 22px; }
 .device { position: relative; width: 300px; height: 480px; flex-shrink: 0; margin-top: 14px; touch-action: none; }
-.power-hint { position: absolute; z-index: 6; top: -78px; left: 4px; width: 230px; color: #333; font-size: 18px; font-weight: 700; line-height: 1.15; text-align: center; }
+.power-hint { position: absolute; z-index: 6; top: -78px; left: 4px; width: 292px; color: #333; font-size: 18px; font-weight: 700; line-height: 1.15; text-align: center; }
 .power-hint::after { content: '↓'; position: absolute; left: 67px; bottom: -28px; color: #1D4ED8; font-size: 27px; }
 body.running .power-hint { display: none; }
 @keyframes phone-reveal { from { opacity: 0; transform: translateX(-36px) scale(.98); } to { opacity: 1; transform: none; } }
@@ -40,6 +40,21 @@ body.running .app { animation: phone-reveal .65s ease-out both; }
 .device .case { position: absolute; inset: 0; border-radius: 58px 58px 44px 44px / 52px 52px 40px 40px;
   background: radial-gradient(120% 70% at 50% 0%, #2a2a2e 0%, #161618 45%, #0d0d0f 100%);
   box-shadow: 0 16px 30px rgba(0,0,0,.28), inset 0 0 0 2px #2c2c31, inset 0 3px 2px rgba(255,255,255,.07), inset 0 -4px 6px rgba(0,0,0,.6); z-index: 1; }
+.usb-cable-svg { position: absolute; left: 0; top: 0; width: 300px; height: 620px; overflow: visible; z-index: 5; pointer-events: none; }
+.usb-cable-shadow { fill: none; stroke: rgba(0,0,0,.22); stroke-width: 12; stroke-linecap: round; }
+.usb-cable-line { fill: none; stroke: #55565b; stroke-width: 8; stroke-linecap: round; }
+.usb-port { position: absolute; left: 132px; top: 468px; width: 36px; height: 13px; box-sizing: border-box; border: 2px solid #505055; border-radius: 6px; background: #050506; z-index: 6; transition: box-shadow .2s; }
+@keyframes usb-charge-pulse { 50% { box-shadow: 0 0 0 3px rgba(59,179,224,.15), 0 0 16px #3BB3E0; } }
+.device.usb-connected .usb-port { animation: usb-charge-pulse 1.4s ease-in-out infinite; }
+.usb-plug { position: absolute; left: 134px; top: 515px; width: 32px; height: 44px; padding: 0; border: 0; background: transparent; cursor: grab; touch-action: none; z-index: 7; }
+.usb-plug:active { cursor: grabbing; }
+.usb-plug::before { content: ''; position: absolute; left: 5px; top: 0; width: 22px; height: 13px; box-sizing: border-box; border: 2px solid #606168; border-radius: 5px 5px 3px 3px; background: linear-gradient(#ddd, #929399); }
+.usb-plug::after { content: ''; position: absolute; left: 2px; top: 10px; width: 28px; height: 23px; border-radius: 7px 7px 5px 5px; background: linear-gradient(90deg, #44454a, #77787e 48%, #44454a); box-shadow: 0 2px 4px rgba(0,0,0,.4); }
+.usb-feedback { position: absolute; top: 492px; left: 0; width: 136px; text-align: right; color: #555; font-size: 15px; font-weight: 600; z-index: 8; pointer-events: none; }
+body:not(.running) .usb-cable-svg, body:not(.running) .usb-port, body:not(.running) .usb-plug, body:not(.running) .usb-feedback { display: none; }
+.device.usb-connected .usb-feedback { color: #176f91; }
+.device.usb-connected .usb-feedback::before { content: '⚡ '; }
+.usb-plug:focus-visible { outline: 2px solid #1D4ED8; outline-offset: 3px; border-radius: 6px; }
 /* the glass over the panel */
 .device .glass { position: absolute; left: 20px; top: 26px; width: 260px; height: 350px; border-radius: 16px; background: #050506;
   box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #29292d; overflow: hidden; z-index: 2; }
@@ -74,8 +89,6 @@ code { font: 14px ui-monospace, Menlo, Consolas, monospace; }
 .status { font-size: 14px; font-weight: 500; min-height: 18px; color: var(--mute); }
 .status small { font-weight: 500; color: var(--mute); }
 #buildinfo { margin: 2px 0 6px; font-size: 13px; color: var(--mute); }
-#demo-options { margin-top: 2px; max-width: 250px; }
-#demo-options summary { font-size: 15px; color: var(--mute); }
 .legend { margin: 10px 0 14px; padding: 0; list-style: none; font-size: 17px; }
 .legend li { margin: 3px 0; }
 kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid #bbb; border-bottom-width: 2px; border-radius: 4px; background: #fff; font: 600 14px/20px 'Barlow Condensed', sans-serif; text-align: center; }
@@ -86,12 +99,15 @@ form { display: flex; gap: 8px; }
 input[type=text] { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid #bbb; border-radius: 6px; font: 14px ui-monospace, Menlo, Consolas, monospace; }
 button.act { padding: 6px 12px; border: 1px solid #999; border-radius: 6px; background: #fff; font: 600 16px 'Barlow Condensed', sans-serif; cursor: pointer; }
 section.ride { margin-bottom: 24px; }
+section.ride.secondary { max-width: none; padding: 28px max(16px, calc((100% - 1208px) / 2)); background: #F5F4F0; border-top: 1px solid #d8d6d0; }
 .app { width: 380px; max-width: 100%; }
 body:not(.running) .app { display: none; }
-.app .colhead { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.app .colhead { display: none; }
 .phone { position: relative; height: 700px; padding: 14px 10px; border-radius: 34px; background: #111; box-shadow: 0 12px 28px rgba(0,0,0,.25); box-sizing: border-box; }
 .phone { -webkit-mask-image: linear-gradient(to right, rgba(0,0,0,.6), transparent); mask-image: linear-gradient(to right, rgba(0,0,0,.6), transparent); transition: mask-image .25s, -webkit-mask-image .25s; }
 .phone.open { -webkit-mask-image: none; mask-image: none; }
+.phone-cta { display: block; width: max-content; margin: -8px 10px 0 auto; position: relative; z-index: 2; }
+.phone.open + .phone-cta { display: none; }
 @media (max-width: 760px) { .phone:not(.open) { height: auto; } }
 .phone iframe, .phone .intro { width: 100%; height: 100%; border: 0; border-radius: 22px; background: #fff; box-sizing: border-box; }
 .phone .intro { display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 28px; background: #F5F4F0; }
@@ -104,8 +120,19 @@ section.ride h2 { margin: 0 0 6px; font-size: 24px; }
 .controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin: 8px 0; font-size: 17px; }
 .controls label { display: inline-flex; gap: 6px; align-items: center; }
 .controls select { font: 600 16px 'Barlow Condensed', sans-serif; }
+#battery-level { width: clamp(140px, 22vw, 240px); accent-color: #E8590C; }
+#battery-value { min-width: 4ch; font-variant-numeric: tabular-nums; }
 #map { height: 380px; border-radius: 10px; background: #d8d6d0; }
+.route-marker-icon { background: transparent; border: 0; }
+.route-marker-dot { display: block; width: 18px; height: 18px; border: 3px solid #fff; border-radius: 50%; background: #1D4ED8; box-shadow: 0 1px 5px #222; box-sizing: border-box; }
 #trackinfo { font-size: 16px; color: var(--mute); }
+.tab-list { display: flex; gap: 4px; margin: 18px 0 0; border-bottom: 1px solid #c9c6bf; }
+.tab-button { padding: 8px 16px; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--mute); font: 600 19px 'Barlow Condensed', sans-serif; cursor: pointer; }
+.tab-button[aria-selected="true"] { border-bottom-color: #E8590C; color: var(--ink); }
+.tab-button:focus-visible { outline: 2px solid #1D4ED8; outline-offset: -2px; }
+.tab-panel { padding: 12px 0 4px; }
+.tab-panel[hidden] { display: none; }
+.tab-panel .legend { max-width: 760px; }
 footer { padding-bottom: 28px; }
 footer p { font-size: 15px; color: var(--mute); }
 
@@ -114,15 +141,21 @@ footer p { font-size: 15px; color: var(--mute); }
 <body>
 <header>
   <img class="logo" src="logo-wide.svg" alt="OpenCC600">
-  <p>Le vrai firmware vélo, à découvrir dans ton navigateur.</p>
-  <p class="companion-note">Se connecte à l’app Musette.</p>
+  <div class="intro-copy">
+    <p>Un firmware alternatif et open source pour les compteurs vélo GEOID CC600 et CC700.</p>
+    <p>Explore son interface et ses fonctions directement dans ton navigateur.</p>
+  </div>
 </header>
 <main>
   <div class="device" id="device">
     <div class="case"></div>
+  <svg class="usb-cable-svg" viewBox="0 0 300 620" aria-hidden="true"><path class="usb-cable-shadow" id="usb-cable-shadow"></path><path class="usb-cable-line" id="usb-cable-line"></path></svg>
+    <div class="usb-port" id="usb-port" aria-hidden="true"></div>
+    <button class="usb-plug" id="usb-plug" type="button" aria-label="Câble USB-C débranché. Cliquer ou glisser jusqu’au port pour simuler la charge." title="Glisser vers le port USB-C ou cliquer pour brancher"></button>
+    <div class="usb-feedback" id="usb-feedback" role="status" aria-live="polite">Glisse le câble USB-C jusqu’au port</div>
     <div class="glass"></div>
     <canvas id="screen" width="240" height="320" aria-label="Écran du compteur"></canvas>
-    <div class="power-hint" id="power-hint">Maintiens le bouton du haut ½ s pour allumer</div>
+    <div class="power-hint" id="power-hint">Maintiens le bouton<br>pour allumer le compteur</div>
     <svg class="marks l" viewBox="0 0 70 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
       <path d="M20 5a7 7 0 1 1-6 3"/><path d="M14 3v5h5"/><path d="M42 6h14M42 11h14M42 16h14"/></svg>
     <svg class="marks r" viewBox="0 0 70 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
@@ -138,16 +171,54 @@ footer p { font-size: 15px; color: var(--mute); }
     <div class="status" id="status">Prêt à démarrer</div>
     <p class="note" id="buildinfo"></p>
   </div>
-  <div class="options">
-    <details id="demo-options">
-      <summary>Commandes et options</summary>
+  <div class="app">
+    <h2 class="colhead">Musette <button class="act small" id="musette-reload" hidden>Recharger</button></h2>
+    <div class="phone" id="phone">
+      <div class="intro" id="musette-intro">
+        <p><b>Musette</b> envoie une trace ou des réglages au compteur et récupère tes sorties.</p>
+        <p class="note">Dans l'app : « Connecter un compteur » → « Connecter le compteur de la démo ».</p>
+        <p class="note" id="musette-state"></p>
+      </div>
+      <iframe id="musette" title="Musette" allow="clipboard-write" hidden></iframe>
+    </div>
+    <button class="act phone-cta" id="musette-open-cta">Ouvrir Musette sur le téléphone</button>
+  </div>
+</main>
+<section class="ride secondary">
+  <h2>Environnement de sortie</h2>
+  <div class="tab-list" role="tablist" aria-label="Outils de simulation">
+    <button class="tab-button" id="tab-route" type="button" role="tab" aria-selected="true" aria-controls="panel-route">Parcours</button>
+    <button class="tab-button" id="tab-counter" type="button" role="tab" aria-selected="false" aria-controls="panel-counter" tabindex="-1">Compteur</button>
+  </div>
+  <div class="tab-panel" id="panel-route" role="tabpanel" aria-labelledby="tab-route">
+    <p>La trace du Tourmalet est chargée par défaut avec ses temps et son altitude. Lance la lecture puis démarre une sortie pour voir le compteur suivre le parcours. Tu peux aussi charger un autre GPX ; les données restent dans ton navigateur.</p>
+    <details><summary>Comment fonctionne le trajet simulé ?</summary>
+      <p>Le GPS du compteur suit la trace pendant sa lecture. Une trace envoyée depuis Musette est suivie de la même façon,
+         pendant que le compteur la guide. La vitesse et l’altitude simulées suivent les données de la trace.</p>
+    </details>
+    <div class="controls">
+      <label>Trace <input type="file" id="gpx" accept=".gpx,application/gpx+xml"></label>
+      <button class="act" id="play">▶ Lecture</button>
+      <label>Lecture <select id="speedup"><option value="1">×1</option><option value="5">×5</option><option value="20">×20</option></select></label><span id="trackinfo-speed" style="color:var(--mute)">(accélérée, la vitesse affichée l'est aussi)</span>
+    </div>
+    <div id="trackinfo"></div>
+    <div class="controls">
+      <label><input type="checkbox" id="gps-free"> Déplacer le GPS hors de la trace</label>
+      <button class="act" id="gps-return" disabled>Revenir sur la trace</button>
+    </div>
+    <p class="note">Fais glisser le point bleu pour déplacer le GPS. Le déplacement met la lecture en pause ; « Lecture » reprend sur la trace.</p>
+    <div id="map" aria-label="Carte du trajet"></div>
+  </div>
+  <div class="tab-panel" id="panel-counter" role="tabpanel" aria-labelledby="tab-counter" hidden>
     <ul class="legend">
-      <li><kbd>1</kbd> haut gauche · <kbd>2</kbd> bas gauche · <kbd>3</kbd> bas droite</li>
-      <li>Un clic : appui court. Maintenir ½ seconde : appui long (allumer, éteindre, arrêter une sortie).</li>
       <li><label><input type="checkbox" id="zones" checked> Cliquer aussi sur les indications de l'écran</label>
         <span class="note">(« Maintenir », « Menu », « Démarrer » : une aide du simulateur, le vrai compteur n'a pas d'écran tactile)</span></li>
-      <li>L'heure vient de ton ordinateur, la batterie est à 80 %. Le GPS se cale sur le trajet simulé ci-dessous.</li>
+      <li>L'heure vient de ton ordinateur. Le GPS se cale sur la trace sélectionnée.</li>
     </ul>
+    <div class="controls">
+      <label for="battery-level">Batterie <input type="range" id="battery-level" min="0" max="100" step="1" value="80" aria-valuetext="80 %"></label>
+      <output id="battery-value" for="battery-level">80 %</output>
+    </div>
     <div class="controls"><label>Version du firmware <select id="version" aria-label="Version du firmware"></select></label>
       <button class="act" id="restart">Redémarrer le compteur</button></div>
     <p class="note"><span id="saved"></span> <button class="act small" id="forget" hidden>Effacer</button></p>
@@ -163,22 +234,9 @@ footer p { font-size: 15px; color: var(--mute); }
       <pre id="console"></pre>
       <form id="cmd"><input type="text" id="line" placeholder="screen ?" autocomplete="off" aria-label="Commande USB"><button class="act">Envoyer</button></form>
     </details>
-    </details>
   </div>
-  <div class="app">
-    <h2 class="colhead">L'app Musette <button class="act small" id="musette-reload" hidden>Recharger</button></h2>
-    <div class="phone" id="phone">
-      <div class="intro" id="musette-intro">
-        <p><b>Musette</b> envoie une trace ou des réglages au compteur et récupère tes sorties.</p>
-        <p class="note">Dans l'app : « Connecter un compteur » → « Connecter le compteur de la démo ».</p>
-        <p><button class="act" id="musette-open">Ouvrir Musette</button></p>
-        <p class="note" id="musette-state"></p>
-      </div>
-      <iframe id="musette" title="Musette" allow="clipboard-write" hidden></iframe>
-    </div>
-  </div>
-</main>
-<section class="ride">
+</section>
+<section class="ride secondary">
   <h2>À découvrir</h2>
   <ul class="features">
     <li><b>Navigation</b> · carte, alerte hors trace et montées à venir.</li>
@@ -189,22 +247,6 @@ footer p { font-size: 15px; color: var(--mute); }
   <p><a href="https://github.com/enavarro222/opencc600/releases">Versions</a> ·
      <a href="https://github.com/enavarro222/opencc600">Code et documentation</a> ·
      <a href="https://enavarro222.github.io/musette/">Ouvrir Musette</a></p>
-</section>
-<section class="ride">
-  <h2>Trajet simulé</h2>
-  <p>Charge un GPX ou essaie la boucle fictive. Lance la lecture puis démarre une sortie sur le compteur. Le fichier reste dans ton navigateur.</p>
-  <details><summary>Comment fonctionne le trajet simulé ?</summary>
-    <p>Le GPS du compteur suit la trace pendant sa lecture. Une trace envoyée depuis Musette est suivie de la même façon,
-       pendant que le compteur la guide.</p>
-  </details>
-  <div class="controls">
-    <label>Trace <input type="file" id="gpx" accept=".gpx,application/gpx+xml"></label>
-    <button class="act" id="play">▶ Lecture</button>
-    <label>Lecture <select id="speedup"><option value="1">×1</option><option value="5">×5</option><option value="20">×20</option></select></label><span id="trackinfo-speed" style="color:var(--mute)">(accélérée, la vitesse affichée l'est aussi)</span>
-    <label>Sans heures dans la trace : <select id="kmh"><option>15</option><option selected>25</option><option>35</option></select> km/h</label>
-  </div>
-  <div id="trackinfo"></div>
-  <div id="map" aria-label="Carte du trajet"></div>
 </section>
 <footer>
   <details><summary>À propos de la démo</summary>
@@ -220,10 +262,72 @@ footer p { font-size: 15px; color: var(--mute); }
 const $ = (id) => document.getElementById(id);
 const status = (s) => { $('status').innerHTML = s; };
 let worker = null;
+const usbDevice = $('device'), usbPlug = $('usb-plug');
+let usbConnected = false, usbDrag = null, usbDragged = false, usbSuppressClick = false;
+function drawUsbCable() {
+  const left = parseFloat(usbPlug.style.left) || 134, top = parseFloat(usbPlug.style.top) || 515;
+  const x = usbConnected ? 150 : left + 16, y = usbConnected ? 478 : top + 34;
+  // The cable drops from the bottom-centre port and hangs in front of the device, clear of the phone.
+  const d = `M ${x} ${y} C ${x} 520, ${x + 34} 536, ${x + 34} 572 S ${x + 18} 608, ${x + 24} 620`;
+  $('usb-cable-shadow').setAttribute('d', d); $('usb-cable-line').setAttribute('d', d);
+}
+function sendUsbPower() { if (worker) send({ t: 'board_cmd', line: `usb ${usbConnected ? 'on' : 'off'}` }); }
+function setUsbConnected(connected, resetPlug = false) {
+  usbConnected = connected; usbDevice.classList.toggle('usb-connected', connected);
+  if (connected) { usbPlug.style.left = '134px'; usbPlug.style.top = '456px'; }
+  else if (resetPlug) { usbPlug.style.left = '134px'; usbPlug.style.top = '515px'; }
+  const label = connected ? 'Charge USB simulée' : 'Glisse le câble USB-C';
+  $('usb-feedback').textContent = label;
+  usbPlug.setAttribute('aria-label', connected ? 'Câble USB-C branché. Cliquer pour débrancher.' : 'Câble USB-C débranché. Cliquer ou glisser jusqu’au port pour simuler la charge.');
+  usbPlug.title = connected ? 'Cliquer ou glisser pour débrancher' : 'Glisser vers le port USB-C ou cliquer pour brancher';
+  drawUsbCable();
+  sendUsbPower();
+}
+usbPlug.onpointerdown = (e) => {
+  if (e.button !== 0) return;
+  usbPlug.setPointerCapture(e.pointerId); usbDrag = { id: e.pointerId, x: e.clientX, y: e.clientY, left: parseFloat(usbPlug.style.left) || 134, top: parseFloat(usbPlug.style.top) || 515, moved: false };
+  e.preventDefault();
+};
+usbPlug.onpointermove = (e) => {
+  if (!usbDrag || e.pointerId !== usbDrag.id) return;
+  const dx = e.clientX - usbDrag.x, dy = e.clientY - usbDrag.y;
+  if (!usbDrag.moved && Math.hypot(dx, dy) > 5) {
+    usbDrag.moved = true;
+    if (usbConnected) setUsbConnected(false);
+  }
+  if (!usbDrag.moved) return;
+  const bounds = usbDevice.getBoundingClientRect();
+  usbPlug.style.left = `${Math.max(-8, Math.min(268, usbDrag.left + dx * 300 / bounds.width))}px`;
+  usbPlug.style.top = `${Math.max(440, Math.min(548, usbDrag.top + dy * 300 / bounds.width))}px`;
+  drawUsbCable();
+};
+usbPlug.onpointerup = (e) => {
+  if (!usbDrag || e.pointerId !== usbDrag.id) return;
+  const moved = usbDrag.moved; usbDrag = null;
+  if (!moved) return;
+  const left = parseFloat(usbPlug.style.left), top = parseFloat(usbPlug.style.top);
+  const nearPort = Math.hypot(left + 16 - 150, top + 6 - 474) < 34;
+  setUsbConnected(nearPort); usbSuppressClick = true;
+};
+usbPlug.onpointercancel = () => { usbDrag = null; };
+usbPlug.onclick = () => {
+  if (usbSuppressClick) { usbSuppressClick = false; return; }
+  setUsbConnected(!usbConnected, usbConnected);
+};
+setUsbConnected(false, true);
 const waiting = new Map();
 const ask = (key, msg, transfer) => new Promise((res) => { waiting.set(key, res); worker.postMessage(msg, transfer || []); });
 const reply = (key, v) => { const r = waiting.get(key); waiting.delete(key); r && r(v); };
 const send = (obj) => worker?.postMessage({ op: 'text', data: JSON.stringify(obj) });
+function sendBatteryLevel() {
+  send({ t: 'board_cmd', line: `battery ${$('battery-level').value}` });
+}
+$('battery-level').oninput = () => {
+  const label = `${$('battery-level').value} %`;
+  $('battery-value').value = label;
+  $('battery-level').setAttribute('aria-valuetext', label);
+  sendBatteryLevel();
+};
 
 // the panel: RGB565 frames (type 1: w, h, pixels)
 const ctx = $('screen').getContext('2d');
@@ -415,7 +519,7 @@ addEventListener('message', (e) => {
     .then((r) => musette.post({ gatt: 'reply', id: m.id, ok: true, ...r }),
           (err) => musette.post({ gatt: 'reply', id: m.id, ok: false, error: err.message }));
 });
-$('musette-open').onclick = $('musette-reload').onclick = () => musette.open();
+$('musette-open-cta').onclick = $('musette-reload').onclick = () => musette.open();
 if (new URL(MUSETTE, location.href).origin !== location.origin) $('musette-state').textContent = `Depuis ${new URL(MUSETTE, location.href).host}.`;
 
 const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(`${url} : ${r.status}`); return r.arrayBuffer(); };
@@ -429,6 +533,8 @@ async function boot() {
   // ROM, flash image, application ELF (symbols for the virtual BLE controller; none in a vendor dump)
   const loads = [[0, files.rom], [5, files.flash], ...(own ? [] : [[4, files.elf]])];
   if (!await ask('created', { op: 'create', board: 'cc600', flash_mb: 16, psram_mb: 8, jit: true })) throw new Error('émulateur non créé');
+  sendUsbPower();
+  sendBatteryLevel();
   for (const [kind, data] of loads) {
     const copy = data.slice(0);
     if (!await ask('load' + kind, { op: 'load', kind, data: copy }, [copy])) throw new Error('chargement ' + kind);
@@ -605,15 +711,6 @@ const bearing = (a, b) => {
   const x = Math.cos(a.lat * rad) * Math.sin(b.lat * rad) - Math.sin(a.lat * rad) * Math.cos(b.lat * rad) * Math.cos((b.lon - a.lon) * rad);
   return (Math.atan2(y, x) / rad + 360) % 360;
 };
-// a made-up 9 km loop in the Bois de Boulogne, rolling a little
-function demoTrack() {
-  const c = { lat: 48.8625, lon: 2.2490 }, pts = [];
-  for (let i = 0; i <= 120; i++) {
-    const a = i / 120 * 2 * Math.PI, r = 1300 + 180 * Math.sin(3 * a);
-    pts.push({ lat: c.lat + r * Math.cos(a) / 111320, lon: c.lon + r * Math.sin(a) / (111320 * Math.cos(c.lat * rad)), ele: 45 + 12 * Math.sin(2 * a), t: null });
-  }
-  return { name: 'Boucle fictive au bois de Boulogne', pts };
-}
 function parseGpx(text) {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   const nodes = [...doc.getElementsByTagName('trkpt'), ...doc.getElementsByTagName('rtept')];
@@ -625,13 +722,14 @@ function parseGpx(text) {
   return { name, pts };
 }
 const ride = {
-  track: null, cum: [], secs: [], playing: false, at: 0, last: null, sent: -1, map: null, line: null, marker: null,
+  track: null, cum: [], secs: [], playing: false, at: 0, last: null, sent: -1, map: null, line: null, marker: null, freePosition: null, dragging: false,
   load(track) {
-    this.track = track; this.at = 0; this.last = null;
+    this.track = track; this.at = 0; this.last = null; this.freePosition = null; this.dragging = false;
+    $('gps-return').disabled = true;
     const p = track.pts, timed = p.every((q) => q.t) && p[p.length - 1].t > p[0].t;
     this.cum = [0]; for (let i = 1; i < p.length; i++) this.cum.push(this.cum[i - 1] + dist(p[i - 1], p[i]));
     // seconds from the start at each point: the track's own times, or a steady speed
-    const kmh = +$('kmh').value;
+    const kmh = 10;
     this.secs = timed ? p.map((q) => (q.t - p[0].t) / 1000) : this.cum.map((m) => m / (kmh / 3.6));
     const km = this.cum[this.cum.length - 1] / 1000, min = this.secs[this.secs.length - 1] / 60;
     $('trackinfo').textContent = `${track.name} · ${km.toFixed(1)} km · ${Math.round(min)} min${timed ? '' : ` à ${kmh} km/h`}`;
@@ -642,10 +740,46 @@ const ride = {
       }
       this.line?.remove(); this.marker?.remove();
       this.line = L.polyline(p.map((q) => [q.lat, q.lon]), { color: '#E8590C', weight: 4 }).addTo(this.map);
-      this.marker = L.circleMarker([p[0].lat, p[0].lon], { radius: 8, color: '#fff', weight: 3, fillColor: '#1D4ED8', fillOpacity: 1 }).addTo(this.map);
+      this.marker = L.marker([p[0].lat, p[0].lon], {
+        draggable: true, title: 'Déplacer la position GPS simulée',
+        icon: L.divIcon({ className: 'route-marker-icon', html: '<span class="route-marker-dot"></span>', iconSize: [18, 18], iconAnchor: [9, 9] }),
+      }).addTo(this.map);
+      this.marker.on('dragstart', () => {
+        this.dragging = true; this.playing = false; this.last = null;
+        $('play').textContent = '▶ Lecture';
+      });
+      this.marker.on('dragend', () => {
+        this.dragging = false;
+        const position = this.marker.getLatLng();
+        const q = this.nearest(position);
+        if (!q) return;
+        this.at = q.at; this.playing = false; this.last = null; this.sent = -1;
+        this.freePosition = $('gps-free').checked ? { lat: position.lat, lon: position.lng } : null;
+        $('gps-return').disabled = !this.freePosition;
+        $('play').textContent = '▶ Lecture';
+        this.send(this.at);
+      });
       this.map.fitBounds(this.line.getBounds(), { padding: [20, 20] });
     }
     this.send(0);
+  },
+  nearest(latlng) {
+    if (!this.map || !this.track || this.track.pts.length < 2) return null;
+    const target = this.map.latLngToLayerPoint(latlng), p = this.track.pts;
+    let best = null, bestD2 = Infinity;
+    for (let i = 1; i < p.length; i++) {
+      const a = this.map.latLngToLayerPoint([p[i - 1].lat, p[i - 1].lon]);
+      const b = this.map.latLngToLayerPoint([p[i].lat, p[i].lon]);
+      const dx = b.x - a.x, dy = b.y - a.y, den = dx * dx + dy * dy;
+      const f = den ? Math.max(0, Math.min(1, ((target.x - a.x) * dx + (target.y - a.y) * dy) / den)) : 0;
+      const x = a.x + f * dx, y = a.y + f * dy, d2 = (target.x - x) ** 2 + (target.y - y) ** 2;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = { lat: p[i - 1].lat + f * (p[i].lat - p[i - 1].lat), lon: p[i - 1].lon + f * (p[i].lon - p[i - 1].lon),
+          at: this.secs[i - 1] + f * (this.secs[i] - this.secs[i - 1]) };
+      }
+    }
+    return best;
   },
   // the point `s` seconds into the track, its speed and heading
   sample(s) {
@@ -659,8 +793,9 @@ const ride = {
   },
   send(s) {
     const q = this.sample(s);
+    if (this.freePosition) Object.assign(q, this.freePosition, { kmh: 0 });
     send({ t: 'board_cmd', line: `gnss ${q.lat.toFixed(7)} ${q.lon.toFixed(7)} ${q.ele.toFixed(1)} ${q.kmh.toFixed(1)} ${q.course.toFixed(1)}` });
-    this.marker?.setLatLng([q.lat, q.lon]);
+    if (!this.dragging) this.marker?.setLatLng([q.lat, q.lon]);
   },
   // called with the emulated time: one position per emulated second
   tick(now) {
@@ -671,13 +806,43 @@ const ride = {
     if (second !== this.sent) { this.sent = second; this.send(this.at); }
   },
 };
-$('play').onclick = () => { ride.playing = !ride.playing; $('play').textContent = ride.playing ? '❚❚ Pause' : '▶ Lecture'; };
+const envTabs = [...document.querySelectorAll('.tab-button')];
+function activateEnvTab(tab) {
+  for (const button of envTabs) {
+    const selected = button === tab;
+    button.setAttribute('aria-selected', String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    $(button.getAttribute('aria-controls')).hidden = !selected;
+  }
+  if (tab.id === 'tab-route' && ride.map) requestAnimationFrame(() => ride.map.invalidateSize());
+}
+envTabs.forEach((tab, i) => {
+  tab.onclick = () => activateEnvTab(tab);
+  tab.onkeydown = (e) => {
+    const next = e.key === 'ArrowRight' ? (i + 1) % envTabs.length
+      : e.key === 'ArrowLeft' ? (i + envTabs.length - 1) % envTabs.length
+      : e.key === 'Home' ? 0 : e.key === 'End' ? envTabs.length - 1 : -1;
+    if (next >= 0) { e.preventDefault(); envTabs[next].focus(); activateEnvTab(envTabs[next]); }
+  };
+});
+function returnGpsToTrack() {
+  ride.freePosition = null; $('gps-return').disabled = true;
+  if (ride.track) ride.send(ride.at);
+}
+$('gps-return').onclick = returnGpsToTrack;
+$('gps-free').onchange = () => { if (!$('gps-free').checked) returnGpsToTrack(); };
+$('play').onclick = () => {
+  returnGpsToTrack();
+  ride.playing = !ride.playing;
+  $('play').textContent = ride.playing ? '❚❚ Pause' : '▶ Lecture';
+};
 $('gpx').onchange = async () => {
   const f = $('gpx').files[0]; if (!f) return;
   try { ride.load(parseGpx(await f.text())); } catch (e) { $('trackinfo').textContent = 'GPX illisible : ' + e.message; }
 };
-$('kmh').onchange = () => ride.track && ride.load(ride.track);
-ride.load(demoTrack());
+fetch('tourmalet.gpx').then((r) => { if (!r.ok) throw new Error(`GPX indisponible : ${r.status}`); return r.text(); })
+  .then((text) => ride.load(parseGpx(text)))
+  .catch((e) => { $('trackinfo').textContent = `Trace de démo indisponible : ${e.message}`; });
 
 $('cmd').onsubmit = (e) => {
   e.preventDefault();

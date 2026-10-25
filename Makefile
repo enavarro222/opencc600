@@ -59,11 +59,11 @@ site: demo ## Build and stage a complete site for local preview
 site-copy: ## Stage the already-built demo site (SITE_DIR=target/demo/site by default)
 	test -n "$(SITE_DIR)"
 	mkdir -p "$(SITE_DIR)/screens"
-	cp docs/site/index.html docs/demo/versions.json docs/logo-wide.svg "$(SITE_DIR)/"
+	cp docs/site/index.html docs/demo/versions.json docs/demo/tourmalet.gpx docs/logo-wide.svg "$(SITE_DIR)/"
 	cp -r docs/demo/builds docs/demo/rom "$(SITE_DIR)/"
 	cp docs/screens/ride-page1.png docs/screens/ride-page2.png docs/screens/route-map-1km.png docs/screens/climbs-in.png "$(SITE_DIR)/screens/"
 
-preview: site ## Build the demo and serve it locally (PORT=8765 by default)
+preview: site-copy ## Serve the existing demo build locally without rebuilding firmware (PORT=8765 by default)
 	python3 -m http.server "$(PORT)" --bind 127.0.0.1 --directory "$(SITE_DIR)"
 
 release: demo ## Build demo files and release assets (NAME=vX.Y.Z RELEASE_DIR=target/release)

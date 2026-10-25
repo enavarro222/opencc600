@@ -70,7 +70,7 @@ make firmware-image                   # OTA-slot image at target/opencc600-ota.b
 make flash CC600_PORT=/dev/serial/by-id/... # check, build, confirm, and flash a selected device
 make flash CC600_PORT=/dev/serial/by-id/... FLASH_AUTO_CONFIRM=1 # same preflight, no prompt (scripts)
 make demo                             # browser build named main
-make preview                          # build it, stage the site and serve localhost:8765
+make preview                          # stage the existing demo build and serve localhost:8765
 make release NAME=v0.0.4              # build browser demo and release files under target/release/
 make prepare-release VERSION=0.0.4    # update Cargo versions and lockfiles before a release
 make test                             # host Rust tests
@@ -86,8 +86,9 @@ requests and pushes to `main` and attaches the HTML report to the workflow run. 
 firmware and checks its emulator/ROM prerequisites before running pytest, so missing simulator dependencies
 cannot make the job pass by skipping all tests. Physical-device tests (`make test-hil`) remain local.
 
-`make preview` rebuilds `main` from the current checkout. Generated demo files stay ignored by Git. The Pages
-workflow uses the same `demo`, `release` and `site-copy` targets; it runs on a tag or when manually dispatched.
+`make preview` does not rebuild the firmware demo. Build it first with `make demo` (or `make site` for a full site build); while the preview server is running, page edits can be staged with `make site-copy` without restarting the server.
+
+Generated demo files stay ignored by Git. The Pages workflow uses the same `demo`, `release` and `site-copy` targets; it runs on a tag or when manually dispatched.
 
 ### Preparing a release
 
