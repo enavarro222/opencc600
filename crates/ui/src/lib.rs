@@ -223,7 +223,7 @@ impl EffortPick {
 
 /// Map zooms around the rider: metres for the scale bar (60 pixels). The top left key goes through them, then the
 /// whole route.
-pub const ZOOMS_M: [u32; 4] = [250, 500, 1000, 2000];
+pub const ZOOMS_M: [u32; 5] = [100, 250, 500, 1000, 2000];
 /// Zoom steps of the map: [`ZOOMS_M`], then the whole route.
 pub const ZOOM_STEPS: u8 = ZOOMS_M.len() as u8 + 1;
 /// Off the route farther than this, decimetres: the banner. Back on it under half of it.
@@ -804,7 +804,7 @@ impl Ui {
             scroll_ms: SCROLL_MS,
             scrolled_at: 0,
             banner: None,
-            zoom: 2,
+            zoom: 3,
             route: false,
             climbs: false,
             train: false,
@@ -1396,7 +1396,7 @@ impl Ui {
             // without a position the whole route is shown, at no fixed scale
             Ride if self.page() == Some(Page::Map) => [
                 match (self.map_scale(view), self.zoom_m()) {
-                    (Some(_), Some(_)) => Hint::new(["125 m", "250 m", "500 m", "1 km"][self.zoom as usize]),
+                    (Some(_), Some(_)) => Hint::new(["50 m", "125 m", "250 m", "500 m", "1 km"][self.zoom as usize]),
                     (_, None) => Hint::new("\u{e00f} Trace"),
                     (None, Some(_)) => Hint::new("\u{e00f} Zoom"),
                 },

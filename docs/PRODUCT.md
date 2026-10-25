@@ -122,7 +122,7 @@ its page with "–".
   zones, coloured grey to purple. A zone shows once the value has stayed 3 s in it (no flicker at a bound). No FTP
   or max heart rate is guessed: a wrong one gives wrong zones.
 - **Map** (a route): turned to the heading, the part done in grey, remaining distance and speed; zooms with a
-  scale bar of 250 m to 2 km, then the whole route.
+  scale bar of 50 m, 125 m, 250 m, 500 m or 1 km, then the whole route.
 - **Climbs** (a route with climbs, in place of Altitude): altitude, gradient and D+ on top, then the last climb
   done, the next one with its distance, the following ones. In a climb: its profile by 1 km bands coloured by
   gradient with the rider on it, distance, D+ and average gradient left, gradient, VAM, time to the top. The

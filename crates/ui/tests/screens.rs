@@ -355,7 +355,7 @@ fn every_screen() {
     ui.key(Key::BottomRight, Press::Click, 0, &home);
     let riding = with_route(view(), true);
     ui.tick(0, Some(true), &riding);
-    for z in ["route-map-1km", "route-map-2km", "route-map-whole", "route-map-250m", "route-map-500m"] {
+    for z in ["route-map-1km", "route-map-2km", "route-map-whole", "route-map-50m", "route-map-250m", "route-map-500m"] {
         save(z, &ui, &riding, &ui::DAY);
         ui.key(Key::TopLeft, Press::Click, 0, &riding);
     }

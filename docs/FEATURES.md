@@ -28,7 +28,7 @@ A GPX route sent from Musette over BLE (or over USB), the climbs found by the ap
 |:-:|:-:|:-:|:-:|:-:|
 | ![Map page](screens/route-map-1km.png) | ![Whole route](screens/route-map-whole.png) | ![Off-route alert](screens/route-off.png) | ![Climbs list](screens/climbs-list.png) | ![In a climb](screens/climbs-in.png) |
 
-- **Map page** turned to the heading, the part done in grey, zooms 250 m to the whole route, remaining distance;
+- **Map page** turned to the heading, the part done in grey, scale bar from 50 m to 1 km, then the whole route, remaining distance;
   drawn in 28–47 ms on the device.
 - **Off-route alert** beyond 50 m, with the distance to the route.
 - **Climbs**: the last one done, the next ones with their distance; in a climb, distance, D+ and time left to the
