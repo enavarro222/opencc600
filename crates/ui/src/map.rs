@@ -509,31 +509,24 @@ fn capsule<D: DrawTarget<Color = Rgb565>>(
     d.draw_iter(pixels)
 }
 
-/// The rider: a white disc with a blue ring and the arrow pointing up (the heading), from [`MARKER`].
+/// The rider: a triangle pointing up (the heading), from [`MARKER`].
 fn me_marker<D: DrawTarget<Color = Rgb565>>(d: &mut D, t: &Theme) -> Result<(), D::Error> {
     let (x0, y0) = (ME.0 as i32 - MARKER_HALF, ME.1 as i32 - MARKER_HALF);
     let pixels = MARKER.iter().enumerate().flat_map(|(j, row)| {
-        row.iter().enumerate().filter_map(move |(i, &(layer, a))| {
-            let c = match layer {
-                1 | 3 => fonts::blend(t.bg, t.me, a),
-                2 => fonts::blend(t.me, t.bg, a),
-                _ => return None,
-            };
-            Some(Pixel(Point::new(x0 + i as i32, y0 + j as i32), c))
+        row.iter().enumerate().filter_map(move |(i, &a)| {
+            (a > 0).then(|| Pixel(Point::new(x0 + i as i32, y0 + j as i32), fonts::blend(t.bg, t.me, a)))
         })
     });
     d.draw_iter(pixels)
 }
 
-const MARKER_HALF: i32 = 12;
+const MARKER_HALF: i32 = 8;
 const MARKER_SIZE: usize = 2 * MARKER_HALF as usize + 1;
-/// The rider's marker, worked out at build time (it took 6 ms a frame on the device): for each pixel of its box, the
-/// last layer over it (1 the blue disc, 2 the white one inside, 3 the arrow, 0 none) and that layer's coverage, 0 to
-/// 15, sampled 4x4 a pixel as [`crate::draw::shape`] does.
-const MARKER: [[(u8, u8); MARKER_SIZE]; MARKER_SIZE] = {
+/// The rider's marker, worked out at build time (it took 6 ms a frame on the device): each pixel's coverage, 0 to
+/// 15, sampled 4x4 a pixel as [`crate::draw::shape`] does. Zero coverage leaves the map visible.
+const MARKER: [[u8; MARKER_SIZE]; MARKER_SIZE] = {
     let (cx, cy) = (ME.0, ME.1);
-    // the prototype's arrow: a tip, two back corners and a notch, two triangles
-    let (tip, left, notch, right) = ((cx, cy - 8.0), (cx - 6.0, cy + 6.0), (cx, cy + 3.0), (cx + 6.0, cy + 6.0));
+    let (tip, left, right) = ((cx, cy - 8.0), (cx - 6.0, cy + 6.0), (cx + 6.0, cy + 6.0));
     const fn side(p: (f32, f32), q: (f32, f32), x: f32, y: f32) -> f32 {
         (q.0 - p.0) * (y - p.1) - (q.1 - p.1) * (x - p.0)
     }
@@ -541,30 +534,20 @@ const MARKER: [[(u8, u8); MARKER_SIZE]; MARKER_SIZE] = {
         let (s1, s2, s3) = (side(a, b, x, y), side(b, c, x, y), side(c, a, x, y));
         (s1 >= 0.0 && s2 >= 0.0 && s3 >= 0.0) || (s1 <= 0.0 && s2 <= 0.0 && s3 <= 0.0)
     }
-    let mut m = [[(0u8, 0u8); MARKER_SIZE]; MARKER_SIZE];
+    let mut m = [[0u8; MARKER_SIZE]; MARKER_SIZE];
     let mut j = 0;
     while j < MARKER_SIZE {
         let mut i = 0;
         while i < MARKER_SIZE {
             let (px, py) = ((cx as i32 - MARKER_HALF + i as i32) as f32, (cy as i32 - MARKER_HALF + j as i32) as f32);
-            let mut n = [0u8; 3];
+            let mut n = 0u8;
             let mut s = 0;
             while s < 16 {
                 let (x, y) = (px + ((s % 4) as f32 + 0.5) / 4.0, py + ((s / 4) as f32 + 0.5) / 4.0);
-                let d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
-                n[0] += (d2 <= 11.0 * 11.0) as u8;
-                n[1] += (d2 <= 9.0 * 9.0) as u8;
-                n[2] += (tri(tip, left, notch, x, y) || tri(tip, notch, right, x, y)) as u8;
+                n += tri(tip, left, right, x, y) as u8;
                 s += 1;
             }
-            let mut k = 3;
-            while k > 0 {
-                if n[k - 1] > 0 {
-                    m[j][i] = (k as u8, n[k - 1] * 15 / 16);
-                    break;
-                }
-                k -= 1;
-            }
+            m[j][i] = n * 15 / 16;
             i += 1;
         }
         j += 1;
