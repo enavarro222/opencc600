@@ -7,6 +7,8 @@
 
 # opencc600
 
+[![Codecov](https://codecov.io/gh/enavarro222/opencc600/branch/main/graph/badge.svg)](https://codecov.io/gh/enavarro222/opencc600)
+
 Open firmware for the **GEOID CC600** bike computer, also running on the **GEOID CC700**. Written in Rust
 (`no_std`, esp-hal + Embassy); the hardware layer is a rewrite based on
 [c606-oss](https://github.com/HighwayStar/c606-oss). The companion app is

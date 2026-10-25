@@ -99,6 +99,7 @@ coverage: ## Run host tests and write an HTML coverage report (requires cargo-ll
 		fi; \
 	fi; \
 	cargo llvm-cov --workspace $(CARGO_LOCKED) --html
+	cargo llvm-cov report --workspace $(CARGO_LOCKED) --lcov --output-path target/llvm-cov/lcov.info
 
 test-sim: firmware ## Run end-to-end tests on the native CC600 emulator
 	uv run --project tests/hil pytest tests/sim $(PYTEST_ARGS)

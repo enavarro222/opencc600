@@ -36,6 +36,15 @@ jobs:
           path: target/llvm-cov/html
           if-no-files-found: error
 
+      - name: Upload coverage to Codecov
+        if: success()
+        uses: codecov/codecov-action@v5
+        with:
+          files: target/llvm-cov/lcov.info
+          flags: host
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
   simulator:
     name: CC600 simulator tests
     runs-on: ubuntu-24.04
