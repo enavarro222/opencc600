@@ -6,7 +6,7 @@
 
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::{Circle, PrimitiveStyleBuilder, Rectangle};
+use embedded_graphics::primitives::{Circle, Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, Triangle};
 use route::Route;
 use route::map::{self, Map, class};
 
@@ -57,6 +57,9 @@ pub(crate) fn draw<D: DrawTarget<Color = Rgb565>>(
         background(d, m, &view, around, t, area)?;
     }
     line(d, route, &view, along, (t.done, t.route), t.bg, area)?;
+    if around.is_none() {
+        endpoints(d, route, &view, t)?;
+    }
     match (around, rv.me) {
         (Some(_), _) => me_marker(d, t)?,
         // on the whole route: where the rider is, a dot ringed in the background colour
@@ -92,6 +95,58 @@ fn overlay<D: DrawTarget<Color = Rgb565>>(d: &mut D, r: Rectangle, t: &Theme) ->
     rounded(d, r, 4, t.rule, t.bg)?;
     let inner = Rectangle::new(r.top_left + Point::new(1, 1), r.size - Size::new(2, 2));
     rounded(d, inner, 3, t.bg, t.rule)
+}
+
+/// Flags anchored at the first and last points, facing away from each other so a loop shows both.
+fn endpoints<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    route: &Route<'_>,
+    view: &Transform,
+    t: &Theme,
+) -> Result<(), D::Error> {
+    let mut points = route.points();
+    let Some(start) = points.next() else { return Ok(()) };
+    let end = points.last().unwrap_or(start);
+    let project = |p: route::Point| {
+        let (x, y) = view.apply(p.x, p.y);
+        Point::new(x as i32, y as i32)
+    };
+    let (start, end) = (project(start), project(end));
+    let dir = if start.x <= end.x { -1 } else { 1 };
+    endpoint(d, start, dir, false, t)?;
+    endpoint(d, end, -dir, true, t)
+}
+
+fn endpoint<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    at: Point,
+    dir: i32,
+    finish: bool,
+    t: &Theme,
+) -> Result<(), D::Error> {
+    let top = at + Point::new(0, -14);
+    let pole = Line::new(top, at);
+    pole.into_styled(PrimitiveStyle::with_stroke(t.bg, 3)).draw(d)?;
+    pole.into_styled(PrimitiveStyle::with_stroke(t.fg, 1)).draw(d)?;
+    if finish {
+        let left = if dir < 0 { -11 } else { 2 };
+        Rectangle::new(at + Point::new(left - 1, -15), Size::new(11, 11))
+            .into_styled(PrimitiveStyle::with_fill(t.fg))
+            .draw(d)?;
+        for row in 0..3 {
+            for col in 0..3 {
+                let color = if (row + col) % 2 == 0 { t.fg } else { t.bg };
+                Rectangle::new(at + Point::new(left + col * 3, -14 + row * 3), Size::new(3, 3))
+                    .into_styled(PrimitiveStyle::with_fill(color))
+                    .draw(d)?;
+            }
+        }
+        Ok(())
+    } else {
+        Triangle::new(top + Point::new(dir, 0), top + Point::new(12 * dir, 0), top + Point::new(dir, 9))
+            .into_styled(PrimitiveStyleBuilder::new().fill_color(t.ok).stroke_color(t.bg).stroke_width(1).build())
+            .draw(d)
+    }
 }
 
 /// From the route's plane (decimetres) to the page (pixels).

@@ -357,6 +357,28 @@ fn every_screen() {
     ui.tick(0, Some(true), &riding);
     for z in ["route-map-1km", "route-map-2km", "route-map-whole", "route-map-50m", "route-map-250m", "route-map-500m"] {
         save(z, &ui, &riding, &ui::DAY);
+        if ui.zoom_m().is_none() {
+            save("route-map-whole-night", &ui, &riding, &ui::NIGHT);
+            // An open route too: endpoints at opposite corners of the fitted map.
+            let gpx = "<gpx><trk><trkseg>\
+                       <trkpt lat=\"43.45\" lon=\"2.05\"><ele>300</ele></trkpt>\
+                       <trkpt lat=\"43.46\" lon=\"2.06\"><ele>310</ele></trkpt>\
+                       <trkpt lat=\"43.47\" lon=\"2.07\"><ele>320</ele></trkpt>\
+                       </trkseg></trk></gpx>";
+            let file = route::build(&route::parse_gpx(gpx).unwrap(), 3.0);
+            let route = route::Route::parse(&file).unwrap();
+            let open = View {
+                route: Some(ui::RouteView {
+                    length_dm: route.info.length_dm,
+                    me: None,
+                    progress: None,
+                    ..riding.route.unwrap()
+                }),
+                ..riding
+            };
+            save_with("route-map-open", &ui, &open, &file, &ui::DAY);
+            save_with("route-map-open-night", &ui, &open, &file, &ui::NIGHT);
+        }
         ui.key(Key::TopLeft, Press::Click, 0, &riding);
     }
     save("route-map-night", &ui, &riding, &ui::NIGHT);
