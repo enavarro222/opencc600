@@ -403,6 +403,10 @@ fn every_screen() {
         ("charging", 64, true, 0),
         ("charging-step", 64, true, ui::CHARGE_CYCLE_MS / 2),
         ("charging-low", 9, true, 0),
+        ("charging-amber-start", 15, true, 0),
+        ("charging-amber", 30, true, ui::CHARGE_CYCLE_MS / 2),
+        ("charging-amber-end", 40, true, 0),
+        ("charging-blue-start", 41, true, 0),
         ("charging-full", 100, true, 0),
         ("charging-unplugged", 64, false, 0),
     ] {

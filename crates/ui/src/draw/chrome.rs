@@ -81,7 +81,7 @@ pub(super) fn top_bar<D: DrawTarget<Color = Rgb565>>(
     if let Some(p) = v.battery_pct {
         let pct = if p >= 100 { Fmt::new(format_args!("100%")) } else { Fmt::new(format_args!("{p} %")) };
         let text = match super::screens::low_battery(p, t) {
-            Some(c) if !v.plugged => bar.colored(c),
+            Some(c) => bar.colored(c),
             _ => bar,
         };
         fonts::value(d, &text, pct.as_str(), "", W - BAR_PAD, cy, Align::Right)?;
@@ -208,20 +208,22 @@ fn battery<D: DrawTarget<Color = Rgb565>>(
     let (w, h) = (BATTERY_W - 3, 10);
     let left = right - BATTERY_W;
     let top = cy - h / 2;
+    let outline = if pct < 10 { t.danger } else { t.mute };
     Rectangle::new(Point::new(left, top), Size::new(w as u32, h as u32))
-        .into_styled(PrimitiveStyle::with_stroke(t.mute, 1))
+        .into_styled(PrimitiveStyle::with_stroke(outline, 1))
         .draw(d)?;
     fill(
         d,
         Rectangle::new(Point::new(left + w + 1, top + 3), Size::new(2, 4)),
-        t.mute,
+        outline,
     )?;
     // at least a pixel while there is charge left
     let level = ((w - 4) * pct.min(100) as i32 / 100).max((pct > 0) as i32);
-    let c = match super::screens::low_battery(pct, t) {
-        _ if plugged => super::screens::battery_color(pct, plugged, t),
-        Some(c) => c,
-        None => t.mute,
+    let c = match (pct, plugged) {
+        (0..10, _) => t.danger,
+        (100.., true) => t.ok,
+        (_, true) => t.key_mark,
+        _ => t.mute,
     };
     if level > 0 {
         fill(

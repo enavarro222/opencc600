@@ -350,17 +350,17 @@ pub(super) fn about<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, t: &Theme
     Ok(())
 }
 
-/// A battery's colour, the same in the top bar and on the charging screen: red when low, light blue (the device's key
-/// marks) while charging, green when full on the charger; the top bar keeps the mute colour on battery.
+/// Charging animation: red below 15 %, amber from 15 to 40 %, light blue above, green when full on USB.
 pub(super) fn battery_color(pct: u8, plugged: bool, t: &Theme) -> Rgb565 {
     match (pct, plugged) {
-        (0..=15, _) => t.danger,
+        (0..15, _) => t.danger,
+        (15..=40, _) => t.warn,
         (100.., true) => t.ok,
         _ => t.key_mark,
     }
 }
 
-/// The top bar's battery, icon and percentage, on battery power: amber under 20 %, red under 10 %.
+/// The top bar's percentage: amber under 20 %, red under 10 %.
 pub(super) fn low_battery(pct: u8, t: &Theme) -> Option<Rgb565> {
     match pct {
         0..10 => Some(t.danger),
