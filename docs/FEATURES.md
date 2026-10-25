@@ -53,6 +53,11 @@ A GPX route sent from Musette over BLE (or over USB), the climbs found by the ap
 |:-:|:-:|:-:|:-:|
 | ![Home](screens/route-home.png) | ![Pause menu](screens/pause-menu.png) | ![Ride saved](screens/saved.png) | ![Rides](screens/rides.png) |
 
+- **Auto-pause** below 1.5 km/h by default, with automatic resume at or above the threshold. Enable/disable it
+  and set the threshold (0.1–10 km/h) in Musette's Sortie settings. A wheel sensor takes priority over GPS speed;
+  unknown speed preserves the current state, and a manual pause always needs a manual resume.
+- **Moving time and total elapsed time** kept separately in the FIT file; average speed uses moving time.
+  With auto-pause disabled, the timer runs until manually paused.
 - **FIT files that survive a power cut**: appended every 10 s, an interrupted ride closed and offered again at the
   next power-on; tested by cutting the power at every flash operation of a ride (PC) and by random resets on the
   device. Files checked with the Garmin FIT SDK.

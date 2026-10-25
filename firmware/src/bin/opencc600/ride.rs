@@ -10,7 +10,7 @@ use status::Status;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use crate::config::utc_offset;
+use crate::config::{settings, utc_offset};
 use crate::{Fs, serial};
 use crate::nrf::{SOUND_BEEP, sound};
 use crate::pairing::sensor_values;
@@ -22,7 +22,9 @@ use crate::pairing::sensor_values;
     reason = "Default of a 528-byte struct (the altitude history), built once a frame on the 215 KB main stack"
 )]
 pub(crate) struct RideInfo {
+    /// Started/resumed by the rider, including an automatic pause.
     pub(crate) running: bool,
+    pub(crate) auto_paused: bool,
     pub(crate) timer_s: u32,
     pub(crate) elapsed_s: u32,
     pub(crate) distance_cm: u32,
@@ -240,13 +242,14 @@ impl Ride {
         let t = s.now_unix()
             .map_or(self.last_timestamp, fit::timestamp)
             .max(self.last_timestamp);
-        let running = self.recorder.summary().running();
+        let running = self.recorder.active();
         let res = if running {
             self.recorder.pause(fs, t)
         } else {
             self.recorder.resume(fs, t)
         };
         self.wrote(fs, res);
+        self.last_timestamp = t;
         // the timer follows the key anyway: only the event may be missing from the file
         info!("ride: {}", if running { "paused" } else { "resumed" });
         if self.failure.is_none() {
@@ -260,6 +263,10 @@ impl Ride {
         reason = "a fix and a record, once a second from main (215 KB stack)"
     )]
     pub(crate) fn sample(&mut self, fs: &Fs<'_>, s: &Status) {
+        // Elapsed time keeps advancing even without a new GNSS epoch, using the RTC when needed.
+        if let Some(timestamp) = s.now_unix().map(fit::timestamp) {
+            self.last_timestamp = self.last_timestamp.max(timestamp);
+        }
         let Some(fix) = s.fix else { return };
         if fix.time.is_none() || fix.time == self.last_epoch {
             return;
@@ -272,12 +279,21 @@ impl Ride {
         let Some(timestamp) = self.clock.next(epoch_s, gnss, rtc) else {
             return;
         };
+        let timestamp = timestamp.max(self.last_timestamp);
         self.last_timestamp = timestamp;
-        let speed = fix.valid.then_some(fix.speed_mm_s).flatten();
-        let distance_cm = self
-            .odometer
-            .update(timestamp, speed, self.recorder.summary().running());
         let sensors = sensor_values();
+        let speed = sensors.speed_mm_s.or(fix.valid.then_some(fix.speed_mm_s).flatten());
+        let config = settings();
+        let was_paused = self.recorder.auto_paused();
+        let res = self.recorder.auto_pause(fs, timestamp, speed, config.auto_pause.then_some(config.auto_pause_kmh));
+        if self.recorder.auto_paused() != was_paused || res.is_err() {
+            self.wrote(fs, res);
+        }
+        if self.recorder.auto_paused() != was_paused {
+            info!("ride: auto-{}", if self.recorder.auto_paused() { "paused" } else { "resumed" });
+        }
+        let min_speed = if config.auto_pause { (u32::from(config.auto_pause_kmh) * 1000).div_ceil(36) } else { recorder::MOVING_MM_S };
+        let distance_cm = self.odometer.update_with_min_speed(timestamp, speed, self.recorder.summary().running(), min_speed);
         let record = fit::Record {
             timestamp,
             lat_e7: fix.lat_e7,
@@ -354,9 +370,10 @@ impl Ride {
         reason = "returns a RideInfo (528 bytes), once a frame from main (215 KB stack)"
     )]
     pub(crate) fn info(&self) -> RideInfo {
-        let t = self.recorder.summary().totals();
+        let t = self.recorder.summary().totals_at(self.last_timestamp);
         RideInfo {
-            running: self.recorder.summary().running(),
+            running: self.recorder.active(),
+            auto_paused: self.recorder.auto_paused(),
             timer_s: t.timer_ms / 1000,
             elapsed_s: t.elapsed_ms / 1000,
             distance_cm: self.odometer.distance_cm(),

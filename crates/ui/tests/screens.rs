@@ -93,6 +93,7 @@ fn view() -> View {
         ride: RideView {
             timer_s: 6128,
             elapsed_s: 6128 + 12 * 60,
+            auto_paused: false,
             distance_cm: 4_863_000,
             ascent_m: 812,
             descent_m: 640,
@@ -275,6 +276,10 @@ fn every_screen() {
         shot(&ui, &lost, "ride-gps-lost");
         ui.tick(2, Some(true), &v);
         shot(&ui, &v, "ride-gps-found");
+        ui.tick(2 + ui::INFO_MS, Some(true), &v);
+        let auto_paused = View { ride: RideView { auto_paused: true, ..v.ride }, speed_mm_s: Some(0), ..v };
+        ui.tick(2 + ui::INFO_MS, Some(true), &auto_paused);
+        shot(&ui, &auto_paused, "ride-auto-paused");
         ui.tick(2 + ui::INFO_MS, Some(true), &v);
         let full = View { write_failure: Some(ui::WriteFailure::Full), ..v };
         ui.tick(3 + ui::INFO_MS, Some(true), &full);

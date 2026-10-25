@@ -663,7 +663,7 @@ pub(super) fn paused<D: DrawTarget<Color = Rgb565>>(
     row(d, (&label, "Distance"), (&value, distance.as_str()), 123, m)?;
     row(
         d,
-        (&label, "Durée"),
+        (&label, "En mouvement"),
         (&value, duration(v.ride.timer_s).as_str()),
         167,
         m,
@@ -881,7 +881,7 @@ pub(super) fn saved<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Them
     let ascent = Fmt::new(format_args!("{} m", v.ride.ascent_m));
     let stats = [
         ("DISTANCE", distance),
-        ("DURÉE", duration(v.ride.timer_s)),
+        ("EN MOUVEMENT", duration(v.ride.timer_s)),
         ("MOYENNE", kmh(v.ride.avg_speed_mm_s())),
         ("D+", ascent),
     ];

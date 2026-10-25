@@ -159,14 +159,21 @@ impl Summary {
     }
 
     pub fn totals(&self) -> Totals {
+        self.totals_at(self.last_time)
+    }
+
+    /// Live totals, including time since the last written message (also while paused or sampling sparsely).
+    /// The stored summary still follows only the file; a later timer event persists the elapsed time.
+    pub fn totals_at(&self, timestamp: u32) -> Totals {
+        let last_time = timestamp.max(self.last_time);
         let start = self.start_time.unwrap_or(0);
         let running = self
             .running_since
-            .map_or(0, |since| self.last_time.saturating_sub(since));
+            .map_or(0, |since| last_time.saturating_sub(since));
         Totals {
             start_time: start,
-            end_time: self.last_time,
-            elapsed_ms: self.last_time.saturating_sub(start) * 1000,
+            end_time: last_time,
+            elapsed_ms: last_time.saturating_sub(start) * 1000,
             timer_ms: (self.timer_s + running) * 1000,
             distance_cm: self.distance_cm,
             ascent_m: (self.ascent_dm / 10).min(u16::MAX as u32) as u16,
@@ -181,7 +188,7 @@ pub const MOVING_MM_S: u32 = 500;
 /// Longest gap between two speeds integrated as is (a lost fix); longer gaps count this long.
 const MAX_GAP_S: u32 = 5;
 
-/// Distance from the GNSS speed (until a wheel sensor gives a better one).
+/// Distance from speed (the firmware prefers a wheel sensor over GNSS).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Odometer {
     last: Option<u32>,
@@ -200,12 +207,23 @@ impl Odometer {
     /// Adds the speed at FIT timestamp `timestamp`; returns the distance since the start, centimetres. Paused
     /// (`running` false), nothing counts, nor the time up to the first speed after the pause.
     pub fn update(&mut self, timestamp: u32, speed_mm_s: Option<u32>, running: bool) -> u32 {
+        self.update_with_min_speed(timestamp, speed_mm_s, running, MOVING_MM_S)
+    }
+
+    /// Integrates with the ride's configured movement threshold, instead of the default GNSS noise floor.
+    pub fn update_with_min_speed(
+        &mut self,
+        timestamp: u32,
+        speed_mm_s: Option<u32>,
+        running: bool,
+        min_mm_s: u32,
+    ) -> u32 {
         if !running {
             self.last = None;
             return self.distance_cm();
         }
         if let (Some(last), Some(v)) = (self.last, speed_mm_s)
-            && v >= MOVING_MM_S
+            && v >= min_mm_s
         {
             let dt = timestamp.saturating_sub(last).min(MAX_GAP_S);
             self.distance_mm += v as u64 * dt as u64;
@@ -260,6 +278,8 @@ impl EpochClock {
 pub struct Recorder {
     id: u32,
     summary: Summary,
+    /// An automatic pause keeps the ride active; a manual pause or reopen clears it.
+    auto_paused: bool,
     buf: [u8; BUF],
     len: usize,
     last_flush: u32,
@@ -281,6 +301,7 @@ impl Recorder {
         let mut r = Self {
             id,
             summary: Summary::default(),
+            auto_paused: false,
             buf: [0; BUF],
             len: 0,
             last_flush: timestamp,
@@ -317,6 +338,7 @@ impl Recorder {
         let mut r = Self {
             id,
             summary: scan.summary,
+            auto_paused: false,
             buf: [0; BUF],
             len: 0,
             last_flush: scan.summary.last_time,
@@ -341,6 +363,46 @@ impl Recorder {
 
     pub fn summary(&self) -> &Summary {
         &self.summary
+    }
+
+    /// The rider has started/resumed the ride, including when auto-pause has stopped its timer.
+    pub fn active(&self) -> bool {
+        self.summary.running() || self.auto_paused
+    }
+
+    pub fn auto_paused(&self) -> bool {
+        self.auto_paused
+    }
+
+    /// Applies auto-pause before integrating the distance or recording a sample. `threshold` is in tenths of
+    /// km/h, `None` disables auto-pause. A missing speed preserves the state, never counts as zero. Manual
+    /// pauses are never resumed here. Timer events make both durations and the moving average recoverable.
+    pub fn auto_pause<S: Storage>(
+        &mut self,
+        fs: &Filesystem<'_, S>,
+        timestamp: u32,
+        speed_mm_s: Option<u32>,
+        threshold: Option<u16>,
+    ) -> Result<()> {
+        if !self.active() {
+            return Ok(());
+        }
+        let paused = match (threshold, speed_mm_s) {
+            (None, _) => false,
+            (Some(t), Some(v)) => u64::from(v) * 36 < u64::from(t) * 1000,
+            (Some(_), None) => return Ok(()),
+        };
+        if paused == self.auto_paused {
+            return Ok(());
+        }
+        let result = if paused {
+            self.pause(fs, timestamp)
+        } else {
+            self.resume(fs, timestamp)
+        };
+        // pause/resume updates the summary before flushing; preserve its state even if the flush failed.
+        self.auto_paused = !self.summary.running();
+        result
     }
 
     /// One record every `s` seconds from now on (1: every sample). The totals come from the records written: the
@@ -376,6 +438,7 @@ impl Recorder {
 
     /// Stops the timer (pause); written at once.
     pub fn pause<S: Storage>(&mut self, fs: &Filesystem<'_, S>, timestamp: u32) -> Result<()> {
+        self.auto_paused = false;
         if self.summary.running() {
             self.event(timestamp, EventType::Stop)?;
             self.flush(fs)?;
@@ -384,6 +447,7 @@ impl Recorder {
     }
 
     pub fn resume<S: Storage>(&mut self, fs: &Filesystem<'_, S>, timestamp: u32) -> Result<()> {
+        self.auto_paused = false;
         if !self.summary.running() {
             self.event(timestamp, EventType::Start)?;
             self.flush(fs)?;

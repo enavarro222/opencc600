@@ -654,7 +654,10 @@ pub enum Gnss {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RideView {
+    /// Time with the timer running, excluding manual and automatic pauses.
     pub timer_s: u32,
+    /// The ride is active but its timer is automatically paused.
+    pub auto_paused: bool,
     pub elapsed_s: u32,
     pub distance_cm: u32,
     pub ascent_m: u16,
@@ -1222,7 +1225,7 @@ impl Ui {
         self.page = (self.page + 1) % (self.pages.len() as u8).max(1);
     }
 
-    /// Follows the ride the firmware has (`None` without a ride, else whether its timer runs) and the GNSS fix;
+    /// Follows the ride (`None` without one, else whether it is active, including auto-pause) and the GNSS fix;
     /// scrolls the pages, sets and clears the banners. [`Command::PowerOff`] when the device stayed still during a
     /// ride for the automatic power off's delay (the firmware pauses and keeps the ride).
     pub fn tick(&mut self, now_ms: u64, ride: Option<bool>, view: &View) -> Option<Command> {
@@ -1307,6 +1310,9 @@ impl Ui {
             }
             (true, true, Some(o)) => {
                 Some(("Hors de la trace", Line::new(format_args!("à {}", off_distance(o.off_dm).as_str()))))
+            }
+            (true, ..) if view.ride.auto_paused => {
+                Some(("Pause automatique", Line::new(format_args!("Reprise dès que tu roules"))))
             }
             _ => None,
         };
@@ -2211,9 +2217,30 @@ mod tests {
     }
 
     #[test]
+    fn auto_pause_keeps_ride_pages_and_allows_a_manual_pause() {
+        let mut ui = Ui::new();
+        ui.end_splash();
+        let mut v = View { gnss: Gnss::Fix { used: 8 }, ..Default::default() };
+        v.ride.auto_paused = true;
+        ui.tick(0, Some(true), &v);
+        assert_eq!(ui.screen(), Screen::Ride);
+        assert_eq!(ui.banner().unwrap().title, "Pause automatique");
+        assert_eq!(ui.key(Key::BottomRight, Press::Click, 1, &v), Some(Command::Pause));
+        v.ride.auto_paused = false;
+        ui.tick(2, Some(false), &v);
+        assert_eq!(ui.screen(), Screen::Paused);
+        assert!(ui.banner().is_none());
+        assert_eq!(ui.key(Key::BottomRight, Press::Click, 3, &v), Some(Command::Resume));
+        ui.tick(4, Some(true), &v);
+        assert_eq!(ui.screen(), Screen::Ride);
+    }
+
+    #[test]
     fn average_speed() {
         let r = RideView {
             timer_s: 3600,
+            elapsed_s: 7200,
+            auto_paused: true,
             distance_cm: 2_850_000,
             ..Default::default()
         };

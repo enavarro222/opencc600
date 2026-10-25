@@ -143,7 +143,7 @@ its page with "–".
 | Day / night theme | done (manual) | day |
 | Night theme from sunset to sunrise (from the GPS position) | done | on |
 | Backlight from the ambient light sensor | done, curve to tune on the road | on |
-| Auto-pause (timer stops when not moving) | later | on |
+| Auto-pause (timer stops below the speed threshold) | done, configured in Musette | on, 1.5 km/h |
 | Start reminder ("tu roules, démarrer ?"), never starts on its own | later | on |
 | Turn announcements (cues precomputed by the app) | later | off |
 | Laps | later | off |

@@ -75,11 +75,12 @@ pub(crate) fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View 
                 progress: (Instant::now().as_secs() * 100 / 45).min(95) as u8,
             },
         },
-        // the receiver reports a few tenths of m/s at rest
-        speed_mm_s: fix
-            .filter(|f| f.valid)
-            .and_then(|f| f.speed_mm_s)
-            .map(|v| if v < recorder::MOVING_MM_S { 0 } else { v }),
+        // Prefer the wheel sensor, and use the same movement threshold as the recorder.
+        speed_mm_s: sensors.speed_mm_s.or(fix.filter(|f| f.valid).and_then(|f| f.speed_mm_s)).map(|v| {
+            let config = settings();
+            let min_speed = if config.auto_pause { (u32::from(config.auto_pause_kmh) * 1000).div_ceil(36) } else { recorder::MOVING_MM_S };
+            if v < min_speed { 0 } else { v }
+        }),
         altitude_dm,
         grade_pct: altitude_dm.and_then(|a| ride.history.grade_pct(ride.distance_cm, a)),
         vam_m_h: ride.history.vam_m_h(),
@@ -101,6 +102,7 @@ pub(crate) fn view_of(s: &Status, ride: &RideInfo, resumable: bool) -> ui::View 
         sensors: sensors_view(),
         ride: ui::RideView {
             timer_s: ride.timer_s,
+            auto_paused: ride.auto_paused,
             elapsed_s: ride.elapsed_s,
             distance_cm: ride.distance_cm,
             ascent_m: ride.ascent_m,

@@ -286,7 +286,7 @@ pub(super) fn ride_essential<D: DrawTarget<Color = Rgb565>>(
         (small, "TEMPS TOTAL", duration(v.ride.elapsed_s), "", None)
     };
     let cells = [
-        (small, "DURÉE", duration(v.ride.timer_s), "", None),
+        (small, "EN MOUVEMENT", duration(v.ride.timer_s), "", None),
         (small, "DISTANCE KM", km(v.ride.distance_cm), "00,0", None),
         (small, "D+ M", int(Some(v.ride.ascent_m)), "000", None),
         last,
@@ -305,7 +305,7 @@ pub(super) fn ride_effort<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: 
         // from the power meter, else a cadence sensor
         Some((small, "CADENCE", int(v.cadence_rpm), "00", None)),
         Some((small, "VITESSE KM/H", kmh(v.speed_mm_s), SPEED, None)),
-        Some((small, "DURÉE", duration(v.ride.timer_s), "", None)),
+        Some((small, "EN MOUVEMENT", duration(v.ride.timer_s), "", None)),
     ];
     let mut shown = candidates.into_iter().flatten();
     let cells = core::array::from_fn(|_| shown.next().unwrap_or((small, "", Fmt::new(format_args!("")), "", None)));
@@ -332,7 +332,7 @@ pub(super) fn ride_cardio<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: 
     let last = if paired(v, Role::SpeedCadence) {
         (small, "CADENCE", int(v.cadence_rpm), "00", None)
     } else {
-        (small, "DURÉE", duration(v.ride.timer_s), "", None)
+        (small, "EN MOUVEMENT", duration(v.ride.timer_s), "", None)
     };
     let cells = [
         (small, "MOY. BPM", int(v.ride.avg_heart_rate), "000", None),
