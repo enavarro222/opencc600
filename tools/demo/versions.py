@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The builds of the in-browser demo (docs/demo/builds/<name>/) and their index, versions.json.
 
-usage: versions.py build-info BUILD_DIR NAME COMMIT ESP32SIM_COMMIT   (writes BUILD_DIR/build.json)
+usage: versions.py build-info BUILD_DIR NAME COMMIT ESP32SIM_COMMIT [FEATURE...] (writes BUILD_DIR/build.json)
        versions.py index DEMO_DIR                                     (writes DEMO_DIR/versions.json)
        versions.py fetch URL DEMO_DIR [--skip NAME]   (downloads the builds a published demo lists, so that
                                                        a new deployment keeps them)
@@ -16,11 +16,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def build_info(build_dir, name, commit, sim):
+def build_info(build_dir, name, commit, sim, *features):
     build = Path(build_dir)
     files = sorted(str(p.relative_to(build)) for p in build.rglob('*') if p.is_file() and p.name != 'build.json')
     date = subprocess.check_output(['git', 'show', '-s', '--format=%cI', commit], text=True).strip()
-    info = {'name': name, 'commit': commit, 'date': date, 'esp32sim': sim, 'files': files,
+    info = {'name': name, 'commit': commit, 'date': date, 'esp32sim': sim, 'files': files, 'features': list(features),
             'built': datetime.now(timezone.utc).isoformat(timespec='seconds')}
     (build / 'build.json').write_text(json.dumps(info, indent=1) + '\n')
 
@@ -31,7 +31,8 @@ def index(demo_dir):
     builds.sort(key=lambda b: b['date'], reverse=True)
     builds.sort(key=lambda b: b['name'] != 'main')
     keep = ('name', 'commit', 'date', 'esp32sim')
-    (demo / 'versions.json').write_text(json.dumps([{k: b[k] for k in keep} for b in builds], indent=1) + '\n')
+    (demo / 'versions.json').write_text(json.dumps([{**{k: b[k] for k in keep}, 'built': b.get('built'),
+                                                  'features': b.get('features', [])} for b in builds], indent=1) + '\n')
     print('versions:', ', '.join(b['name'] for b in builds))
 
 
@@ -64,7 +65,7 @@ def fetch(url, demo_dir, skip):
 
 if __name__ == '__main__':
     a = sys.argv[1:]
-    if a[:1] == ['build-info'] and len(a) == 5:
+    if a[:1] == ['build-info'] and len(a) >= 5:
         build_info(*a[1:])
     elif a[:1] == ['index'] and len(a) == 2:
         index(a[1])

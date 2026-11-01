@@ -17,6 +17,7 @@ The emulator is [esp32sim](https://github.com/mikroverk/esp32sim) compiled to We
 | What | Where | Specific to the demo? |
 |---|---|---|
 | The page: case, keys and clickable screen hints, simulated ride, USB console, version menu, visitor's own dump, saved storage, the bridge to Musette | `docs/site/index.html` | yes |
+| Guided visits: instructions, highlighted controls and validation of the firmware's responses | `docs/site/tours.mjs` | yes |
 | Build and publication | `.github/workflows/demo.yml`, `tools/demo/` (`build.sh`, `versions.py`, `partitions.csv`, `esp32sim.rev`) | yes |
 | The firmware | `firmware/` | no: the same ELF as on the device |
 | The emulated ESP32-S3, the worker and its message protocol, the virtual BLE controller, the flash read-back | esp32sim fork, generic branches | no: written so they could go upstream |
@@ -26,6 +27,44 @@ The emulator is [esp32sim](https://github.com/mikroverk/esp32sim) compiled to We
 The page knows only three things about the device: the worker's message protocol, the virtual pins 64–66 the
 board model maps to the keys, and the board's `gnss LAT LON ALT KMH COURSE` command. Everything else is the
 firmware talking to emulated hardware.
+
+## Guided visits and browser tests
+
+Three visits are offered before starting the device: **Enregistrer une sortie**, **Connecter une ceinture cardio**
+and **Éteindre et recharger**. Instructions highlight a control, and the visit advances automatically after the expected
+response, once any held key has been released. The visitor can use the real controls or **Faire cette étape pour moi**, which dispatches the same key
+presses and clicks. The firmware is not replaced with scripted screens or injected UI state.
+
+The counter keeps the central column before and after boot. Suggestions appear progressively as quiet side
+cards; the guide occupies the left side during a visit. A curved SVG arrow follows the actual target on scroll
+and resize, without intercepting clicks. Playback and sensor controls are temporarily moved beside the counter
+(above it on phones), using the same DOM elements and handlers, then returned to their original panels.
+Reduced-motion preferences disable the entrance animation.
+
+`tours.mjs` contains the shared scenarios and their checks. During a visit the page asks the existing, read-only
+USB command `screen ?` for the current screen. Recording and pairing steps additionally require new firmware log
+events (including the successful FIT save), so an earlier pause or an unconfirmed button press cannot validate a
+later step. GPS playback and the simulated sensor's switch are checked on the simulation controls; subsequent
+recording, discovery and pairing are confirmed by the firmware. This exercises the running firmware and emulator,
+without claiming coverage of the physical radio or hardware.
+
+Before entering, the page finishes saving free exploration. It boots a clean flash for the visit, bypasses the
+saved partition, and disables automatic saves until leaving. Exiting, finishing or reloading restores the free
+partition; the visit's rides and pairings are temporary. Simulation controls are restored on exit. A personal flash
+dump and older emulator builds lacking a required feature are rejected with a way back to free exploration.
+
+```sh
+make test-demo                                # Node.js tests: observations, validation, BLE bridge and sensors
+uv run --with playwright==1.55.0 playwright install chromium  # once, unless Google Chrome is available
+make test-demo-e2e NAME=local                  # stage the existing build, serve it, replay all visits
+# Or use a demo already being served:
+uv run --with playwright==1.55.0 python3 tools/demo/check_tours.py 'http://127.0.0.1:8765/?v=local'
+```
+
+The browser runner reads the step and completion state from the visible guide, clicks its actions, checks automatic progression, and checks
+the firmware evidence. It never supplies success to the guide. Logs, screenshots and the visited steps are saved
+under `target/demo/tour-check/`; failures retain the full page and USB log. The tests workflow runs the fast page
+tests and replays these same visits after building the simulator firmware, uploading the reports as an artifact.
 
 ## Data flow
 
@@ -52,6 +91,47 @@ image, its ELF and its emulator. The menu choice is kept in the URL (`?v=v0.1.0`
 A visitor can also load the full 16 MB flash dump of their own device (`esptool read-flash 0 ALL dump.bin`), vendor
 firmware included: it runs with the emulator of the selected version, stays in their browser and is not saved. The
 vendor firmware is not distributed here.
+
+## Simulated external sensors
+
+The **Capteurs** tab under **Environnement de sortie** exposes an ANT+ heart-rate strap (6001), a combined speed /
+cadence sensor (6002), and a power meter (6003). They start disabled. Enable them, then search and pair them from
+the device's normal sensors menu. Musette keeps its independent BLE connection.
+
+Each measurement has its own source: a fixed value, the current GPX/FIT record, or a simple model following the
+GPS's speed and gradient. GPX extensions `hr`, `cad`, `power`/`watts` and `speed` are read; FIT record fields,
+enhanced speed/altitude, compressed timestamps and big-endian definitions are supported; developer-field payloads are skipped.
+FIT CRCs and message boundaries are checked. FIT files need at least two GPS positions; sensor records between
+positions still contribute their measurements. Files remain in the browser.
+
+Recorded measurements hold until the next record, for at most ten trace seconds. Missing values remain missing;
+speed is calculated from positions when no speed was recorded. Speed and cadence have separate sources but share
+one radio device: if either measurement is missing, this device sends no data pages. Fixed and recorded values
+continue to broadcast while playback is paused. The model instead follows the stopped GPS, with zero power and
+cadence and gradual heart-rate recovery. It estimates rolling, gravitational and aerodynamic effort for an 85 kg
+rider/bicycle; it is intended to exercise the device, not to predict a real rider's performance.
+
+Values displayed in the tab are the measurements broadcast every emulated second, whether the tab is visible or
+not. **Simuler une coupure** stops discovery and measurements, so the firmware's own link/data timeouts apply;
+**Rétablir le capteur** resumes transmission with the same identity. Wheel/crank counters use emulated time and
+continue across source changes; no firmware readings or pairing settings are injected by the page.
+
+The CC600 extension is kept here as `tools/demo/cc600-ant.rs`, `cc600-ant.patch` and `cc600-power.patch`, and applied
+idempotently by `prepare_sim.py` before building the emulator. The base revision plus extension hash is recorded in build
+metadata; `features: ["ant-sensors"]` enables the panel for that build. Older published builds remain usable and
+show that external sensors are unavailable. The patch applies to the pinned release without altering its shared
+BLE controller. With a local source checkout, build a native simulator after preparing it to use the same commands:
+
+```sh
+python3 tools/demo/prepare_sim.py ../esp32sim
+(cd ../esp32sim && cargo build --release -p esp32sim)
+node tests/demo/sensors.test.mjs
+```
+
+After staging and serving a build, `tools/demo/check_sensor_search.py http://127.0.0.1:8765/?v=local` exercises
+discovery and pairing of all three sensors using the counter's buttons. Build identifiers on the worker, WASM
+and firmware URLs prevent a browser from combining a newly rebuilt page with an older emulator. Rebuild the
+selected version (`NAME=local`, for example) when testing the sensor extension locally.
 
 ## Build and run locally
 
@@ -104,8 +184,24 @@ emulated device as with a real one.
 The CCCD is taken right after its characteristic's value (trouble-host's layout): trouble-host 0.7 answers the
 descriptor discovery in a malformed format.
 
+Automatic power off leaves the nRF and its power key running. ANT+ deadlines are suspended while the ESP32 is
+off, so external sensors cannot stall the emulated clock or prevent a long press from waking it. The page uses
+the emulator's `stat.powered` field to show the off state and reject Bluetooth operations promptly while off.
+On a chip reset, the virtual-central bridge discards the old connection, MTU and characteristic handles, then
+reconnects and restores Musette's notifications when the device advertises again. The same iframe and app session
+remain usable after a power-key or USB wake. An in-progress operation is rejected on power loss.
+
+`tools/demo/check_power_cycle.py http://127.0.0.1:8765/?v=local` tests a real one-minute automatic power off with
+a sensor broadcasting, power-key wake, USB wake, and a Musette setting write/read after each wake. The staged
+site needs a Musette export for this check. Bridge reset and notification behavior also have isolated tests:
+`node tests/demo/gatt.test.mjs`.
+
 `?musette=<url>` loads another Musette, a local build for instance (`npx expo export --platform web` in
 `musette/app`, served on another port).
+The local `make site-copy` / `make preview` workflow also includes an available
+`../musette/app/dist` export and selects it automatically (build it with
+`MUSETTE_BASE_URL=/musette`). Each **Recharger** opens a fresh iframe document,
+so browser caching cannot keep an old set of app bundles after an update.
 
 ## The esp32sim fork
 

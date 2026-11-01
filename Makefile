@@ -4,6 +4,7 @@ SHELL := /bin/sh
 NAME ?= main
 PORT ?= 8765
 SITE_DIR ?= target/demo/site
+MUSETTE_DIST ?= ../musette/app/dist
 OTA_IMAGE ?= target/opencc600-ota.bin
 RELEASE_DIR ?= target/release
 CC600_PORT ?= /dev/ttyACM0
@@ -26,7 +27,7 @@ endif
 FIRMWARE_ELF := firmware/target/xtensa-esp32s3-none-elf/release/opencc600
 
 .PHONY: help firmware firmware-image flash demo site site-copy preview release prepare-release \
-	test coverage test-sim test-hil check
+	test coverage test-sim test-hil test-demo test-demo-e2e check
 
 help: ## Show common build and test targets
 	@awk 'BEGIN { FS = ":.*## " } /^[a-zA-Z0-9_-]+:.*## / { printf "%-18s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -59,9 +60,10 @@ site: demo ## Build and stage a complete site for local preview
 site-copy: ## Stage the already-built demo site (SITE_DIR=target/demo/site by default)
 	test -n "$(SITE_DIR)"
 	mkdir -p "$(SITE_DIR)/screens"
-	cp docs/site/index.html docs/demo/versions.json docs/demo/tourmalet.gpx docs/logo-wide.svg "$(SITE_DIR)/"
+	cp docs/site/index.html docs/site/*.mjs docs/demo/versions.json docs/demo/tourmalet.gpx docs/logo-wide.svg "$(SITE_DIR)/"
 	cp -r docs/demo/builds docs/demo/rom "$(SITE_DIR)/"
 	cp docs/screens/ride-page1.png docs/screens/ride-page2.png docs/screens/route-map-1km.png docs/screens/climbs-in.png "$(SITE_DIR)/screens/"
+	python3 tools/demo/stage_musette.py "$(MUSETTE_DIST)" "$(SITE_DIR)"
 
 preview: site-copy ## Serve the existing demo build locally without rebuilding firmware (PORT=8765 by default)
 	python3 -m http.server "$(PORT)" --bind 127.0.0.1 --directory "$(SITE_DIR)"
@@ -106,5 +108,11 @@ test-sim: firmware ## Run end-to-end tests on the native CC600 emulator
 
 test-hil: ## Run tests on a CC600 over USB (CC600_PORT=/dev/ttyACM0)
 	uv run --project tests/hil pytest tests/hil --port "$(CC600_PORT)" $(PYTEST_ARGS)
+
+test-demo: ## Test the demo page logic (Node.js, no firmware build)
+	node --test tests/demo/*.test.mjs
+
+test-demo-e2e: site-copy ## Replay guided visits on the built browser demo (NAME=main by default)
+	uv run --with playwright==1.55.0 python3 tools/demo/check_tours.py --site "$(SITE_DIR)" --version "$(NAME)"
 
 check: test test-sim ## Run host and emulator tests (no physical device)

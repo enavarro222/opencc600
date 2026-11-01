@@ -1,0 +1,47 @@
+diff --git a/esp32s3/src/board/cc600/nrf.rs b/esp32s3/src/board/cc600/nrf.rs
+--- a/esp32s3/src/board/cc600/nrf.rs
++++ b/esp32s3/src/board/cc600/nrf.rs
+@@ -322,7 +322,7 @@
+     pub fn transmit(&mut self, cycle: u64) -> Vec<u8> { self.wire.transmit(cycle) }
+ 
+     pub fn next_deadline(&self) -> u64 {
+-        let mut at = self.keys.iter().filter_map(|k| k.next_long).chain(self.ant.next_deadline()).min().unwrap_or(u64::MAX);
++        let mut at = self.keys.iter().filter_map(|k| k.next_long).chain(self.ant.next_deadline().filter(|_| !self.powered_off)).min().unwrap_or(u64::MAX);
+         if !self.powered_off { at = at.min(*self.next[..if self.stream { 4 } else { 1 }].iter().min().unwrap()); }
+         if let Some(wire) = self.wire.next_deadline() { at = at.min(wire); }
+         at
+@@ -352,6 +352,22 @@
+     }
+ 
+     /// The frames of the CC600 captures in opencc600's `crates/nrf-link/tests/frames.rs`.
++    #[test]
++    fn an_ant_timer_cannot_stall_the_power_key_while_switched_off() {
++        let mut n = Nrf::new(1_789_649_884);
++        drain(&mut n, CPU_HZ);
++        n.ant.command(CPU_HZ, &["120", "6001", "1", "idle"]).unwrap();
++        n.power_off();
++        drain(&mut n, 2 * CPU_HZ);
++        // External sensors keep broadcasting while the counter is off; that must not add a past deadline.
++        n.ant.command(2 * CPU_HZ, &["120", "6001", "1", "0000000000000096"]).unwrap();
++        assert_eq!(n.next_deadline(), u64::MAX);
++        n.key(3 * CPU_HZ, 0, true);
++        assert_eq!(n.next_deadline(), 3 * CPU_HZ + KEY_HELD);
++        drain(&mut n, 3 * CPU_HZ + KEY_HELD);
++        assert!(!n.powered_off && n.power_cycle && n.stream);
++    }
++
+     #[test]
+     fn reports_match_the_captured_frames() {
+         // 2026-09-17 12:58:05 UTC, a Thursday
+diff --git a/esp-soc/src/machine/web.rs b/esp-soc/src/machine/web.rs
+--- a/esp-soc/src/machine/web.rs
++++ b/esp-soc/src/machine/web.rs
+@@ -99,7 +99,7 @@
+             for (id, leds, _) in board.led_grids() { hello.push(frame(1, format!("{{\"t\":\"grid\",\"id\":\"{}\",\"leds\":[{}]}}", id, leds_json(leds)).as_bytes())); }
+             w.set_hello(hello);
+         }
+-        w.send_text(&format!("{{\"t\":\"stat\",\"time\":{:.2},\"insns\":{},\"frames\":{},\"behind\":{:.2},\"resyncs\":{},\"speed\":{},\"cam\":{},\"gpio_in\":\"{:x}\"}}", self.seconds(), self.insns(), board.display_frames(), self.rt.behind, self.rt.resyncs, self.rt.speed.map_or_else(|| "null".to_string(), |s| format!("{:.3}", s)), self.bus.camera_frames(), self.bus.gpio_input()));
++        w.send_text(&format!("{{\"t\":\"stat\",\"time\":{:.2},\"insns\":{},\"frames\":{},\"behind\":{:.2},\"resyncs\":{},\"speed\":{},\"cam\":{},\"gpio_in\":\"{:x}\",\"powered\":{}}}", self.seconds(), self.insns(), board.display_frames(), self.rt.behind, self.rt.resyncs, self.rt.speed.map_or_else(|| "null".to_string(), |s| format!("{:.3}", s)), self.bus.camera_frames(), self.bus.gpio_input(), board.chip_powered()));
+     }
+ 
+     pub(super) fn poll_camera_input(&mut self) {

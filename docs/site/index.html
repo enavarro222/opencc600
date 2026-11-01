@@ -21,19 +21,17 @@ header p, section.ride > p { max-width: 920px; }
 header .intro-copy { text-align: center; }
 a { color: #1D4ED8; }
 /* Keep the counter central; the simulation controls live below it. */
-main { display: grid; grid-template-columns: 300px 380px; grid-template-areas: "device app" "side app";
-  gap: 18px clamp(40px, 10vw, 120px); align-items: start; justify-content: center; padding-top: 24px; padding-bottom: 28px; }
+main { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 300px minmax(0, 1fr);
+  grid-template-areas: "tours device app" "tours side app"; column-gap: clamp(28px, 4vw, 48px); row-gap: 140px;
+  align-items: start; padding-top: 80px; padding-bottom: 32px; min-height: 780px; }
 main > .device { grid-area: device; } main > .side { grid-area: side; } main > .app { grid-area: app; }
-@media (max-width: 1100px) { main { grid-template-columns: 300px minmax(0, 380px); grid-template-areas: "device app" "side app"; justify-content: center; } }
-@media (max-width: 760px) { main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "device" "side" "app"; justify-items: center; }
-  main > .side { justify-self: stretch; } }
-body:not(.running) main { grid-template-columns: 1fr; grid-template-areas: "device"; justify-items: center; padding-top: 84px; }
 body:not(.running) .side, body:not(.running) section.ride, body:not(.running) footer { display: none; }
 .colhead { margin: 0 0 6px; font-size: 22px; }
 .device { position: relative; width: 300px; height: 480px; flex-shrink: 0; margin-top: 14px; touch-action: none; }
 .power-hint { position: absolute; z-index: 6; top: -78px; left: 4px; width: 292px; color: #333; font-size: 18px; font-weight: 700; line-height: 1.15; text-align: center; }
 .power-hint::after { content: '↓'; position: absolute; left: 67px; bottom: -28px; color: #1D4ED8; font-size: 27px; }
 body.running .power-hint { display: none; }
+body.running .device.powered-off .power-hint { display: block; }
 @keyframes phone-reveal { from { opacity: 0; transform: translateX(-36px) scale(.98); } to { opacity: 1; transform: none; } }
 body.running .app { animation: phone-reveal .65s ease-out both; }
 /* the case: black, a rounded top, a slightly flatter bottom, a soft rim */
@@ -99,15 +97,34 @@ form { display: flex; gap: 8px; }
 input[type=text] { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid #bbb; border-radius: 6px; font: 14px ui-monospace, Menlo, Consolas, monospace; }
 button.act { padding: 6px 12px; border: 1px solid #999; border-radius: 6px; background: #fff; font: 600 16px 'Barlow Condensed', sans-serif; cursor: pointer; }
 section.ride { margin-bottom: 24px; }
+.sensor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; margin: 16px 0; }
+.sensor-card { min-width: 0; margin: 0; padding: 14px; border: 1px solid #c7c5be; border-radius: 10px; background: #fff; }
+.sensor-card legend { font-size: 22px; font-weight: 600; padding: 0 6px; }
+.sensor-card legend small { color: var(--mute); font-size: 15px; font-weight: 500; }
+.sensor-measure { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin-top: 16px; align-items: center; }
+.sensor-measure > label:first-child { grid-column: 1 / -1; }
+.sensor-measure select { width: 100%; }
+.sensor-fixed { grid-column: 1 / -1; font-size: 16px; }
+.sensor-fixed input { width: 80px; margin-left: 6px; padding: 4px; }
+.sensor-value { grid-column: 2; grid-row: 2; font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sensor-status { margin-top: 16px; font-size: 16px; }
+#sensor-availability { font-weight: 600; }
+.sensor-card [aria-invalid="true"] { outline: 2px solid #b42318; }
+[hidden] { display: none !important; }
 section.ride.secondary { max-width: none; padding: 28px max(16px, calc((100% - 1208px) / 2)); background: #F5F4F0; border-top: 1px solid #d8d6d0; }
-.app { width: 380px; max-width: 100%; }
+.app { width: 100%; max-width: 380px; justify-self: end; }
 body:not(.running) .app { display: none; }
 .app .colhead { display: none; }
 .phone { position: relative; height: 700px; padding: 14px 10px; border-radius: 34px; background: #111; box-shadow: 0 12px 28px rgba(0,0,0,.25); box-sizing: border-box; }
 .phone { -webkit-mask-image: linear-gradient(to right, rgba(0,0,0,.6), transparent); mask-image: linear-gradient(to right, rgba(0,0,0,.6), transparent); transition: mask-image .25s, -webkit-mask-image .25s; }
 .phone.open { -webkit-mask-image: none; mask-image: none; }
+.phone:not(.open) { height: 210px; padding: 0; background: transparent; box-shadow: none; mask-image: none; -webkit-mask-image: none; }
+.phone:not(.open) .intro { padding: 22px; background: #f7f6f175; border: 1px solid #fff9; color: var(--mute); }
+.phone:not(.open) .intro p { font-size: 17px; }
+.phone:not(.open) .intro p:nth-child(2) { display: none; }
 .phone-cta { display: block; width: max-content; margin: -8px 10px 0 auto; position: relative; z-index: 2; }
 .phone.open + .phone-cta { display: none; }
+.phone-reload:not([hidden]) { display: block; margin: 12px 0 0 auto; }
 @media (max-width: 760px) { .phone:not(.open) { height: auto; } }
 .phone iframe, .phone .intro { width: 100%; height: 100%; border: 0; border-radius: 22px; background: #fff; box-sizing: border-box; }
 .phone .intro { display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 28px; background: #F5F4F0; }
@@ -135,6 +152,71 @@ section.ride h2 { margin: 0 0 6px; font-size: 24px; }
 .tab-panel .legend { max-width: 760px; }
 footer { padding-bottom: 28px; }
 footer p { font-size: 15px; color: var(--mute); }
+.tours { grid-area: tours; min-width: 0; width: 100%; max-width: 290px; justify-self: start; margin-top: 46px; box-sizing: border-box; z-index: 8; }
+.tours h2 { margin: 0 0 8px; font-size: 27px; line-height: 1.05; }
+#tour-choices > h2 { font-size: 20px; font-weight: 600; color: #67665f; }
+#tour-choices > p { font-size: 16px; color: #77766e; }
+#tour-choices > h2, #tour-choices > p { animation: tour-note-in .6s 1.2s both; }
+.tour-cards { display: grid; gap: 18px; margin: 22px 0; }
+.tour-card { --tilt: -2deg; display: grid; grid-template-columns: 36px 1fr; column-gap: 10px; row-gap: 6px;
+  padding: 20px 18px; border: 1px solid #fff9; border-radius: 20px; text-align: left; background: #f8f7f190;
+  box-shadow: 0 8px 24px #39352b08; color: #57564f; font: inherit; cursor: pointer;
+  animation: tour-note-in .7s 1.7s both; transition: background .2s, box-shadow .2s, color .2s; }
+.tour-card:nth-child(2) { --tilt: 2deg; animation-delay: 2.2s; }
+.tour-card:nth-child(3) { --tilt: -2deg; animation-delay: 2.7s; position: absolute; right: 16px; top: 380px; width: min(290px, calc((100% - 388px) / 2)); }
+main:has(.phone.open) .tour-card:nth-child(3) { position: static; width: auto; }
+.tour-card:hover, .tour-card:focus-visible { background: #fffefa; color: #191c19; box-shadow: 0 12px 28px #39352b12; }
+.tour-card-icon { grid-row: 1 / 4; width: 28px; height: 28px; color: #8d826b; margin-top: 2px; }
+.tour-card strong { font-size: 21px; font-weight: 600; line-height: 1.1; }
+.tour-card span { font-size: 16px; line-height: 1.3; } .tour-card small { color: #888479; font-size: 14px; }
+.tour-card small::after { content: ' ↗'; color: #b65c31; margin-left: 8px; }
+.tour-card:focus-visible, .tour-actions button:focus-visible { outline: 3px solid #1D4ED8; outline-offset: 3px; }
+#tour-guide { border: 1px solid #fff; border-radius: 24px; padding: 24px; background: #fffdf7; box-shadow: 0 14px 40px #39352b0d; }
+#tour-guide p { font-size: 18px; line-height: 1.4; color: #56574f; }
+.tour-heading, .tour-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.tour-heading { font-size: 14px; margin-bottom: 12px; color: #7f8176; }
+#tour-progress { flex: 1; }
+#tour-bar { display: block; width: 100%; height: 3px; margin-bottom: 20px; accent-color: #cf6338; }
+#tour-guide #tour-feedback { font-size: 14px; min-height: 20px; color: #818773; margin-top: 12px; }
+.tour-actions { justify-content: flex-start; margin-top: 18px; gap: 12px; }
+#tour-quit, #tour-retry, #tour-perform { border: 0; padding: 0; background: transparent; color: #6a7067; font-size: 14px; }
+#tour-perform { color: #287c79; text-decoration: underline; text-underline-offset: 4px; }
+#tour-quit { font-size: 0; width: 24px; height: 24px; flex-shrink: 0; }
+#tour-quit::before { content: '×'; font-size: 23px; }
+button.act.tour-primary { background: #146f70; border-color: #146f70; color: #fff; }
+button.act:disabled { opacity: .5; cursor: default; }
+.tour-target { outline: 2px solid #ce6337 !important; outline-offset: 5px; border-radius: 8px; }
+.tour-target.key, .tour-target.usb-plug { background: #df783b10; box-shadow: 0 0 0 9px #df783b0c; }
+#tour-pointer { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 30; overflow: visible; pointer-events: none; }
+#tour-pointer path { fill: none; stroke: #c75e32; stroke-width: 2.5; stroke-linecap: round; }
+#tour-pointer marker path { fill: #c75e32; stroke: none; }
+.tour-tools { grid-area: app; align-self: start; margin-top: 80px; padding: 22px; border: 1px solid #fff9; border-radius: 22px; background: #f8f7f1b8; z-index: 9; }
+.tour-tools h2 { font-size: 22px; font-weight: 600; margin: 0 0 16px; }
+.tour-tools .sensor-grid { display: block; margin: 0; }
+.tour-tools .sensor-card { display: none; padding: 0; border: 0; background: transparent; }
+.tour-tools .sensor-card.tour-tool-active { display: block; }
+.tour-tools .sensor-card legend { font-size: 18px; padding: 0; }
+.tour-tools .sensor-card .sensor-measure, .tour-tools .sensor-card .sensor-status, .tour-tools .sensor-card .note, .tour-tools .sensor-card button { display: none; }
+.tour-tools .controls { margin: 12px 0 0; }
+body.guided .app { display: none; }
+body.guided .power-hint { display: none; }
+@keyframes tour-note-in { from { opacity: 0; visibility: hidden; transform: translateY(14px) rotate(0); } to { opacity: 1; visibility: visible; transform: translateY(0) rotate(var(--tilt, 0deg)); } }
+@media (max-width: 980px) {
+  main { grid-template-columns: minmax(0, 1fr); grid-template-areas: "device" "side" "tours" "app"; justify-items: center; row-gap: 24px; padding-top: 80px; }
+  main > .side { text-align: center; margin-top: 112px; } .app { justify-self: center; }
+  .tours { max-width: 400px; justify-self: center; margin-top: 32px; }
+  .tour-card:nth-child(3) { position: static; width: auto; }
+  body.guided header { padding-top: 10px; } body.guided .logo { width: 160px; margin-bottom: 0; } body.guided header .intro-copy { display: none; }
+  body.guided main { grid-template-areas: "tours" "device" "tools" "side"; row-gap: 36px; padding-top: 12px; }
+  body.guided main:has(.tour-tools:not([hidden])) { grid-template-areas: "tours" "tools" "device" "side"; }
+  .tours.tour-running { margin: 0; max-width: 440px; }
+  #tour-guide { padding: 16px 18px; border-radius: 20px; }
+  #tour-guide h2 { font-size: 23px; margin-bottom: 6px; } #tour-guide p { font-size: 16px; line-height: 1.3; }
+  .tour-heading { margin-bottom: 8px; } #tour-bar { margin-bottom: 12px; }
+  #tour-guide #tour-feedback { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .tour-actions { margin-top: 12px; } .tour-tools { grid-area: tools; margin-top: 0; width: min(300px, calc(100% - 44px)); }
+}
+@media (prefers-reduced-motion: reduce) { body.running .app, .tour-card, #tour-choices > h2, #tour-choices > p { animation: none; } html { scroll-behavior: auto; } }
 
 </style>
 </head>
@@ -147,6 +229,8 @@ footer p { font-size: 15px; color: var(--mute); }
   </div>
 </header>
 <main>
+  <section class="tours" id="tours" aria-label="Visites guidées"></section>
+  <aside class="tour-tools" id="tour-tools" hidden><h2 id="tour-tools-title"></h2><div id="tour-tools-content"></div></aside>
   <div class="device" id="device">
     <div class="case"></div>
   <svg class="usb-cable-svg" viewBox="0 0 300 620" aria-hidden="true"><path class="usb-cable-shadow" id="usb-cable-shadow"></path><path class="usb-cable-line" id="usb-cable-line"></path></svg>
@@ -172,7 +256,7 @@ footer p { font-size: 15px; color: var(--mute); }
     <p class="note" id="buildinfo"></p>
   </div>
   <div class="app">
-    <h2 class="colhead">Musette <button class="act small" id="musette-reload" hidden>Recharger</button></h2>
+    <h2 class="colhead">Musette</h2>
     <div class="phone" id="phone">
       <div class="intro" id="musette-intro">
         <p><b>Musette</b> envoie une trace ou des réglages au compteur et récupère tes sorties.</p>
@@ -182,22 +266,24 @@ footer p { font-size: 15px; color: var(--mute); }
       <iframe id="musette" title="Musette" allow="clipboard-write" hidden></iframe>
     </div>
     <button class="act phone-cta" id="musette-open-cta">Ouvrir Musette sur le téléphone</button>
+    <button class="act small phone-reload" id="musette-reload" hidden>Recharger Musette</button>
   </div>
 </main>
 <section class="ride secondary">
   <h2>Environnement de sortie</h2>
   <div class="tab-list" role="tablist" aria-label="Outils de simulation">
     <button class="tab-button" id="tab-route" type="button" role="tab" aria-selected="true" aria-controls="panel-route">Parcours</button>
+    <button class="tab-button" id="tab-sensors" type="button" role="tab" aria-selected="false" aria-controls="panel-sensors" tabindex="-1">Capteurs</button>
     <button class="tab-button" id="tab-counter" type="button" role="tab" aria-selected="false" aria-controls="panel-counter" tabindex="-1">Compteur</button>
   </div>
   <div class="tab-panel" id="panel-route" role="tabpanel" aria-labelledby="tab-route">
-    <p>La trace du Tourmalet est chargée par défaut avec ses temps et son altitude. Lance la lecture puis démarre une sortie pour voir le compteur suivre le parcours. Tu peux aussi charger un autre GPX ; les données restent dans ton navigateur.</p>
+    <p>La trace du Tourmalet est chargée par défaut avec ses temps et son altitude. Lance la lecture puis démarre une sortie pour voir le compteur suivre le parcours. Tu peux aussi charger un autre GPX ou FIT ; les données restent dans ton navigateur.</p>
     <details><summary>Comment fonctionne le trajet simulé ?</summary>
       <p>Le GPS du compteur suit la trace pendant sa lecture. Une trace envoyée depuis Musette est suivie de la même façon,
          pendant que le compteur la guide. La vitesse et l’altitude simulées suivent les données de la trace.</p>
     </details>
     <div class="controls">
-      <label>Trace <input type="file" id="gpx" accept=".gpx,application/gpx+xml"></label>
+      <label>Trace <input type="file" id="gpx" accept=".gpx,.fit,application/gpx+xml,application/octet-stream"></label>
       <button class="act" id="play">▶ Lecture</button>
       <label>Lecture <select id="speedup"><option value="1">×1</option><option value="5">×5</option><option value="20">×20</option></select></label><span id="trackinfo-speed" style="color:var(--mute)">(accélérée, la vitesse affichée l'est aussi)</span>
     </div>
@@ -208,6 +294,16 @@ footer p { font-size: 15px; color: var(--mute); }
     </div>
     <p class="note">Fais glisser le point bleu pour déplacer le GPS. Le déplacement met la lecture en pause ; « Lecture » reprend sur la trace.</p>
     <div id="map" aria-label="Carte du trajet"></div>
+  </div>
+  <div class="tab-panel" id="panel-sensors" role="tabpanel" aria-labelledby="tab-sensors" hidden>
+    <p>Active les capteurs puis recherche-les et appaire-les dans le menu « Capteurs » du compteur. Les valeurs ci-dessous sont diffusées chaque seconde émulée, même si cet onglet est masqué.</p>
+    <p id="sensor-availability" role="status"></p>
+    <div id="sensor-cards" class="sensor-grid"></div>
+    <details><summary>Sources et coupures</summary>
+      <p><b>Fixe</b> émet la valeur saisie. <b>Trace</b> suit les mesures au point actuel du GPX ou du FIT, sans inventer les valeurs absentes ; la vitesse est calculée depuis les positions si elle n’est pas enregistrée. Ces deux sources continuent à émettre pendant une pause.</p>
+      <p><b>Modèle</b> suit le GPS simulé : vitesse, pente et un cycliste de 85 kg vélo compris donnent une puissance simple ; la cadence suit l’allure et le cardio réagit progressivement à l’effort. À l’arrêt, vitesse, cadence et puissance reviennent à zéro et le cardio redescend.</p>
+      <p>Vitesse et cadence partagent un capteur ANT+ et un appairage. Leurs sources se règlent séparément ; si l’une des deux mesures manque, aucune mesure de ce capteur n’est transmise. La coupure simule une pile vide : le capteur n’est plus visible lors d’une recherche et ses données disparaissent du compteur après son délai habituel de perte de signal. « Rétablir » permet sa reconnexion.</p>
+    </details>
   </div>
   <div class="tab-panel" id="panel-counter" role="tabpanel" aria-labelledby="tab-counter" hidden>
     <ul class="legend">
@@ -259,9 +355,15 @@ footer p { font-size: 15px; color: var(--mute); }
      ou rendre l'appareil inutilisable : à vos risques.</p>
 </footer>
 <script type="module">
+import { parseGpx, parseFit } from './track.mjs';
+import { SensorSimulation, mountSensors } from './sensors.mjs';
+import { GattBridge } from './gatt.mjs';
+import { FirmwareTrace, mountTours } from './tours.mjs';
 const $ = (id) => document.getElementById(id);
 const status = (s) => { $('status').innerHTML = s; };
 let worker = null;
+let guided = false;
+const firmwareTrace = new FirmwareTrace();
 const usbDevice = $('device'), usbPlug = $('usb-plug');
 let usbConnected = false, usbDrag = null, usbDragged = false, usbSuppressClick = false;
 function drawUsbCable() {
@@ -346,6 +448,7 @@ function frame(buf) {
 // emulated seconds (`stat`) and emulated seconds per wall second (`pace`, null while unknown)
 let emulated = 0, speed = null;
 function showStatus() {
+  if (!gatt.powered) { status('Compteur éteint · maintiens le bouton en haut à gauche pour le rallumer.'); return; }
   const pace = speed == null ? '' : speed >= 0.95 ? ' · temps réel' : ` · ${Math.round(speed * 100)} % du temps réel`;
   status(`En marche <small>· ${emulated.toFixed(0)} s émulées${pace}</small>`);
 }
@@ -364,11 +467,20 @@ function onMessage(ev) {
   if (m.bin !== undefined) { try { frame(m.bin); } finally { if (m.ack) worker.postMessage({ op: 'frame-ack' }); } return; }
   if (m.text !== undefined) {
     const t = JSON.parse(m.text);
-    if (t.t === 'serial' && t.src === 'usb') out(t.data);
+    if (t.t === 'serial' && t.src === 'usb') { out(t.data); firmwareTrace.write(t.data); }
+    if (t.t === 'emu' && t.msg?.includes('chip reset')) {
+      firmwareTrace.reboot();
+      gatt.setPowered(true); gatt.reset(true); sent.rx = []; sent.file = null;
+    }
     if (t.t === 'stat') {
+      if (typeof t.powered === 'boolean') {
+        gatt.setPowered(t.powered);
+        $('device').classList.toggle('powered-off', !t.powered);
+        if (!t.powered) $('power-hint').textContent = 'Compteur éteint. Maintiens le bouton pour le rallumer.';
+      }
       emulated = t.time; showStatus(); ride.tick(emulated);
       document.body.classList.remove('loading');
-      if (!document.body.classList.contains('running')) { document.body.classList.add('running'); ride.load(ride.track); }
+      if (!document.body.classList.contains('running')) { document.body.classList.add('running'); if (ride.track) ride.load(ride.track); }
     }
     if (t.t === 'ble') gatt.heard(t);
     return;
@@ -385,67 +497,10 @@ function onMessage(ev) {
 // ---- Musette in an iframe, its Bluetooth relayed to the emulator's virtual central ({t: 'ble'} lines)
 // The app asks with {gatt: 'hello' | 'connect' | 'disconnect' | 'subscribe' | 'write', id, ...} (musette's
 // app/src/lib/transport/emulator.ts); each request becomes central commands, answered when the line it waits for comes.
-const MUSETTE = new URLSearchParams(location.search).get('musette') || 'https://enavarro222.github.io/musette/';
-const hex4 = (h) => '0x' + h.toString(16).padStart(4, '0');
-const gatt = {
-  device: null, connected: false, mtu: 0, chars: new Map(), waiters: [], queue: Promise.resolve(),
-  reset() { this.connected = false; this.mtu = 0; this.chars.clear(); for (const w of this.waiters) w.reject(new Error('compteur redémarré')); this.waiters = []; },
-  // a line of the virtual central: state, then whoever waits for it
-  heard(m) {
-    if (m.error) { const w = this.waiters.shift(); w?.reject(new Error(m.error)); return; }
-    const l = m.line, f = (k) => l.match(new RegExp(`${k}=(0x[0-9a-f]+|[0-9a-f-]+)`))?.[1];
-    if (l.startsWith('advertising ')) {
-      const names = [...l.matchAll(/name="([^"]*)"/g)].map((x) => x[1]);
-      this.device = { name: names[names.length - 1] || 'CC600', serviceUuid: f('service') };
-    } else if (l.startsWith('connected ')) this.connected = true;
-    else if (l === 'disconnected') { this.connected = false; this.mtu = 0; this.chars.clear(); }
-    else if (l.startsWith('characteristic ')) this.chars.set(f('uuid'), { value: parseInt(f('handle')), props: parseInt(f('properties')) });
-    else if (l.startsWith('notification ')) {
-      const h = parseInt(f('handle')), uuid = [...this.chars].find(([, c]) => c.value === h)?.[0];
-      const bytes = (f('value') || '').match(/../g)?.map((b) => parseInt(b, 16)) || [];
-      if (uuid) musette.post({ gatt: 'notify', characteristic: uuid, bytes });
-    }
-    this.waiters = this.waiters.filter((w) => !(w.match(l) && (w.resolve(l), true)));
-  },
-  wait(match, ms = 20000) {
-    return new Promise((resolve, reject) => {
-      const w = { match, resolve, reject };
-      this.waiters.push(w);
-      setTimeout(() => { if (this.waiters.includes(w)) { this.waiters = this.waiters.filter((x) => x !== w); reject(new Error('le compteur ne répond pas')); } }, ms);
-    });
-  },
-  async run(line, match) { const answer = this.wait(match); send({ t: 'ble', line }); return answer; },
-  char(uuid) { const c = this.chars.get(String(uuid).toLowerCase()); if (!c) throw new Error('caractéristique inconnue : ' + uuid); return c; },
-  async request(m) {
-    switch (m.gatt) {
-      case 'hello':
-        if (!this.device) await this.wait((l) => l.startsWith('advertising '), 60000);
-        return this.device;
-      case 'connect':
-        if (!this.connected) await this.run('connect', (l) => l.startsWith('connected '));
-        // the largest ATT MTU, as a phone asks: writes of up to 244 bytes instead of 20 (an emulator without the
-        // command answers an error: the default 23)
-        if (!this.mtu) this.mtu = await this.run('mtu 247', (l) => l.startsWith('mtu ')).then((l) => parseInt(l.slice(4)), () => 23);
-        if (!this.chars.size) await this.run('discover', (l) => l === 'discovery complete');
-        return { mtu: this.mtu };
-      case 'disconnect': return {};   // the emulated link stays up: nothing on the device side to undo
-      case 'subscribe': {
-        // the CCCD right after the value: trouble-host's layout (its descriptor discovery is unusable in 0.7)
-        const cccd = this.char(m.characteristic).value + 1;
-        await this.run(`subscribe ${cccd}`, (l) => l === `write complete handle=${hex4(cccd)}`);
-        return {};
-      }
-      case 'write': {
-        sent.write(m.bytes);
-        const h = this.char(m.characteristic).value, data = m.bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
-        if (m.withResponse) await this.run(`write ${h} ${data}`, (l) => l === `write complete handle=${hex4(h)}`);
-        else await this.run(`write-cmd ${h} ${data}`, (l) => l === `write command handle=${hex4(h)}`);
-        return {};
-      }
-      default: throw new Error('demande inconnue : ' + m.gatt);
-    }
-  },
-};
+// The local staging step sets this when it copies Musette's web export beside the demo.
+const LOCAL_MUSETTE = null;
+const MUSETTE = new URLSearchParams(location.search).get('musette') || LOCAL_MUSETTE || 'https://enavarro222.github.io/musette/';
+const gatt = new GattBridge(send, (message) => musette.post(message), (error) => out(`[Bluetooth] ${error.message}\n`));
 // A route Musette sends to the device, read from the frames it writes (musette's crates protocol-cc600 and
 // route-cc600): frames are `ver op seq len(u16) payload crc(u16)`, split over 20-byte writes; a transfer is
 // TransferBegin (kind 1: route, size, crc), TransferChunk (offset, bytes)..., TransferEnd. The route goes to the
@@ -504,6 +559,9 @@ const musette = {
   open() {
     const url = new URL(MUSETTE, location.href);
     url.searchParams.set('emulator', location.origin);
+    // Reload the iframe's HTML too: it selects the hashed app bundles. A cached
+    // document can otherwise keep an old app after the local export is replaced.
+    url.searchParams.set('_demoReload', Date.now().toString());
     this.frame.src = url.href;
     this.frame.hidden = false;
     $('phone').classList.add('open');
@@ -515,19 +573,25 @@ addEventListener('message', (e) => {
   const m = e.data;
   if (e.source !== musette.frame.contentWindow || e.origin !== musette.origin || !m || typeof m.gatt !== 'string') return;
   // one request at a time: the central serializes its ATT exchanges anyway
-  gatt.queue = gatt.queue.then(() => gatt.request(m))
-    .then((r) => musette.post({ gatt: 'reply', id: m.id, ok: true, ...r }),
+  const generation = gatt.generation;
+  gatt.queue = gatt.queue.then(() => {
+    if (generation !== gatt.generation) throw new Error('compteur redémarré');
+    return gatt.request(m);
+  })
+    .then((r) => { if (m.gatt === 'write') sent.write(m.bytes); musette.post({ gatt: 'reply', id: m.id, ok: true, ...r }); },
           (err) => musette.post({ gatt: 'reply', id: m.id, ok: false, error: err.message }));
 });
 $('musette-open-cta').onclick = $('musette-reload').onclick = () => musette.open();
 if (new URL(MUSETTE, location.href).origin !== location.origin) $('musette-state').textContent = `Depuis ${new URL(MUSETTE, location.href).host}.`;
 
-const get = async (url) => { const r = await fetch(url); if (!r.ok) throw new Error(`${url} : ${r.status}`); return r.arrayBuffer(); };
+const get = async (url) => { const r = await fetch(url, { cache: 'no-cache' }); if (!r.ok) throw new Error(`${url} : ${r.status}`); return r.arrayBuffer(); };
 // a build of versions.json, or the visitor's own flash dump (run by the emulator of the build chosen)
 let versions = [], build = null, files = null, hasStarted = false;
 async function boot() {
+  firmwareTrace.reset();
   status('Démarrage du compteur…');
-  gatt.reset();
+  gatt.setPowered(true); gatt.reset(true); sent.rx = []; sent.file = null;
+  sensors.reset(); sensors.ready = false; emulated = 0; ride.last = null; ride.sent = -1;
   store.live = false;   // no save while the flash is being loaded
   const own = !files.elf;
   // ROM, flash image, application ELF (symbols for the virtual BLE controller; none in a vendor dump)
@@ -539,11 +603,15 @@ async function boot() {
     const copy = data.slice(0);
     if (!await ask('load' + kind, { op: 'load', kind, data: copy }, [copy])) throw new Error('chargement ' + kind);
   }
-  const kept = own ? null : await store.get();
+  const kept = own || guided ? null : await store.get();
   if (kept && !await ask('loadat' + STORAGE.at, { op: 'load', at: STORAGE.at, data: kept }, [kept])) throw new Error('chargement de la sauvegarde');
   if (!own) { const elf = files.elf.slice(0); worker.postMessage({ op: 'ble', data: elf }, [elf]); }
   worker.postMessage({ op: 'start', appDirect: false });
-  store.live = !own; store.show();
+  sensors.ready = build.features?.includes('ant-sensors') ?? false;
+  $('sensor-availability').textContent = sensors.ready ? 'Simulation ANT+ disponible · les capteurs sont désactivés par défaut.'
+    : 'Cette version de l’émulateur ne simule pas les capteurs externes. Choisis une version plus récente.';
+  sensors.tick(emulated, ride);
+  store.live = !own && !guided; store.show();
 }
 
 // the storage partition (tools/demo/partitions.csv: rides, settings, pairings), kept per version in
@@ -573,7 +641,12 @@ const store = {
     } catch (e) { out(`[page] sauvegarde illisible : ${e.message}\n`); return null; }
   },
   async save() {
-    if (!this.live) return;
+    if (this.saving) return this.saving;
+    if (!this.live || guided) return;
+    this.saving = this.write();
+    try { await this.saving; } finally { this.saving = null; }
+  },
+  async write() {
     // an emulator without the read op (an older build) never answers
     const data = await Promise.race([ask('read' + STORAGE.at, { op: 'read', at: STORAGE.at, len: STORAGE.len }),
       new Promise((res) => setTimeout(() => { waiting.delete('read' + STORAGE.at); res(null); }, 5000))]);
@@ -592,10 +665,11 @@ const store = {
   },
   show() {
     const own = !files?.elf;
-    $('saved').textContent = own ? 'Ton image n\'est pas sauvegardée : elle repart de ton fichier à chaque chargement.'
+    $('saved').textContent = guided ? 'Visite guidée : les essais libres sont conservés, cette sortie est temporaire.'
+      : own ? 'Ton image n\'est pas sauvegardée : elle repart de ton fichier à chaque chargement.'
       : this.when ? `Stockage sauvegardé dans ce navigateur (${new Date(this.when).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}).`
       : 'Stockage neuf : il sera sauvegardé dans ce navigateur.';
-    $('forget').hidden = own || !this.when;
+    $('forget').hidden = guided || own || !this.when;
   },
 };
 setInterval(() => store.save().catch(() => {}), 30000);
@@ -606,17 +680,21 @@ async function run(name, flash) {
   await store.save().catch(() => {});
   build = versions.find((v) => v.name === name) || versions[0];
   const base = `builds/${encodeURIComponent(build.name)}/`;
+  // Local rebuilds keep their name and Git commit. Load worker, emulator and firmware from the same build,
+  // even when an older copy is still fresh in the browser cache.
+  const asset = (path) => `${base}${path}?build=${encodeURIComponent(build.built || build.esp32sim || build.commit)}`;
   $('simreadme').href = base + 'sim/README.md';
   const date = new Date(build.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
   $('buildinfo').innerHTML = flash ? 'Ton image de flash, avec l\'émulateur de cette version.'
     : `Build <a href="https://github.com/enavarro222/opencc600/commit/${build.commit}">${build.commit.slice(0, 7)}</a> du ${date}.`;
   status('Chargement de l\'émulateur…');
+  sensors.ready = false; sensors.tick(emulated, ride);
   worker?.terminate(); waiting.clear(); log = ''; $('console').textContent = '';
-  worker = new Worker(base + 'sim/wasm/worker.js', { type: 'module' });
+  worker = new Worker(asset('sim/wasm/worker.js'), { type: 'module' });
   worker.onmessage = onMessage;
-  const wasm = await get(base + 'sim/wasm/esp32sim.wasm');
+  const wasm = await get(asset('sim/wasm/esp32sim.wasm'));
   const ready = ask('ready', { op: 'init', wasm, frameAck: true }, [wasm]);
-  const [rom, image, elf] = await Promise.all(['rom/esp32s3_rev0_rom.elf', ...(flash ? [] : [base + 'fw/cc600-flash.bin', base + 'fw/cc600.elf'])].map(get));
+  const [rom, image, elf] = await Promise.all(['rom/esp32s3_rev0_rom.elf', ...(flash ? [] : [asset('fw/cc600-flash.bin'), asset('fw/cc600.elf')])].map(get));
   files = { rom, flash: flash || image, elf: flash ? null : elf };
   await ready;
   await boot();
@@ -693,7 +771,7 @@ for (const el of document.querySelectorAll('.key, .zone')) {
   el.onkeydown = (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); if (key === 0 && !hasStarted) beginPowerHold(el); else press(key, true); } };
   el.onkeyup = (e) => { if (e.key === ' ' || e.key === 'Enter') { if (!endPowerHold(el)) press(key, false); } };
 }
-const byDigit = (e) => /^[123]$/.test(e.key) && !e.target.closest('input') ? Number(e.key) - 1 : null;
+const byDigit = (e) => /^[123]$/.test(e.key) && !e.target.closest('input, select, textarea, button') ? Number(e.key) - 1 : null;
 addEventListener('keydown', (e) => { const k = byDigit(e); if (k !== null && !e.repeat) press(k, true); });
 addEventListener('keyup', (e) => { const k = byDigit(e); if (k !== null) press(k, false); });
 // the clickable screen hints: on unless turned off (remembered in this browser)
@@ -711,22 +789,14 @@ const bearing = (a, b) => {
   const x = Math.cos(a.lat * rad) * Math.sin(b.lat * rad) - Math.sin(a.lat * rad) * Math.cos(b.lat * rad) * Math.cos((b.lon - a.lon) * rad);
   return (Math.atan2(y, x) / rad + 360) % 360;
 };
-function parseGpx(text) {
-  const doc = new DOMParser().parseFromString(text, 'application/xml');
-  const nodes = [...doc.getElementsByTagName('trkpt'), ...doc.getElementsByTagName('rtept')];
-  const pts = nodes.map((n) => ({ lat: +n.getAttribute('lat'), lon: +n.getAttribute('lon'),
-    ele: +(n.getElementsByTagName('ele')[0]?.textContent ?? 0), t: Date.parse(n.getElementsByTagName('time')[0]?.textContent ?? '') || null }))
-    .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon));
-  if (pts.length < 2) throw new Error('aucun point de trace');
-  const name = doc.getElementsByTagName('name')[0]?.textContent?.trim() || 'Trace GPX';
-  return { name, pts };
-}
 const ride = {
   track: null, cum: [], secs: [], playing: false, at: 0, last: null, sent: -1, map: null, line: null, marker: null, freePosition: null, dragging: false,
   load(track) {
-    this.track = track; this.at = 0; this.last = null; this.freePosition = null; this.dragging = false;
+    this.track = track; this.sent = -1; this.at = 0; this.last = null; this.freePosition = null; this.dragging = false;
     $('gps-return').disabled = true;
-    const p = track.pts, timed = p.every((q) => q.t) && p[p.length - 1].t > p[0].t;
+    const p = track.pts, timed = p.every((q, i) => Number.isFinite(q.t) && (!i || q.t > p[i - 1].t));
+    track.timed = timed;
+    track.hasRecordedSpeed = (track.records || p).some((p) => p.speed != null);
     this.cum = [0]; for (let i = 1; i < p.length; i++) this.cum.push(this.cum[i - 1] + dist(p[i - 1], p[i]));
     // seconds from the start at each point: the track's own times, or a steady speed
     const kmh = 10;
@@ -762,6 +832,7 @@ const ride = {
       this.map.fitBounds(this.line.getBounds(), { padding: [20, 20] });
     }
     this.send(0);
+    sensors.tick(emulated, this);
   },
   nearest(latlng) {
     if (!this.map || !this.track || this.track.pts.length < 2) return null;
@@ -789,6 +860,8 @@ const ride = {
     const a = p[i - 1], b = p[i];
     const moving = this.playing && s < t[t.length - 1];
     return { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f, ele: a.ele + (b.ele - a.ele) * f,
+             baseKmh: (this.cum[i] - this.cum[i - 1]) / span * 3.6,
+             grade: (b.ele - a.ele) / Math.max(10, this.cum[i] - this.cum[i - 1]),
              kmh: moving ? (this.cum[i] - this.cum[i - 1]) / span * 3.6 * +$('speedup').value : 0, course: bearing(a, b) };
   },
   send(s) {
@@ -799,13 +872,20 @@ const ride = {
   },
   // called with the emulated time: one position per emulated second
   tick(now) {
-    if (!this.track) return;
+    if (!this.track) {
+      if (Math.floor(now) !== this.sent) { this.sent = Math.floor(now); sensors.tick(now, this); }
+      return;
+    }
     if (this.last !== null && this.playing) this.at = Math.min(this.at + (now - this.last) * +$('speedup').value, this.secs[this.secs.length - 1]);
     this.last = now;
+    if (this.playing && this.at >= this.secs.at(-1)) { this.playing = false; $('play').textContent = '▶ Lecture'; }
     const second = Math.floor(now);
-    if (second !== this.sent) { this.sent = second; this.send(this.at); }
+    if (second !== this.sent) { this.sent = second; this.send(this.at); sensors.tick(now, this); }
   },
 };
+const sensors = new SensorSimulation(send);
+mountSensors($('sensor-cards'), sensors, () => sensors.tick(emulated, ride));
+sensors.tick(emulated, ride);
 const envTabs = [...document.querySelectorAll('.tab-button')];
 function activateEnvTab(tab) {
   for (const button of envTabs) {
@@ -832,17 +912,110 @@ function returnGpsToTrack() {
 $('gps-return').onclick = returnGpsToTrack;
 $('gps-free').onchange = () => { if (!$('gps-free').checked) returnGpsToTrack(); };
 $('play').onclick = () => {
+  if (!ride.track) return;
   returnGpsToTrack();
   ride.playing = !ride.playing;
   $('play').textContent = ride.playing ? '❚❚ Pause' : '▶ Lecture';
+  if (ride.playing && ride.at >= ride.secs.at(-1)) ride.at = 0;
+  ride.last = emulated; ride.sent = -1;
+  if (ride.track) ride.send(ride.at);
+  sensors.tick(emulated, ride);
 };
 $('gpx').onchange = async () => {
   const f = $('gpx').files[0]; if (!f) return;
-  try { ride.load(parseGpx(await f.text())); } catch (e) { $('trackinfo').textContent = 'GPX illisible : ' + e.message; }
+  try { ride.load(/\.fit$/i.test(f.name) ? parseFit(await f.arrayBuffer(), f.name) : parseGpx(await f.text())); }
+  catch (e) { $('trackinfo').textContent = 'Trace illisible : ' + e.message; }
 };
-fetch('tourmalet.gpx').then((r) => { if (!r.ok) throw new Error(`GPX indisponible : ${r.status}`); return r.text(); })
-  .then((text) => ride.load(parseGpx(text)))
+const defaultTrack = fetch('tourmalet.gpx').then((r) => { if (!r.ok) throw new Error(`GPX indisponible : ${r.status}`); return r.text(); })
+  .then((text) => parseGpx(text));
+defaultTrack.then((track) => ride.load(track))
   .catch((e) => { $('trackinfo').textContent = `Trace de démo indisponible : ${e.message}`; });
+
+// Guided visits run on a clean, temporary flash. Never save that flash over the visitor's free exploration.
+let freeEnvironment;
+const tourControls = ['version', 'restart', 'dump', 'forget', 'musette-open-cta', 'musette-reload'];
+function remountSensors() {
+  $('sensor-cards').replaceChildren();
+  mountSensors($('sensor-cards'), sensors, () => sensors.tick(emulated, ride));
+  for (const [id, state] of Object.entries(sensors.devices)) {
+    $(`sensor-${id}-enabled`).checked = state.enabled;
+    $(`sensor-${id}-cut`).setAttribute('aria-pressed', String(state.cut));
+    $(`sensor-${id}-cut`).textContent = state.cut ? 'Rétablir le capteur' : 'Simuler une coupure';
+  }
+  for (const [key, state] of Object.entries(sensors.settings)) {
+    $(`sensor-${key}-source`).value = state.source;
+    $(`sensor-${key}-fixed`).value = state.fixed ?? '';
+    $(`sensor-${key}-fixed-label`).hidden = state.source !== 'fixed';
+  }
+  sensors.tick(emulated, ride);
+}
+const tour = mountTours($('tours'), {
+  snapshot: () => ({
+    screen: firmwareTrace.screen, detail: firmwareTrace.detail, seq: firmwareTrace.seq, events: firmwareTrace.events,
+    powered: gatt.powered, playing: ride.playing, usbConnected, heartEnabled: sensors.devices.hr.enabled,
+    keysReleased: held.every((down) => !down),
+  }),
+  async prepare(visit) {
+    if (files && !files.elf) throw new Error('Choisis une version OpenCC600 pour suivre cette visite. Ton image personnelle reste réservée aux essais libres.');
+    await store.save();
+    freeEnvironment = {
+      track: ride.track, at: ride.at, playing: ride.playing, freePosition: ride.freePosition,
+      usbConnected, battery: $('battery-level').value, speedup: $('speedup').value,
+      sensors: structuredClone({ settings: sensors.settings, devices: sensors.devices }),
+      disabled: tourControls.map((id) => $(id).disabled),
+    };
+    guided = true; store.live = false; document.body.classList.add('guided');
+    held.forEach((_, key) => press(key, false));
+    tourControls.forEach((id) => { $(id).disabled = true; });
+    setUsbConnected(false, true); $('battery-level').value = '80'; $('battery-level').oninput();
+    $('speedup').value = '5'; ride.playing = false; $('play').textContent = '▶ Lecture';
+    ride.load(await defaultTrack);
+    for (const state of Object.values(sensors.devices)) { state.enabled = false; state.cut = false; }
+    sensors.settings.hr.source = 'fixed'; sensors.settings.hr.fixed = 140;
+    remountSensors();
+    if (hasStarted) await boot(); else await startDemo();
+    if (!hasStarted || !files?.elf) throw new Error('Le compteur n’a pas pu démarrer. Réessaie après avoir choisi une version OpenCC600.');
+    if (visit.feature && !build.features?.includes(visit.feature)) throw new Error('Cette visite demande une version plus récente de l’émulateur. Reviens aux essais libres pour changer de version.');
+  },
+  async restore() {
+    if (!guided) return;
+    // A failed restore keeps saving disabled; retrying cannot replace the free flash with this visit.
+    store.live = false;
+    held.forEach((_, key) => press(key, false));
+    const env = freeEnvironment;
+    setUsbConnected(env.usbConnected, true);
+    $('battery-level').value = env.battery; $('battery-level').oninput(); $('speedup').value = env.speedup;
+    sensors.settings = structuredClone(env.sensors.settings); sensors.devices = structuredClone(env.sensors.devices);
+    if (env.track) ride.load(env.track);
+    else { ride.track = null; ride.line?.remove(); ride.marker?.remove(); }
+    ride.at = env.at; ride.playing = env.playing; ride.freePosition = env.freePosition;
+    $('gps-return').disabled = !ride.freePosition; $('play').textContent = ride.playing ? '❚❚ Pause' : '▶ Lecture';
+    remountSensors();
+    // boot normally again so the original IndexedDB partition is loaded.
+    guided = false;
+    try { if (files) await boot(); }
+    catch (e) { guided = true; store.live = false; throw e; }
+    document.body.classList.remove('guided');
+    tourControls.forEach((id, i) => { $(id).disabled = env.disabled[i]; });
+    store.show();
+  },
+  present(step) { if (step.tab) activateEnvTab($(`tab-${step.tab}`)); },
+  async perform(action) {
+    const element = document.querySelector(action.target);
+    if (!element || element.disabled) throw new Error('Cette commande est indisponible pour le moment.');
+    if (action.kind === 'click') element.click();
+    else {
+      element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      try { await new Promise((resolve) => setTimeout(resolve, action.long ? 850 : 100)); }
+      finally { element.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true })); }
+    }
+  },
+});
+setInterval(() => {
+  if (!guided || tour.state !== 'active') return;
+  if (gatt.powered) send({ t: 'serial', src: 'usb', line: 'screen ?' });
+  tour.update();
+}, 600);
 
 $('cmd').onsubmit = (e) => {
   e.preventDefault();

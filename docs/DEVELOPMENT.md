@@ -89,6 +89,11 @@ firmware and checks its emulator/ROM prerequisites before running pytest, so mis
 cannot make the job pass by skipping all tests. Physical-device tests (`make test-hil`) remain local.
 
 `make preview` does not rebuild the firmware demo. Build it first with `make demo` (or `make site` for a full site build); while the preview server is running, page edits can be staged with `make site-copy` without restarting the server.
+If `../musette/app/dist/index.html` exists, staging also copies this local Musette
+and uses it by default. Export it with `MUSETTE_BASE_URL=/musette npm --prefix app run build`
+in Musette first; override its location with `MUSETTE_DIST=...`. Without that export,
+the demo uses published Musette. The page's **Recharger** button reloads Musette's
+HTML with a fresh URL so a cached document cannot select old app bundles.
 
 Generated demo files stay ignored by Git. The Pages workflow uses the same `demo`, `release` and `site-copy` targets; it runs on a tag or when manually dispatched.
 

@@ -9,6 +9,16 @@ permissions:
   contents: read
 
 jobs:
+  demo-page:
+    name: Demo page tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: make test-demo
+
   host:
     name: Host Rust tests
     runs-on: ubuntu-24.04
@@ -87,3 +97,17 @@ jobs:
 
       - name: Run simulator tests
         run: make test-sim
+
+      - name: Install browser for the guided visits
+        run: uv run --with playwright==1.55.0 playwright install --with-deps chromium
+
+      - name: Replay guided visits in the browser
+        run: make test-demo-e2e NAME=ci SITE_DIR=target/demo/tour-site
+
+      - name: Upload guided visit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guided-visits
+          path: target/demo/tour-check
+          if-no-files-found: ignore
