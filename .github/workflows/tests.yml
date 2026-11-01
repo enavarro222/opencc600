@@ -65,7 +65,7 @@ jobs:
 
       - name: Xtensa toolchain and espflash
         run: |
-          curl -sSfL https://github.com/esp-rs/espup/releases/download/v0.18.0/espup-x86_64-unknown-linux-gnu -o espup
+          curl -sSfL https://github.com/esp-rs/espup/releases/download/v0.19.0/espup-x86_64-unknown-linux-gnu -o espup
           chmod +x espup
           ./espup install --targets esp32s3 --toolchain-version 1.97.0.0 --export-file "$HOME/export-esp.sh"
           curl -sSfL https://github.com/esp-rs/espflash/releases/download/v4.6.0/espflash-x86_64-unknown-linux-gnu.zip -o espflash.zip
