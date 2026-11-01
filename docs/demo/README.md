@@ -21,7 +21,7 @@ The emulator is [esp32sim](https://github.com/mikroverk/esp32sim) compiled to We
 | Build and publication | `.github/workflows/demo.yml`, `tools/demo/` (`build.sh`, `versions.py`, `partitions.csv`, `esp32sim.rev`) | yes |
 | The firmware | `firmware/` | no: the same ELF as on the device |
 | The emulated ESP32-S3, the worker and its message protocol, the virtual BLE controller, the flash read-back | esp32sim fork, generic branches | no: written so they could go upstream |
-| The CC600 board model: ST7789 panel, nRF52 on UART2, Airoha GNSS on UART0 | esp32sim fork, branch `board-cc600` | CC600-specific, written like esp32sim's other boards; may stay in the fork |
+| The CC600 board model: ST7789 panel, nRF52 on UART2, Airoha GNSS on UART0, ANT+ sensors | esp32sim fork, branch `board-cc600` | CC600-specific, written like esp32sim's other boards; may stay in the fork |
 | Musette's emulator transport | musette, `app/src/lib/transport/emulator.ts`, web only | yes |
 
 The page knows only three things about the device: the worker's message protocol, the virtual pins 64–66 the
@@ -116,22 +116,14 @@ not. **Simuler une coupure** stops discovery and measurements, so the firmware's
 **Rétablir le capteur** resumes transmission with the same identity. Wheel/crank counters use emulated time and
 continue across source changes; no firmware readings or pairing settings are injected by the page.
 
-The CC600 extension is kept here as `tools/demo/cc600-ant.rs`, `cc600-ant.patch` and `cc600-power.patch`, and applied
-idempotently by `prepare_sim.py` before building the emulator. The base revision plus extension hash is recorded in build
-metadata; `features: ["ant-sensors"]` enables the panel for that build. Older published builds remain usable and
-show that external sensors are unavailable. The patch applies to the pinned release without altering its shared
-BLE controller. With a local source checkout, build a native simulator after preparing it to use the same commands:
-
-```sh
-python3 tools/demo/prepare_sim.py ../esp32sim
-(cd ../esp32sim && cargo build --release -p esp32sim)
-node tests/demo/sensors.test.mjs
-```
+The sensors are part of the CC600 board model in the esp32sim fork (`board ant ...`). `features: ["ant-sensors"]` in the
+build metadata enables the panel for that build; older published builds remain usable and show that external sensors
+are unavailable.
 
 After staging and serving a build, `tools/demo/check_sensor_search.py http://127.0.0.1:8765/?v=local` exercises
 discovery and pairing of all three sensors using the counter's buttons. Build identifiers on the worker, WASM
 and firmware URLs prevent a browser from combining a newly rebuilt page with an older emulator. Rebuild the
-selected version (`NAME=local`, for example) when testing the sensor extension locally.
+selected version (`NAME=local`, for example) when testing the sensors locally.
 
 ## Build and run locally
 
@@ -142,8 +134,8 @@ make preview NAME=main                        # build and serve the complete sit
 
 `build.sh` builds the firmware (the `esp` toolchain from `espup`, as in [DEVELOPMENT.md](../DEVELOPMENT.md)) and makes a
 clean flash image: espflash's IDF bootloader, [partitions.csv](../../tools/demo/partitions.csv), our app and a blank
-storage partition, nothing from a device. It clones the esp32sim fork at `esp32sim.rev` into `target/demo/esp32sim`
-and builds the emulator; `ESP32SIM=<checkout>` uses a local one instead. The generated files are not committed.
+storage partition, nothing from a device. The emulator is the fork's release named by `esp32sim.rev`, fetched and
+checked; `ESP32SIM=<checkout>` builds a local one instead. The generated files are not committed.
 
 Natively, with the same files:
 `esp32sim --board cc600 --boot rom --rom docs/demo/rom/esp32s3_rev0_rom.elf --flash-image
