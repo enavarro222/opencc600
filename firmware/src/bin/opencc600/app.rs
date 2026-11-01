@@ -13,8 +13,9 @@ use protocol_cc600::transfer::Kind;
 
 use alloc::vec::Vec;
 
-use crate::config::{SETTINGS, SETTINGS_CHANGED, settings};
 use crate::Fs;
+use crate::config::{SETTINGS, SETTINGS_CHANGED, settings};
+use crate::route_file::{ATLAS_BYTES, ATLAS_MAX, ATLAS_RECEIVED, ATLAS_STORED};
 use crate::route_file::{MAP_BYTES, MAP_LEAVES_FREE, MAP_MAX, MAP_RECEIVED, ROUTE_MAX, ROUTE_RECEIVED};
 
 /// What the companion app (BLE, [`ble::run`]) reads and changes: the settings, the route, the rides.
@@ -46,7 +47,9 @@ fn map_room() -> usize {
     let stored = MAP_BYTES.load(Ordering::Relaxed) as usize;
     match FLASH_FREE_BLOCKS.load(Ordering::Relaxed) {
         u32::MAX => 0,
-        blocks => (blocks as usize * storage::BLOCK + stored).saturating_sub(MAP_LEAVES_FREE).min(MAP_MAX),
+        blocks => (blocks as usize * storage::BLOCK + stored)
+            .saturating_sub(MAP_LEAVES_FREE + ATLAS_MAX.saturating_sub(ATLAS_BYTES.load(Ordering::Relaxed) as usize))
+            .min(MAP_MAX),
     }
 }
 
@@ -135,11 +138,16 @@ impl companion::Device for App {
         match kind {
             Kind::Route => Ok(ROUTE_MAX as u32),
             Kind::Map => Ok(map_room() as u32),
+            // Do not count the old atlas as free: replacement keeps it until rename.
+            Kind::Atlas => Ok(match FLASH_FREE_BLOCKS.load(Ordering::Relaxed) {
+                u32::MAX => 0,
+                blocks => (blocks as usize * storage::BLOCK).saturating_sub(MAP_LEAVES_FREE).min(ATLAS_MAX) as u32,
+            }),
         }
     }
 
     /// Stored by the main loop, like a route sent over USB.
-    fn file_received(&mut self, kind: Kind, data: Vec<u8>) -> Result<(), protocol_cc600::ErrorCode> {
+    async fn file_received(&mut self, kind: Kind, data: Vec<u8>) -> Result<(), protocol_cc600::ErrorCode> {
         match kind {
             Kind::Route => {
                 ROUTE_RECEIVED.signal(Some(data));
@@ -149,7 +157,16 @@ impl companion::Device for App {
                 MAP_RECEIVED.signal(data);
                 Ok(())
             }
+            Kind::Atlas => {
+                ATLAS_STORED.reset();
+                ATLAS_RECEIVED.signal(data);
+                ATLAS_STORED.wait().await
+            }
         }
+    }
+
+    fn atlas_bytes(&self) -> u32 {
+        ATLAS_BYTES.load(Ordering::Relaxed)
     }
 
     async fn rides(&mut self) -> Result<Vec<protocol_cc600::payload::ActivityEntry>, protocol_cc600::ErrorCode> {

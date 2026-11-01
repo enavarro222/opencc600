@@ -46,6 +46,10 @@ What the firmware is for, the rules it follows, where it stands. Hardware and re
 - 1800 mAh battery: battery life is a requirement ([POWER.md](POWER.md)).
 
 ### Storage
+- A permanent global atlas (`/atlas`, up to 512 KiB) is installed separately from Musette's device screen. It survives
+  route changes and removal; the active route (`/route`, 64 KiB) and its corridor (`/map`, 512 KiB) have separate limits.
+  The corridor's capacity calculation leaves room for the unused part of the atlas budget and at least 1 MiB for rides.
+  Atlas replacement needs additional temporary flash space and is acknowledged only after successful storage.
 - The whole 7.8 MB littlefs `storage` partition is ours, after a verified backup (`dump/<mac>/storage.orig.bin`) and the
   vendor's 24 rides extracted as FIT (`tools/reverse/vendor_fit.py`). Back to the vendor:
   `tools/flash.py --restore-vendor --storage dump/<mac>/storage.orig.bin` (checked on the device).

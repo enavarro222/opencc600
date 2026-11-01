@@ -26,11 +26,11 @@ use esp_hal::clock::CpuClock;
 use esp_hal::dma_tx_buffer;
 use esp_hal::gpio::{DriveMode, Level, Output, OutputConfig};
 use esp_hal::interrupt::Priority;
-use esp_hal::lcd_cam::lcd::i8080::{self, I8080};
 use esp_hal::lcd_cam::LcdCam;
+use esp_hal::lcd_cam::lcd::i8080::{self, I8080};
 use esp_hal::ledc::channel::{self, ChannelIFace};
-use esp_hal::ledc::{LSGlobalClkSource, Ledc, LowSpeed};
 use esp_hal::ledc::timer::{self, TimerIFace};
+use esp_hal::ledc::{LSGlobalClkSource, Ledc, LowSpeed};
 use esp_hal::time::Rate;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::usb::usb_serial_jtag::UsbSerialJtag;
@@ -39,12 +39,12 @@ use esp_storage::FlashStorage;
 use littlefs2::fs::{Allocation, Filesystem};
 use log::{debug, info, warn};
 use nrf_link::{KeyAction, command};
-use opencc600_firmware::{ant, ble};
 use opencc600_firmware::gnss_uart::GnssUart;
 #[cfg(feature = "hil-storage")]
 use opencc600_firmware::hil_storage;
 use opencc600_firmware::panel::{self, FrameBuffer, Panel};
 use opencc600_firmware::storage;
+use opencc600_firmware::{ant, ble};
 use protocol_cc600::transfer::Kind;
 use ride_store::room;
 use static_cell::StaticCell;
@@ -73,6 +73,7 @@ use nrf::{NRF_COMMANDS, NRF_KEYS, SOUND_ON, STREAM_AT, nrf_link};
 use pairing::{LISTED_FOUND, ROLE_BITS, SCAN_ROLE, SHOWN_FOUND, calibrate_power, paired, role_index, set_sensor};
 use receiver::gnss_task;
 use ride::{Ride, StartError, StoredRide, ride_card, stored_rides};
+use route_file::{ATLAS_RECEIVED, ATLAS_STORED, load_atlas, store_atlas};
 use route_file::{MAP_RECEIVED, ROUTE_RECEIVED, bench_map, load_map, load_route, store_map, store_route};
 use screen::{BACKLIGHT, NIGHT, bench, draw_message, draw_status, theme, view_of};
 use trip_log::TripLog;
@@ -183,9 +184,7 @@ async fn main(spawner: Spawner) -> ! {
         .ok()
         .and_then(|fs| recorder::interrupted(fs).ok().flatten());
     if let Ok(fs) = fs.as_ref()
-        && let Err(e) = recorder::recover(fs, utc_offset(None), interrupted, |r| {
-            info!("ride recovered: {r:?}")
-        })
+        && let Err(e) = recorder::recover(fs, utc_offset(None), interrupted, |r| info!("ride recovered: {r:?}"))
     {
         warn!("ride recovery: littlefs error {}", e.code());
     }
@@ -311,6 +310,7 @@ async fn main(spawner: Spawner) -> ! {
     let _ = with_timeout(Duration::from_secs(3), ble::CONTROLLER_UP.wait()).await;
     let mut route_data = fs.as_ref().ok().and_then(load_route);
     let mut map_data = fs.as_ref().ok().and_then(|fs| load_map(fs, route_data.as_deref()));
+    let mut atlas_data = fs.as_ref().ok().and_then(load_atlas);
     // why the last map received was not kept, for its banner
     let mut map_refused: Option<&'static str> = None;
     let mut nav = ui::nav::Nav::default();
@@ -383,6 +383,20 @@ async fn main(spawner: Spawner) -> ! {
             };
             refresh_storage(fs);
         }
+        if let Some(new) = ATLAS_RECEIVED.try_take() {
+            let result = match fs.as_ref() {
+                Ok(fs) => match store_atlas(fs, new) {
+                    Ok(data) => {
+                        atlas_data = Some(data);
+                        refresh_storage(fs);
+                        Ok(())
+                    }
+                    Err(e) => Err(e),
+                },
+                Err(_) => Err(protocol_cc600::ErrorCode::Storage),
+            };
+            ATLAS_STORED.signal(result);
+        }
         // what the companion app did, said on the screen
         if let Some(e) = ble::APP.try_take() {
             let now = Instant::now().as_millis();
@@ -403,6 +417,10 @@ async fn main(spawner: Spawner) -> ! {
                     Some(why) => ui.inform("Carte refusée", ui::fonts::Line::new(format_args!("{why}")), now),
                     None => ui.inform("Carte reçue", ui::fonts::Line::new(format_args!("")), now),
                 },
+                companion::Event::Received(Kind::Atlas) => {
+                    let name = atlas_data.as_deref().and_then(|b| route::atlas::Atlas::read(b).ok());
+                    ui.inform("Atlas reçu", ui::fonts::Line::new(format_args!("{}", name.map_or("", |a| a.name))), now);
+                }
                 companion::Event::SettingsChanged => {
                     ui.inform("Réglages reçus", ui::fonts::Line::new(format_args!("Depuis l'appli")), now)
                 }
@@ -543,12 +561,8 @@ async fn main(spawner: Spawner) -> ! {
                         }
                     }
                 }
-                (ui::Command::Pause, Some(r), Ok(fs)) if r.info().running => {
-                    r.toggle_pause(fs, &state)
-                }
-                (ui::Command::Resume, Some(r), Ok(fs)) if !r.info().running => {
-                    r.toggle_pause(fs, &state)
-                }
+                (ui::Command::Pause, Some(r), Ok(fs)) if r.info().running => r.toggle_pause(fs, &state),
+                (ui::Command::Resume, Some(r), Ok(fs)) if !r.info().running => r.toggle_pause(fs, &state),
                 (ui::Command::Stop, Some(_), Ok(fs)) => {
                     let r = ride.take().unwrap();
                     ride_shown = r.info();
@@ -779,7 +793,9 @@ async fn main(spawner: Spawner) -> ! {
         let screen = (ui, view, status_shown, night);
         if shown != Some(screen) {
             let t = Instant::now();
-            ui::draw(&mut fb, &ui, &view, route.as_ref(), bg_map.as_ref(), &theme()).unwrap();
+            let atlas = atlas_data.as_deref().and_then(|b| route::atlas::Atlas::read(b).ok());
+            ui::draw_with_atlas(&mut fb, &ui, &view, route.as_ref(), bg_map.as_ref(), atlas.as_ref(), &theme())
+                .unwrap();
             let ms = t.elapsed().as_millis();
             if ms > 100 {
                 warn!("ui: {:?} {:?} drawn in {ms} ms", ui.screen(), ui.page());

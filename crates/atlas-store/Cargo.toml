@@ -1,0 +1,15 @@
+[package]
+name = "atlas-store"
+description = "Permanent CC600 geographic atlas: validated, atomic storage independent of routes"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+littlefs2 = { version = "0.8.1", default-features = false }
+route.workspace = true
+
+[dev-dependencies]
+ride-store = { path = "../ride-store", features = ["ram"] }
+route = { workspace = true, features = ["build"] }

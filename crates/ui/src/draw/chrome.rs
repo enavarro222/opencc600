@@ -117,7 +117,7 @@ pub(super) fn top_bar<D: DrawTarget<Color = Rgb565>>(
         // after the key (wider than the clock), two figures and the unit against them: room for the rune
         let off = match dm {
             ..1_000 => Fmt::new(format_args!("{} {}m", icon::OFF_ROUTE, dm / 10)),
-            ..100_000 => Fmt::new(format_args!("{} {},{}km", icon::OFF_ROUTE, dm / 10_000, dm / 1_000 % 10)),
+            1_000..100_000 => Fmt::new(format_args!("{} {},{}km", icon::OFF_ROUTE, dm / 10_000, dm / 1_000 % 10)),
             _ => Fmt::new(format_args!("{} {}km", icon::OFF_ROUTE, dm / 10_000)),
         };
         let ink = fonts::text(

@@ -112,6 +112,26 @@ pub(crate) const MAP_NEW: &str = "/map.new";
 /// while the old one is still shown). ~300 KB for 100 km with every detail outside cities.
 pub(crate) const MAP_MAX: usize = 512 * 1024;
 
+/// Permanent atlas: a different file, retained across route changes/removal.
+pub(crate) const ATLAS_MAX: usize = route::atlas::MAX_BYTES;
+pub(crate) static ATLAS_BYTES: AtomicU32 = AtomicU32::new(0);
+pub(crate) static ATLAS_RECEIVED: Signal<CriticalSectionRawMutex, Vec<u8>> = Signal::new();
+pub(crate) static ATLAS_STORED: Signal<CriticalSectionRawMutex, Result<(), protocol_cc600::ErrorCode>> = Signal::new();
+
+pub(crate) fn load_atlas(fs: &Fs<'_>) -> Option<Vec<u8>> {
+    let bytes = atlas_store::load(fs).inspect_err(|e| warn!("atlas: cannot load, {}", e.code())).ok()??;
+    ATLAS_BYTES.store(bytes.len() as u32, Ordering::Relaxed);
+    Some(bytes)
+}
+
+/// The old file survives a rejected transfer or an interrupted replacement.
+pub(crate) fn store_atlas(fs: &Fs<'_>, data: Vec<u8>) -> Result<Vec<u8>, protocol_cc600::ErrorCode> {
+    use protocol_cc600::ErrorCode;
+    atlas_store::store(fs, &data).map_err(|_| ErrorCode::Storage)?;
+    ATLAS_BYTES.store(data.len() as u32, Ordering::Relaxed);
+    Ok(data)
+}
+
 /// Flash a new map leaves free for the rides: ~6 hours of riding.
 pub(crate) const MAP_LEAVES_FREE: usize = 1024 * 1024;
 

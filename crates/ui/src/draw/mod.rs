@@ -209,6 +209,19 @@ pub fn draw<D: DrawTarget<Color = Rgb565>>(
     map: Option<&route::map::Map<'_>>,
     t: &Theme,
 ) -> Result<(), D::Error> {
+    draw_with_atlas(d, ui, v, route, map, None, t)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn draw_with_atlas<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    ui: &Ui,
+    v: &View,
+    route: Option<&route::Route<'_>>,
+    map: Option<&route::map::Map<'_>>,
+    atlas: Option<&route::atlas::Atlas<'_>>,
+    t: &Theme,
+) -> Result<(), D::Error> {
     d.clear(t.bg)?;
     // the charging screen and the splash are all custom: no bars, no banner
     match ui.screen() {
@@ -228,20 +241,15 @@ pub fn draw<D: DrawTarget<Color = Rgb565>>(
         Screen::Ride => match ui.page() {
             Some(Page::Altitude) => ride::ride_altitude(d, v, t)?,
             Some(Page::Climbs) => ride::ride_climbs(d, v, route, t)?,
-            Some(Page::Map) => crate::map::draw(d, ui.zoom_m(), v, route, map, t)?,
+            Some(Page::Map) => crate::map::draw(d, ui.zoom_m(), v, route, map, atlas, t)?,
             Some(Page::Effort) => ride::ride_effort(d, ui, v, t)?,
             Some(Page::Cardio) => ride::ride_cardio(d, ui, v, t)?,
             Some(Page::Essential) | None => ride::ride_essential(d, ui, v, t)?,
         },
         Screen::Paused => screens::paused(d, v, t, "En pause", "chrono arrêté", screens::PAUSED_NOTE)?,
-        Screen::Resume => screens::paused(
-            d,
-            v,
-            t,
-            "Sortie en pause",
-            "le compteur était éteint",
-            screens::RESUME_NOTE,
-        )?,
+        Screen::Resume => {
+            screens::paused(d, v, t, "Sortie en pause", "le compteur était éteint", screens::RESUME_NOTE)?
+        }
         Screen::ConfirmStop => screens::confirm_stop(d, v, t)?,
         Screen::ConfirmEmpty => screens::confirm_empty(d, v, t)?,
         Screen::ConfirmDiscard => screens::confirm_discard(d, v, t)?,

@@ -40,7 +40,11 @@ pub trait Device {
     /// Bytes free for rides, `None` before the storage was read.
     fn storage_free(&self) -> Option<u32>;
     /// A complete file, its size, CRC and format checked: to store and use.
-    fn file_received(&mut self, kind: Kind, data: Vec<u8>) -> Result<(), ErrorCode>;
+    async fn file_received(&mut self, kind: Kind, data: Vec<u8>) -> Result<(), ErrorCode>;
+    /// Installed atlas size, independent of the active route.
+    fn atlas_bytes(&self) -> u32 {
+        0
+    }
     /// The finished rides, in the order the app lists them.
     async fn rides(&mut self) -> Result<Vec<ActivityEntry>, ErrorCode>;
     /// Up to `max` bytes of ride `id` from `offset`: fewer at the end of the file, none past it.
@@ -164,6 +168,9 @@ impl Session {
                     route_max: device.max_file(Kind::Route).unwrap_or(0),
                     map_max: device.max_file(Kind::Map).unwrap_or(0),
                     free: device.storage_free().unwrap_or(DeviceInfo::UNKNOWN),
+                    atlas_max: device.max_file(Kind::Atlas).unwrap_or(0),
+                    atlas_bytes: device.atlas_bytes(),
+                    atlas_version: route::atlas::LATEST_VERSION as u32,
                 };
                 self.reply(Op::DeviceInfo, seq, &info.to_bytes())
             }
@@ -192,7 +199,7 @@ impl Session {
             }
             Op::TransferBegin => self.begin(seq, payload, device),
             Op::TransferChunk => self.chunk(seq, payload),
-            Op::TransferEnd => self.end(seq, device),
+            Op::TransferEnd => self.end(seq, device).await,
             Op::TransferAbort => {
                 self.receiver.abort();
                 self.partial = None;
@@ -226,14 +233,10 @@ impl Session {
 
     /// `AckActivity`: id, then the CRC of the file as the app received it (0: not given, Musette's for now).
     async fn ack(&mut self, seq: u8, payload: &[u8], device: &mut impl Device) {
-        let Some((id, crc)) = payload.first_chunk::<4>().map(|id| {
-            (
-                u32::from_le_bytes(*id),
-                payload
-                    .get(4..6)
-                    .map_or(0, |c| u16::from_le_bytes([c[0], c[1]])),
-            )
-        }) else {
+        let Some((id, crc)) = payload
+            .first_chunk::<4>()
+            .map(|id| (u32::from_le_bytes(*id), payload.get(4..6).map_or(0, |c| u16::from_le_bytes([c[0], c[1]]))))
+        else {
             return self.error(seq, ErrorCode::BadRequest);
         };
         if crc != 0 {
@@ -266,7 +269,11 @@ impl Session {
                 self.file.truncate(ready.next as usize);
                 // the whole file at once, not grown chunk by chunk (each growth holds two copies a moment): a file
                 // the memory cannot hold is refused here, not a panic halfway
-                let more = (begin.size as usize).saturating_sub(self.file.len());
+                // Large maps/atlases share a 512 KiB allocation size. Otherwise replacing a 500 KiB corridor
+                // leaves a hole too small for the next 512 KiB atlas, despite enough total free PSRAM.
+                let size = begin.size as usize;
+                let capacity = if (256 * 1024 + 1..=512 * 1024).contains(&size) { 512 * 1024 } else { size };
+                let more = capacity.saturating_sub(self.file.len());
                 if self.file.try_reserve_exact(more).is_err() {
                     // nothing held: the transfer the receiver just began goes too
                     self.file = Vec::new();
@@ -311,13 +318,15 @@ impl Session {
         }
     }
 
-    fn end(&mut self, seq: u8, device: &mut impl Device) {
+    async fn end(&mut self, seq: u8, device: &mut impl Device) {
         match self.receiver.end() {
             Ok(begin) => {
                 self.partial = None;
                 let data = core::mem::take(&mut self.file);
-                let result =
-                    check(begin.kind, &data).and_then(|()| device.file_received(begin.kind, data));
+                let result = match check(begin.kind, &data) {
+                    Ok(()) => device.file_received(begin.kind, data).await,
+                    Err(e) => Err(e),
+                };
                 match result {
                     Ok(()) => {
                         self.events.push(Event::Received(begin.kind));
@@ -355,6 +364,7 @@ fn check(kind: Kind, data: &[u8]) -> Result<(), ErrorCode> {
     let readable = match kind {
         Kind::Route => route::Route::parse(data).is_ok(),
         Kind::Map => route::map::Map::parse(data).is_ok(),
+        Kind::Atlas => route::atlas::Atlas::parse(data).is_ok(),
     };
     readable.then_some(()).ok_or(ErrorCode::BadRequest)
 }

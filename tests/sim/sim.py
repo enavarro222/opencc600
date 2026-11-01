@@ -29,7 +29,7 @@ RX_UUID = "c039ed02-4557-4b35-bc20-5c9320871456"
 
 HELLO, BEGIN, CHUNK, END = 0x01, 0x10, 0x11, 0x12
 DEVICE_INFO, OK, ERROR = 0x81, 0xF0, 0xFF
-ROUTE, MAP = 1, 2
+ROUTE, MAP, ATLAS = 1, 2, 3
 
 
 def esp32sim() -> Path | None:

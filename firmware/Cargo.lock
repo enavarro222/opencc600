@@ -43,6 +43,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "atlas-store"
+version = "0.0.3"
+dependencies = [
+ "littlefs2",
+ "route-cc600",
+]
+
+[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1788,6 +1796,7 @@ name = "opencc600-firmware"
 version = "0.0.3"
 dependencies = [
  "altitude",
+ "atlas-store",
  "bt-hci",
  "companion",
  "critical-section",
@@ -1894,7 +1903,7 @@ dependencies = [
 [[package]]
 name = "protocol-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=de29ab5f56a8691fe1d3aeb524d226dcf949c5a3#de29ab5f56a8691fe1d3aeb524d226dcf949c5a3"
+source = "git+https://github.com/enavarro222/musette?rev=b132d51e72df898a999bf7305a5ac7acd4df0946#b132d51e72df898a999bf7305a5ac7acd4df0946"
 
 [[package]]
 name = "quote"
@@ -2042,7 +2051,7 @@ dependencies = [
 [[package]]
 name = "route-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=de29ab5f56a8691fe1d3aeb524d226dcf949c5a3#de29ab5f56a8691fe1d3aeb524d226dcf949c5a3"
+source = "git+https://github.com/enavarro222/musette?rev=b132d51e72df898a999bf7305a5ac7acd4df0946#b132d51e72df898a999bf7305a5ac7acd4df0946"
 
 [[package]]
 name = "rustc-hash"
@@ -2142,7 +2151,7 @@ dependencies = [
 [[package]]
 name = "settings-cc600"
 version = "0.1.0"
-source = "git+https://github.com/enavarro222/musette?rev=de29ab5f56a8691fe1d3aeb524d226dcf949c5a3#de29ab5f56a8691fe1d3aeb524d226dcf949c5a3"
+source = "git+https://github.com/enavarro222/musette?rev=b132d51e72df898a999bf7305a5ac7acd4df0946#b132d51e72df898a999bf7305a5ac7acd4df0946"
 
 [[package]]
 name = "sha2"

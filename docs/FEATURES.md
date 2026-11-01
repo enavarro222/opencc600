@@ -31,6 +31,16 @@ A GPX route sent from Musette over BLE (or over USB), the climbs found by the ap
 - **Map page** turned to the heading, the part done in grey, scale bar from 50 m to 1 km, then the whole route, remaining distance;
   drawn in 28–47 ms on the device. The whole-route view marks the start with a green pennant and the finish with a
   chequered flag, both visible on loops too.
+- **Permanent global atlas**: geographic context from Natural Earth (country outlines, rivers and city names), selected
+  and installed in Musette independently of the route, up to 512 KiB. It is drawn beneath the detailed corridor and
+  the route at every zoom, with simplification and label collisions handled for the scale. Corridor area fills sit
+  below atlas lines; detailed corridor lines and the route stay above them. Changing a route
+  keeps the atlas. Interrupted installation keeps the previous atlas, or the complete new one after atomic rename.
+  The 13 regional packs also contain major roads, departmental boundaries, lake outlines and places from 2,000
+  inhabitants. They use the same 512 KiB limit; France and Europe retain their lighter overview.
+  Musette can also prepare a manual geographic selection from OSM with automatic detail to fit the available
+  atlas budget. Precise OCAT v2 adds smaller roads, paths, streams and tracks with approximately metre-scale
+  coordinate precision; v1 included packs remain supported. The handshake advertises the supported atlas version.
 - **Off-route alert** beyond 50 m, with the distance to the route.
 - **Climbs**: the last one done, the next ones with their distance; in a climb, distance, D+ and time left to the
   top, its profile coloured by gradient with the rider on it.

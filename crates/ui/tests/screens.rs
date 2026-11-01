@@ -136,6 +136,185 @@ fn screen(ui: &Ui, v: &View, file: &[u8], theme: &Theme) -> Fb {
     fb
 }
 
+#[test]
+fn the_permanent_atlas_draws_under_the_corridor_and_route_in_both_themes() {
+    use route::atlas::{
+        self,
+        build::{Feature, encode},
+    };
+    let file = route::build(
+        &route::parse_gpx(
+            "<gpx><trk><name>Atlas</name><trkseg>\
+        <trkpt lat=\"43.45\" lon=\"2.05\"><ele>300</ele></trkpt>\
+        <trkpt lat=\"43.55\" lon=\"2.20\"><ele>350</ele></trkpt>\
+        <trkpt lat=\"43.70\" lon=\"2.40\"><ele>400</ele></trkpt>\
+        </trkseg></trk></gpx>",
+        )
+        .unwrap(),
+        3.0,
+    );
+    let route = route::Route::parse(&file).unwrap();
+    let data = encode(
+        "France",
+        &[
+            Feature { class: atlas::ROAD, level: 0, label: String::new(), points: vec![(2040, 43520), (2380, 43650)] },
+            Feature { class: atlas::DEPARTMENT, level: 0, label: String::new(), points: vec![(2100, 43480), (2200, 43700)] },
+            Feature { class: atlas::LAKE, level: 0, label: String::new(), points: vec![(2250, 43640), (2280, 43660), (2300, 43630), (2250, 43640)] },
+            Feature { class: atlas::RIVER, level: 0, label: String::new(), points: vec![(2050, 43620), (2300, 43450)] },
+            Feature { class: atlas::CITY, level: 0, label: "Ville".into(), points: vec![(2180, 43580)] },
+        ],
+    )
+    .unwrap();
+    let atlas = atlas::Atlas::parse(&data).unwrap();
+    let map_file = route::build_map(
+        &file,
+        &[route::MapFeature {
+            class: route::map::class::FOREST,
+            points: vec![
+                (435_400_000, 21_800_000),
+                (435_700_000, 21_800_000),
+                (435_700_000, 22_300_000),
+                (435_400_000, 22_300_000),
+                (435_400_000, 21_800_000),
+            ],
+        }],
+        1000.0,
+    )
+    .0;
+    let map = route::map::Map::parse(&map_file).unwrap();
+    let v = View {
+        route: Some(ui::RouteView {
+            name: Line::new(format_args!("Atlas")),
+            length_dm: route.info.length_dm,
+            ascent_m: route.info.ascent_m,
+            me: None,
+            heading_cdeg: None,
+            progress: None,
+        }),
+        ..view()
+    };
+    let mut ui = Ui::new();
+    ui.set_context(true, false, false, ui::Effort::None);
+    ui.key(Key::BottomRight, Press::Click, 0, &v);
+    for (theme, name) in [(ui::DAY, "atlas-global"), (ui::NIGHT, "atlas-global-night")] {
+        let mut base = Fb::new(240, 320, theme.bg);
+        ui::draw(&mut base, &ui, &v, Some(&route), Some(&map), &theme).unwrap();
+        let mut shown = Fb::new(240, 320, theme.bg);
+        ui::draw_with_atlas(&mut shown, &ui, &v, Some(&route), Some(&map), Some(&atlas), &theme).unwrap();
+        assert!(shown.px.iter().zip(&base.px).any(|(a, b)| a != b));
+        for (i, &color) in base.px.iter().enumerate() {
+            if color == theme.route {
+                assert_eq!(shown.px[i], color, "route stays on top");
+            }
+        }
+        assert_eq!(&shown.px[..240 * 31], &base.px[..240 * 31]);
+        assert_eq!(&shown.px[240 * 279..], &base.px[240 * 279..]);
+        shown.png(name);
+    }
+    // At riding zoom, metre-scale geographic roads remain useful without a corridor.
+    let precise_data = atlas::build::encode_precise("Local", &[
+        Feature { class: atlas::MINOR, level: 0, label: String::new(), points: vec![(217900, 4358050), (218100, 4358050)] },
+        Feature { class: atlas::PATH, level: 0, label: String::new(), points: vec![(217900, 4358055), (218100, 4358055)] },
+        Feature { class: atlas::STREAM, level: 0, label: String::new(), points: vec![(217970, 4357950), (217970, 4358150)] },
+        Feature { class: atlas::CITY, level: 0, label: "Bourg".into(), points: vec![(218050, 4358100)] },
+    ]).unwrap();
+    let precise = atlas::Atlas::parse(&precise_data).unwrap();
+    let mut close = v;
+    close.route.as_mut().unwrap().me = Some(route.project(435_800_000, 21_800_000));
+    close.route.as_mut().unwrap().heading_cdeg = Some(0);
+    for _ in 0..ui::ZOOM_STEPS {
+        if ui.zoom_m() == Some(100) { break; }
+        ui.key(ui::Key::TopLeft, ui::Press::Click, 0, &close);
+    }
+    assert_eq!(ui.zoom_m(), Some(100));
+    for (theme, name) in [(ui::DAY, "atlas-precise-100m"), (ui::NIGHT, "atlas-precise-100m-night")] {
+        let mut base = Fb::new(240, 320, theme.bg);
+        ui::draw(&mut base, &ui, &close, Some(&route), None, &theme).unwrap();
+        let mut shown = Fb::new(240, 320, theme.bg);
+        ui::draw_with_atlas(&mut shown, &ui, &close, Some(&route), None, Some(&precise), &theme).unwrap();
+        assert!(shown.px.iter().zip(&base.px).any(|(a,b)| a != b), "precise geometry is visible at 100 m zoom");
+        assert_eq!(&shown.px[..240 * 31], &base.px[..240 * 31]);
+        assert_eq!(&shown.px[240 * 279..], &base.px[240 * 279..]);
+        shown.png(name);
+    }
+}
+
+#[test]
+fn global_streets_and_water_remain_visible_with_a_corridor_at_every_riding_zoom() {
+    use route::atlas::{self, build::Feature};
+    let file = test_route();
+    let route = route::Route::parse(&file).unwrap();
+    let features = [
+        Feature { class: atlas::MINOR, level: 0, label: String::new(), points: vec![(203000, 4346020), (207000, 4346020)] },
+        Feature { class: atlas::STREAM, level: 0, label: String::new(), points: vec![(204900, 4344000), (204900, 4350000)] },
+    ];
+    let precise = atlas::build::encode_precise("Local", &features).unwrap();
+    let base = atlas::build::encode("Base", &[]).unwrap();
+    let regional = atlas::build::compile(&base, "Region", [200000, 4340000, 210000, 4350000], &features, 250.0).unwrap();
+    let legacy_features: Vec<_> = features.iter().map(|f| Feature {
+        class: if f.class == atlas::MINOR { atlas::ROAD } else { atlas::RIVER }, level: 0, label: String::new(),
+        points: f.points.iter().map(|&(x, y)| (x / 100, y / 100)).collect(),
+    }).collect();
+    let legacy = atlas::build::encode("Included", &legacy_features).unwrap();
+    let corridor_file = route::build_map(&file, &[route::MapFeature {
+        class: route::map::class::FOREST,
+        points: vec![(434_590_000, 20_480_000), (434_610_000, 20_480_000),
+            (434_610_000, 20_500_000), (434_590_000, 20_500_000), (434_590_000, 20_480_000)],
+    }, route::MapFeature {
+        class: route::map::class::MAJOR,
+        points: vec![(434_585_000, 20_515_000), (434_625_000, 20_515_000)],
+    }], 1000.0).0;
+    let corridor = route::map::Map::parse(&corridor_file).unwrap();
+    let v = View { route: Some(ui::RouteView {
+        name: Line::new(format_args!("Compose")), length_dm: route.info.length_dm, ascent_m: route.info.ascent_m,
+        me: Some(route.project(434_600_000, 20_500_000)), heading_cdeg: Some(0), progress: None,
+    }), ..view() };
+    let mut ui = Ui::new();
+    ui.set_context(true, false, false, ui::Effort::None);
+    ui.key(Key::BottomRight, Press::Click, 0, &v);
+    for zoom in ui::ZOOMS_M.into_iter().map(Some).chain(core::iter::once(None)) {
+        while ui.zoom_m() != zoom { ui.key(Key::TopLeft, Press::Click, 0, &v); }
+        for (bytes, kind, street) in [(&precise, "precise", route::map::class::MINOR),
+            (&regional, "regional", route::map::class::MINOR), (&legacy, "included", route::map::class::MAJOR)] {
+            let atlas = atlas::Atlas::parse(bytes).unwrap();
+            for (theme, suffix) in [(ui::DAY, "day"), (ui::NIGHT, "night")] {
+                let mut baseline = Fb::new(240, 320, theme.bg);
+                ui::draw(&mut baseline, &ui, &v, Some(&route), Some(&corridor), &theme).unwrap();
+                let mut shown = Fb::new(240, 320, theme.bg);
+                ui::draw_with_atlas(&mut shown, &ui, &v, Some(&route), Some(&corridor), Some(&atlas), &theme).unwrap();
+                for class in [street, route::map::class::RIVER] {
+                    let color = theme.map[class as usize];
+                    assert!(shown.px.iter().zip(&baseline.px).any(|(&a, &b)| a == color && b != color),
+                        "{kind} class {class} is missing at {zoom:?} ({suffix}) with a corridor installed");
+                }
+                for (i, &color) in baseline.px.iter().enumerate() {
+                    if color == theme.route || color == theme.map[route::map::class::MAJOR as usize] {
+                        assert_eq!(shown.px[i], color, "route and detailed corridor lines remain on top");
+                    }
+                }
+                assert_eq!(&shown.px[..240 * 31], &baseline.px[..240 * 31]);
+                assert_eq!(&shown.px[240 * 279..], &baseline.px[240 * 279..]);
+                if zoom == Some(100) {
+                    let mut atlas_only = Fb::new(240, 320, theme.bg);
+                    ui::draw_with_atlas(&mut atlas_only, &ui, &v, Some(&route), None, Some(&atlas), &theme).unwrap();
+                    let water = theme.map[route::map::class::RIVER as usize];
+                    let forest = theme.map[route::map::class::FOREST as usize];
+                    let mut crossings = 0;
+                    for (i, &color) in baseline.px.iter().enumerate() {
+                        if color == forest && atlas_only.px[i] == water {
+                            crossings += 1;
+                            assert_eq!(shown.px[i], water, "global stream stays above corridor forest fill");
+                        }
+                    }
+                    assert!(crossings > 0, "fixture must cross a corridor forest");
+                }
+                let scale = zoom.map_or_else(|| "trace".to_owned(), |z| format!("{z}m"));
+                shown.png(&format!("atlas-composed-{kind}-{scale}-{suffix}"));
+            }
+        }
+    }
+}
+
 /// A 6 km loop: 1.5 km north, a bend east, back south (synthetic, near the prototype's place).
 fn test_route() -> Vec<u8> {
     let mut gpx = String::from("<gpx><trk><name>Boucle Montagne Noire et Lacs</name><trkseg>");

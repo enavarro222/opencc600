@@ -10,9 +10,9 @@ use embedded_graphics::primitives::{Circle, Line, PrimitiveStyle, PrimitiveStyle
 use route::Route;
 use route::map::{self, Map, class};
 
+use crate::View;
 use crate::draw::{BOTTOM, TOP, Theme, W, km, kmh, rect, rounded};
 use crate::fonts::{self, Align, Line as Fmt, Style};
-use crate::View;
 
 /// The rider on the page: centred, low (more of what is ahead).
 const ME: (f32, f32) = (120.0, 212.0);
@@ -39,6 +39,7 @@ pub(crate) fn draw<D: DrawTarget<Color = Rgb565>>(
     v: &View,
     route: Option<&Route<'_>>,
     bg_map: Option<&Map<'_>>,
+    atlas: Option<&route::atlas::Atlas<'_>>,
     t: &Theme,
 ) -> Result<(), D::Error> {
     let (Some(route), Some(rv)) = (route, v.route.as_ref()) else {
@@ -54,7 +55,16 @@ pub(crate) fn draw<D: DrawTarget<Color = Rgb565>>(
         _ => (Transform::fit(&route.info.bbox, area), None),
     };
     if let Some(m) = bg_map {
-        background(d, m, &view, around, t, area)?;
+        background(d, m, &view, around, t, area, true)?;
+    }
+    if let Some(a) = atlas {
+        global(d, a, route, &view, t, area, false)?;
+    }
+    if let Some(m) = bg_map {
+        background(d, m, &view, around, t, area, false)?;
+    }
+    if let Some(a) = atlas {
+        global(d, a, route, &view, t, area, true)?;
     }
     line(d, route, &view, along, (t.done, t.route), t.bg, area)?;
     if around.is_none() {
@@ -87,6 +97,103 @@ pub(crate) fn draw<D: DrawTarget<Color = Rgb565>>(
     overlay(d, rect(W - 8 - speed_w, 36, W - 8, 80), t)?;
     fonts::text(d, &label, "VITESSE KM/H", W - 14, 47, Align::Right)?;
     fonts::value(d, &value, kmh(v.speed_mm_s).as_str(), "00,0", W - 14, 65, Align::Right)?;
+    Ok(())
+}
+
+/// Geographic lines above corridor area fills and below detailed lines and the
+/// route. Simplification selects stored geometry; it must not hide the whole atlas.
+fn global<D: DrawTarget<Color = Rgb565>>(
+    d: &mut D,
+    atlas: &route::atlas::Atlas<'_>,
+    route: &Route<'_>,
+    view: &Transform,
+    t: &Theme,
+    area: Rectangle,
+    labels: bool,
+) -> Result<(), D::Error> {
+    use route::atlas::{CITY, DEPARTMENT, LAKE, MINOR, PATH, RIVER, ROAD, STREAM, TRACK};
+    let m_per_px = 1.0 / (view.scale * 10.0);
+    let level = if m_per_px < 800.0 {
+        0
+    } else if m_per_px < 4000.0 {
+        1
+    } else {
+        2
+    };
+    let info = &route.info;
+    let units_per_step = atlas.scale as f32 / 1000.0;
+    let (ux, _) = route.project(info.lat0_e7, info.lon0_e7 + 10_000);
+    let (_, uy) = route.project(info.lat0_e7 + 10_000, info.lon0_e7);
+    let reach = 400.0 / view.scale;
+    let lon = info.lon0_e7 as f32 / 10_000_000.0 * atlas.scale as f32 + view.origin.0 / ux.max(1) as f32 * units_per_step;
+    let lat = info.lat0_e7 as f32 / 10_000_000.0 * atlas.scale as f32 + view.origin.1 / uy.max(1) as f32 * units_per_step;
+    let dx = reach / ux.max(1) as f32 * units_per_step + 2.0;
+    let dy = reach / uy.max(1) as f32 * units_per_step + 2.0;
+    let bbox = [(lon - dx) as i32, (lat - dy) as i32, (lon + dx) as i32, (lat + dy) as i32];
+    let clip = (0.0, (TOP + 1) as f32, (W - 1) as f32, (BOTTOM - 1) as f32);
+    let project = |p: (i32, i32)| {
+        let to_e7 = 10_000_000 / atlas.scale;
+        let (x, y) = route.project(p.1 * to_e7, p.0 * to_e7);
+        view.apply(x, y)
+    };
+    let mut placed = [Rectangle::zero(); 12];
+    let mut count = 0;
+    for f in atlas.features(level, bbox) {
+        if labels != (f.class == CITY) {
+            continue;
+        }
+        if f.class == CITY {
+            if count == placed.len() || f.label.is_empty() {
+                continue;
+            }
+            let Some(p) = f.points().next() else { continue };
+            let (x, y) = project(p);
+            let (x, y) = (x as i32, y as i32);
+            let mut name = [b' '; 24];
+            for (to, from) in name.iter_mut().zip(f.label.bytes()) {
+                let c = from.to_ascii_uppercase();
+                *to = if c.is_ascii_alphanumeric() || b" .,:-+/%'()<>".contains(&c) { c } else { b' ' };
+            }
+            let name = core::str::from_utf8(&name[..f.label.len()]).unwrap_or("");
+            let width = fonts::LABEL_TINY.width(name, 0);
+            let bounds = rect(x - 3, y - 8, x + width + 6, y + 8);
+            if bounds.top_left.x < 3
+                || bounds.top_left.y < 88
+                || bounds.bottom_right().is_none_or(|p| p.x >= W - 3 || p.y >= BOTTOM - 5)
+                || placed[..count].iter().any(|r| r.intersection(&bounds).size != Size::zero())
+            {
+                continue;
+            }
+            fonts::text(d, &Style::new(&fonts::LABEL_TINY, t.mute, t.bg), name, x + 4, y, Align::Left)?;
+            Circle::with_center(Point::new(x, y), 3).into_styled(PrimitiveStyle::with_fill(t.mute)).draw(d)?;
+            placed[count] = bounds;
+            count += 1;
+        } else {
+            let color = match f.class {
+                RIVER | LAKE | STREAM => t.map[class::RIVER as usize],
+                ROAD => t.map[class::MAJOR as usize],
+                MINOR => t.map[class::MINOR as usize],
+                PATH | TRACK => t.map[class::PATH as usize],
+                _ => t.mute,
+            };
+            let dash = match f.class {
+                DEPARTMENT => (3, 3),
+                PATH | TRACK => (2, 2),
+                _ => (0, 0),
+            };
+            let mut phase = 0;
+            let mut previous = None;
+            for p in f.points() {
+                let at = project(p);
+                if let Some(a) = previous
+                    && let Some((p, q)) = clip_segment(a, at, clip)
+                {
+                    thin_line(d, p, q, 1, dash, &mut phase, color, area)?;
+                }
+                previous = Some(at);
+            }
+        }
+    }
     Ok(())
 }
 
@@ -205,7 +312,8 @@ const FINE_UNTIL_M: u32 = 2000;
 const REACH_PX: f32 = 230.0;
 
 /// The background map under the route: around the rider (`around`, the zoom's metres) the detail level's cells in
-/// view, else the overview's, all of them. Areas first, then the lines from the thinnest.
+/// view, else the overview's, all of them. The caller draws area fills first,
+/// then geographic atlas lines, then this map's more detailed lines.
 fn background<D: DrawTarget<Color = Rgb565>>(
     d: &mut D,
     m: &Map<'_>,
@@ -213,6 +321,7 @@ fn background<D: DrawTarget<Color = Rgb565>>(
     around: Option<u32>,
     t: &Theme,
     area: Rectangle,
+    areas: bool,
 ) -> Result<(), D::Error> {
     let level = match around {
         Some(_) => m.level(map::DETAIL),
@@ -238,37 +347,35 @@ fn background<D: DrawTarget<Color = Rgb565>>(
     let mut slopes = [0.0f32; map::MAX_POINTS];
     let (ax0, ay0) = (area.top_left.x as f32, area.top_left.y as f32);
     let (ax1, ay1) = (ax0 + area.size.width as f32, ay0 + area.size.height as f32);
-    for areas in [true, false] {
-        for cell in m.cells(level, from, to) {
-            for f in cell.features() {
-                if class::is_area(f.class) != areas
-                    || (skip_fine && matches!(f.class, class::PATH | class::SERVICE | class::STREAM | class::CONTOUR))
-                {
-                    continue;
-                }
-                // projected once, with their box: a feature out of the page costs only this
-                let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-                let mut n = 0;
-                for (x, y) in f.points() {
-                    let p = view.apply(x * 10, y * 10);
-                    (x0, y0, x1, y1) = (x0.min(p.0), y0.min(p.1), x1.max(p.0), y1.max(p.1));
-                    pts[n] = p;
-                    n += 1;
-                }
-                if n < 2 || x1 < ax0 || x0 > ax1 || y1 < ay0 || y0 > ay1 {
-                    continue;
-                }
-                let c = t.map[f.class as usize];
-                if areas {
-                    fill(d, &pts[..n], &mut slopes[..n], c, area)?;
-                } else {
-                    let (width, on, off) = STYLE[f.class as usize];
-                    let clip = (ax0, ay0, ax1 - 1.0, ay1 - 1.0);
-                    let mut phase = 0u8;
-                    for w in pts[..n].windows(2) {
-                        if let Some((p, q)) = clip_segment(w[0], w[1], clip) {
-                            thin_line(d, p, q, width, (on, off), &mut phase, c, area)?;
-                        }
+    for cell in m.cells(level, from, to) {
+        for f in cell.features() {
+            if class::is_area(f.class) != areas
+                || (skip_fine && matches!(f.class, class::PATH | class::SERVICE | class::STREAM | class::CONTOUR))
+            {
+                continue;
+            }
+            // projected once, with their box: a feature out of the page costs only this
+            let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+            let mut n = 0;
+            for (x, y) in f.points() {
+                let p = view.apply(x * 10, y * 10);
+                (x0, y0, x1, y1) = (x0.min(p.0), y0.min(p.1), x1.max(p.0), y1.max(p.1));
+                pts[n] = p;
+                n += 1;
+            }
+            if n < 2 || x1 < ax0 || x0 > ax1 || y1 < ay0 || y0 > ay1 {
+                continue;
+            }
+            let c = t.map[f.class as usize];
+            if areas {
+                fill(d, &pts[..n], &mut slopes[..n], c, area)?;
+            } else {
+                let (width, on, off) = STYLE[f.class as usize];
+                let clip = (ax0, ay0, ax1 - 1.0, ay1 - 1.0);
+                let mut phase = 0u8;
+                for w in pts[..n].windows(2) {
+                    if let Some((p, q)) = clip_segment(w[0], w[1], clip) {
+                        thin_line(d, p, q, width, (on, off), &mut phase, c, area)?;
                     }
                 }
             }
@@ -458,9 +565,8 @@ fn clip_segment(
     mut q: (f32, f32),
     (x0, y0, x1, y1): (f32, f32, f32, f32),
 ) -> Option<((f32, f32), (f32, f32))> {
-    let code = |(x, y): (f32, f32)| {
-        (x < x0) as u8 | ((x > x1) as u8) << 1 | ((y < y0) as u8) << 2 | ((y > y1) as u8) << 3
-    };
+    let code =
+        |(x, y): (f32, f32)| (x < x0) as u8 | ((x > x1) as u8) << 1 | ((y < y0) as u8) << 2 | ((y > y1) as u8) << 3;
     for _ in 0..8 {
         let (cp, cq) = (code(p), code(q));
         if cp | cq == 0 {
@@ -568,9 +674,10 @@ fn capsule<D: DrawTarget<Color = Rgb565>>(
 fn me_marker<D: DrawTarget<Color = Rgb565>>(d: &mut D, t: &Theme) -> Result<(), D::Error> {
     let (x0, y0) = (ME.0 as i32 - MARKER_HALF, ME.1 as i32 - MARKER_HALF);
     let pixels = MARKER.iter().enumerate().flat_map(|(j, row)| {
-        row.iter().enumerate().filter_map(move |(i, &a)| {
-            (a > 0).then(|| Pixel(Point::new(x0 + i as i32, y0 + j as i32), fonts::blend(t.bg, t.me, a)))
-        })
+        row.iter()
+            .enumerate()
+            .filter(|&(_, &a)| a > 0)
+            .map(move |(i, &a)| Pixel(Point::new(x0 + i as i32, y0 + j as i32), fonts::blend(t.bg, t.me, a)))
     });
     d.draw_iter(pixels)
 }

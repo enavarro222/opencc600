@@ -19,6 +19,8 @@ tested on a PC with `cargo test`:
   `$PAIR` commands; tested on an anonymised capture.
 - [crates/ride-store/](../crates/ride-store/): ride files on littlefs that survive a power cut; its test cuts the
   power at every flash operation of a recording scenario (RAM fake NOR flash).
+- [crates/atlas-store/](../crates/atlas-store/): permanent global atlas, validated independently of the active
+  route and installed atomically; its tests interrupt each flash operation during replacement.
 - [crates/fit/](../crates/fit/): FIT activity writer; every file of its tests is decoded again with `fitparser`.
 - [crates/recorder/](../crates/recorder/): ride recording as FIT on ride-store, pauses, totals, closing of
   interrupted rides; its test cuts the power at every flash operation of a ride and of the recovery.
@@ -51,7 +53,7 @@ and map files. Its coverage therefore belongs to host tooling; it does not measu
 The file formats and the protocol shared with the app live in the MIT
 [musette](https://github.com/enavarro222/musette) repository and come by git at a pinned `rev` (`Cargo.toml`):
 `protocol-cc600` (BLE protocol, resumable file transfer), `route-cc600` (route `OCRT` with its climbs, corridor
-map `OCMP`), `settings-cc600` (the settings file, POSIX time zones). To work on them, a `[patch]` towards a local
+map `OCMP`, independent atlas `OCAT`), `settings-cc600` (the settings file, POSIX time zones). To work on them, a `[patch]` towards a local
 clone in an untracked `.cargo/config.toml`; bump the `rev` once the musette commit is pushed. Make targets omit
 Cargo's `--locked` flag while a local Cargo config exists, so Cargo can resolve that patch. This can rewrite lockfiles
 with local paths; do not commit those lockfile changes. Release preparation requires disabling local `[patch]` entries

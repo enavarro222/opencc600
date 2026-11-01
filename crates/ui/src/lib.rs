@@ -19,7 +19,7 @@ pub mod history;
 mod map;
 pub mod nav;
 
-pub use draw::{CONTENT, DAY, NIGHT, Theme, draw};
+pub use draw::{CONTENT, DAY, NIGHT, Theme, draw, draw_with_atlas};
 use fonts::Line;
 pub use settings::Zones;
 

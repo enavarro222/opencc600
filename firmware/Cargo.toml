@@ -50,11 +50,12 @@ identity          = { path = "../crates/identity" }
 nrf-link          = { path = "../crates/nrf-link" }
 recorder          = { path = "../crates/recorder" }
 # shared with the companion app Musette (MIT), same rev as the root Cargo.toml
-route             = { package = "route-cc600", git = "https://github.com/enavarro222/musette", rev = "de29ab5f56a8691fe1d3aeb524d226dcf949c5a3" }
-settings          = { package = "settings-cc600", git = "https://github.com/enavarro222/musette", rev = "de29ab5f56a8691fe1d3aeb524d226dcf949c5a3" }
-protocol-cc600    = { package = "protocol-cc600", git = "https://github.com/enavarro222/musette", rev = "de29ab5f56a8691fe1d3aeb524d226dcf949c5a3" }
+route             = { package = "route-cc600", git = "https://github.com/enavarro222/musette", rev = "b132d51e72df898a999bf7305a5ac7acd4df0946" }
+settings          = { package = "settings-cc600", git = "https://github.com/enavarro222/musette", rev = "b132d51e72df898a999bf7305a5ac7acd4df0946" }
+protocol-cc600    = { package = "protocol-cc600", git = "https://github.com/enavarro222/musette", rev = "b132d51e72df898a999bf7305a5ac7acd4df0946" }
 ui                = { path = "../crates/ui" }
 ride-store        = { path = "../crates/ride-store" }
+atlas-store       = { path = "../crates/atlas-store" }
 status            = { path = "../crates/status" }
 test-hook         = { path = "../crates/test-hook" }
 static_cell      = "2.1.1"

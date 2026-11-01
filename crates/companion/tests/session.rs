@@ -29,9 +29,10 @@ impl Device for FakeDevice {
         match kind {
             Kind::Route => Ok(64 * 1024),
             Kind::Map => self.map.unwrap_or(Err(ErrorCode::BadRequest)),
+            Kind::Atlas => Ok(512 * 1024),
         }
     }
-    fn file_received(&mut self, kind: Kind, data: Vec<u8>) -> Result<(), ErrorCode> {
+    async fn file_received(&mut self, kind: Kind, data: Vec<u8>) -> Result<(), ErrorCode> {
         self.files.push((kind, data));
         Ok(())
     }
@@ -181,7 +182,9 @@ fn send(
 
 /// `DeviceInfo` of a device that takes routes of 64 KB and maps of `map_max`.
 fn info(map_max: u32) -> Vec<u8> {
-    DeviceInfo { route_max: 64 * 1024, map_max, free: 5_000_000 }.to_bytes().to_vec()
+    DeviceInfo { route_max: 64 * 1024, map_max, free: 5_000_000, atlas_max: 512 * 1024, atlas_bytes: 0, atlas_version: 2 }
+        .to_bytes()
+        .to_vec()
 }
 
 #[test]
@@ -217,17 +220,8 @@ fn a_damaged_frame_is_dropped_and_the_next_one_answered() {
 }
 
 fn with_rides() -> FakeDevice {
-    let ride = |id: u32, len: usize| {
-        (
-            id,
-            (0..len).map(|i| (i * 7 + id as usize) as u8).collect(),
-            false,
-        )
-    };
-    FakeDevice {
-        rides: vec![ride(1_760_000_000, 5000), ride(1_760_100_000, 0)],
-        ..Default::default()
-    }
+    let ride = |id: u32, len: usize| (id, (0..len).map(|i| (i * 7 + id as usize) as u8).collect(), false);
+    FakeDevice { rides: vec![ride(1_760_000_000, 5000), ride(1_760_100_000, 0)], ..Default::default() }
 }
 
 /// Ride `id` read as Musette does, `max` bytes at a time.
@@ -388,6 +382,16 @@ fn receives_a_route() {
     );
     assert_eq!(d.files, [(Kind::Route, file)]);
     assert_eq!(s.receiving(), None);
+}
+
+#[test]
+fn atlas_has_its_own_transfer_and_invalid_data_never_reaches_storage() {
+    let (mut s, mut d) = (Session::new(), FakeDevice::default());
+    let bytes = route::atlas::build::encode("Atlas", &[]).unwrap();
+    assert_eq!(send(&mut s, &mut d, Kind::Atlas, &bytes, None), Ok(bytes.len()));
+    assert_eq!(d.files, [(Kind::Atlas, bytes)]);
+    assert!(send(&mut s, &mut d, Kind::Atlas, b"not an atlas", None).is_err());
+    assert_eq!(d.files.len(), 1);
 }
 
 #[test]

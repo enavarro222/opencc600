@@ -3,9 +3,11 @@ sent as the app sends them, what the device then says of its room and what it lo
 
     uv run --project tests/hil pytest tests/sim
 """
+import gzip
 import json
 import struct
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -106,6 +108,44 @@ def dense_paths(lines: int = 400) -> dict:
     return {"elements": ways}
 
 
+def test_the_permanent_atlas_survives_route_removal_and_a_device_reboot(files, tmp_path):
+    """The real firmware acknowledges the stored atlas and keeps it independently of route/map lifecycle."""
+    route, map_ = files
+    atlas = (Path(__file__).parent / "fixtures/atlas.ocat").read_bytes()
+    script = sim.Script(start=0.0)
+    script.at("board usb on", then=3.0)
+
+    def connect():
+        script.at("ble connect")
+        script.at("ble mtu 247")
+        script.at(f"ble subscribe {sim.TX_CCCD}", then=0.3)
+
+    connect()
+    script.write(sim.HELLO, then=0.5)
+    script.send_file(sim.ATLAS, atlas)
+    script.write(sim.HELLO, then=0.5)
+    script.send_file(sim.ROUTE, route)
+    script.send_file(sim.MAP, map_)
+    script.write(sim.HELLO, then=0.5)
+    script.at("serial route clear", then=1.5)
+    script.write(sim.HELLO, then=0.5)
+    script.at("ble disconnect", then=0.5)
+    script.at("press key0 1500", then=8.0)
+    connect()
+    script.write(sim.HELLO, then=1.0)
+    run = sim.run(script, tmp_path, sim.flash_image(tmp_path), max_seconds=script.t + 10)
+    assert not run.lines(r"PANIC|panicked|alloc"), "firmware panicked or ran out of memory: see run.log"
+    errors = [n for n in run.notifications() if n[0] == sim.ERROR]
+    assert not errors, f"device refused an installation: {errors}"
+    assert run.lines(r"ble: app Atlas received"), "atlas was not durably acknowledged"
+    assert run.lines(r"route: removed"), "the active route was not removed"
+    assert run.lines(r"chip reset .*cause 0x1\b"), "the reboot did not happen"
+    infos = [struct.unpack("<IIIII", p[:20]) for op, _, p in run.notifications() if op == sim.DEVICE_INFO]
+    assert len(infos) == 5, f"missing device info: {infos}"
+    assert infos[0][3:] == (512 * 1024, 0)
+    assert all(i[4] == len(atlas) for i in infos[1:]), "atlas lost on route change/removal or reboot"
+
+
 def announced_map_max(tmp_path, image) -> int:
     """The largest map the device says it takes (its first `DeviceInfo`)."""
     script = sim.Script(start=3.0)
@@ -120,8 +160,10 @@ def announced_map_max(tmp_path, image) -> int:
 def test_the_largest_map_twice_in_the_cc600_psram(files, tmp_path):
     """A map as big as the device says it takes, then another one: the CC600 has 2 MB of PSRAM (the framebuffer takes
     150 KB), the old map is shown while the new one comes, and the receiving buffer must not grow by copies. Whatever
-    the device announces, it holds."""
+    the device announces, it holds, with a full permanent atlas also installed. Replacing the atlas must fit too."""
     route, _ = files
+    atlas = gzip.decompress((Path(__file__).parent / "fixtures/atlas-max.ocat.gz").read_bytes())
+    assert 0.99 * 512 * 1024 < len(atlas) <= 512 * 1024
     image = sim.flash_image(tmp_path)
     room = announced_map_max(tmp_path, image)
     (tmp_path / "sim.gpx").write_text(gpx())
@@ -140,14 +182,17 @@ def test_the_largest_map_twice_in_the_cc600_psram(files, tmp_path):
     script.at("ble connect")
     script.at("ble mtu 247")
     script.at(f"ble subscribe {sim.TX_CCCD}", then=0.3)
+    script.send_file(sim.ATLAS, atlas, chunk=230, every=0.012)
     script.send_file(sim.ROUTE, route)
     for _ in range(2):
         script.send_file(sim.MAP, big, chunk=230, every=0.012)
+    script.send_file(sim.ATLAS, atlas, chunk=230, every=0.012)
     run = sim.run(script, tmp_path, image, max_seconds=script.t + 10)
 
     assert not run.lines(r"PANIC|panicked|alloc"), "the firmware ran out of memory or panicked: see run.log"
     assert len(run.lines(rf"map: {len(big)} bytes")) == 2, f"each map of {len(big)} bytes is taken"
+    assert len(run.lines(r"ble: app Atlas received")) == 2, "both full atlases are stored"
     ops = [op for op, _, _ in run.notifications()]
     errors = [n for n in run.notifications() if n[0] == sim.ERROR]
     assert not errors, f"the device answered an error: {errors}"
-    assert ops.count(sim.OK) == 3, "the route and both maps end with Ok"
+    assert ops.count(sim.OK) == 5, "the route, both maps and both atlases end with Ok"
