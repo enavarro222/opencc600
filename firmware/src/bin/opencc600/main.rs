@@ -578,6 +578,7 @@ async fn main(spawner: Spawner) -> ! {
                 }
                 (ui::Command::Pause, Some(r), Ok(fs)) if r.info().running => r.toggle_pause(fs, &state),
                 (ui::Command::Resume, Some(r), Ok(fs)) if !r.info().running => r.toggle_pause(fs, &state),
+                (ui::Command::LiftAutoPause, Some(r), Ok(fs)) => r.lift_auto_pause(fs, &state),
                 (ui::Command::Stop, Some(_), Ok(fs)) => {
                     let r = ride.take().unwrap();
                     ride_shown = r.info();

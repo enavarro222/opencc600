@@ -69,7 +69,9 @@ A GPX route sent from Musette over BLE (or over USB), the climbs found by the ap
 
 - **Auto-pause** below 1.5 km/h by default, with automatic resume at or above the threshold. Enable/disable it
   and set the threshold (0.1–10 km/h) in Musette's Sortie settings. A wheel sensor takes priority over GPS speed;
-  unknown speed preserves the current state, and a manual pause always needs a manual resume.
+  unknown speed preserves the current state, and a manual pause always needs a manual resume. During an automatic
+  pause the main key is "Reprendre": the timer restarts and stays on until the rider has moved; the top key ends the
+  ride ("Terminer…", the map page keeps its zoom there).
 - **Moving time and total elapsed time** kept separately in the FIT file; average speed uses moving time.
   With auto-pause disabled, the timer runs until manually paused.
 - **FIT files that survive a power cut**: appended every 10 s, an interrupted ride closed and offered again at the

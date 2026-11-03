@@ -267,6 +267,8 @@ pub enum Command {
     Start,
     Pause,
     Resume,
+    /// Restart the timer of an automatic pause, the rider still stopped.
+    LiftAutoPause,
     /// Finish the ride: it stays resumable.
     Stop,
     /// Erase the ride in progress, not saved.
@@ -485,6 +487,15 @@ pub const BUILD: &str = concat!(env!("VERSION"), " ", env!("GIT_SHA"));
 
 /// A `Long` this soon after the last one of the same key is its repeat (the nRF sends one every ~200 ms).
 pub const LONG_REPEAT_MS: u64 = 600;
+
+/// The main key of a ride: a pause, or the automatic pause under way to lift.
+fn pause_key(view: &View) -> Hint {
+    if view.ride.auto_paused {
+        Hint::new("Reprendre").kind(Kind::Go)
+    } else {
+        Hint::new("Pause \u{e001}").kind(Kind::Pause)
+    }
+}
 
 /// The charging screen's animation: how long a cycle (the band climbing to the top, the dots rising a gap) lasts.
 pub const CHARGE_CYCLE_MS: u64 = 1_200;
@@ -1214,6 +1225,10 @@ impl Ui {
                 self.scrolled_at = now_ms;
                 (Ride, None)
             }
+            (Ride, TopLeft, Click) if view.ride.auto_paused => {
+                self.back = Ride;
+                (if view.ride.empty() { ConfirmEmpty } else { ConfirmStop }, None)
+            }
             (Ride, TopLeft, Click) => {
                 self.scroll = !self.scroll;
                 self.scrolled_at = now_ms;
@@ -1224,6 +1239,7 @@ impl Ui {
                 self.scrolled_at = now_ms;
                 (Ride, None)
             }
+            (Ride, BottomRight, Click) if view.ride.auto_paused => (Ride, Some(Command::LiftAutoPause)),
             (Ride, BottomRight, Click) => {
                 self.scroll = false;
                 (Paused, Some(Command::Pause))
@@ -1460,8 +1476,9 @@ impl Ui {
                     (None, Some(_)) => Hint::new("\u{e00f} Zoom"),
                 },
                 Hint::new("Page \u{e004}"),
-                Hint::new("Pause \u{e001}").kind(Kind::Pause),
+                pause_key(view),
             ],
+            Ride if view.ride.auto_paused => [Hint::new("Terminer…"), Hint::new("Page \u{e004}"), pause_key(view)],
             Ride => [
                 Hint::new(if self.scroll {
                     "\u{e00c} Défil. oui"
@@ -1469,7 +1486,7 @@ impl Ui {
                     "\u{e00c} Défil. non"
                 }),
                 Hint::new("Page \u{e004}"),
-                Hint::new("Pause \u{e001}").kind(Kind::Pause),
+                pause_key(view),
             ],
             Paused | Resume => [
                 MENU,
@@ -2328,13 +2345,34 @@ mod tests {
         ui.tick(0, Some(true), &v);
         assert_eq!(ui.screen(), Screen::Ride);
         assert_eq!(ui.banner().unwrap().title, "Pause automatique");
-        assert_eq!(ui.key(Key::BottomRight, Press::Click, 1, &v), Some(Command::Pause));
+        assert_eq!(ui.hints(&v)[2].text, "Reprendre");
+        assert_eq!(ui.key(Key::BottomRight, Press::Click, 1, &v), Some(Command::LiftAutoPause));
+        assert_eq!(ui.screen(), Screen::Ride);
         v.ride.auto_paused = false;
-        ui.tick(2, Some(false), &v);
+        ui.tick(2, Some(true), &v);
+        assert_eq!(ui.hints(&v)[2].text, "Pause \u{e001}");
+        assert_eq!(ui.key(Key::BottomRight, Press::Click, 3, &v), Some(Command::Pause));
+        ui.tick(4, Some(false), &v);
         assert_eq!(ui.screen(), Screen::Paused);
         assert!(ui.banner().is_none());
-        assert_eq!(ui.key(Key::BottomRight, Press::Click, 3, &v), Some(Command::Resume));
-        ui.tick(4, Some(true), &v);
+        assert_eq!(ui.key(Key::BottomRight, Press::Click, 5, &v), Some(Command::Resume));
+        ui.tick(6, Some(true), &v);
+        assert_eq!(ui.screen(), Screen::Ride);
+    }
+
+    #[test]
+    fn an_automatic_pause_can_end_the_ride_and_be_cancelled() {
+        let mut ui = Ui::new();
+        ui.end_splash();
+        let mut v = View { gnss: Gnss::Fix { used: 8 }, ..Default::default() };
+        v.ride.auto_paused = true;
+        v.ride.timer_s = 60;
+        v.ride.distance_cm = 100_000;
+        ui.tick(0, Some(true), &v);
+        assert_eq!(ui.hints(&v)[0].text, "Terminer…");
+        ui.key(Key::TopLeft, Press::Click, 1, &v);
+        assert_eq!(ui.screen(), Screen::ConfirmStop);
+        ui.key(Key::TopLeft, Press::Click, 2, &v);
         assert_eq!(ui.screen(), Screen::Ride);
     }
 

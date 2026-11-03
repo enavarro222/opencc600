@@ -280,6 +280,8 @@ pub struct Recorder {
     summary: Summary,
     /// An automatic pause keeps the ride active; a manual pause or reopen clears it.
     auto_paused: bool,
+    /// The rider lifted an automatic pause while stopped: the timer runs until the speed is back above the threshold.
+    auto_pause_lifted: bool,
     buf: [u8; BUF],
     len: usize,
     last_flush: u32,
@@ -302,6 +304,7 @@ impl Recorder {
             id,
             summary: Summary::default(),
             auto_paused: false,
+            auto_pause_lifted: false,
             buf: [0; BUF],
             len: 0,
             last_flush: timestamp,
@@ -339,6 +342,7 @@ impl Recorder {
             id,
             summary: scan.summary,
             auto_paused: false,
+            auto_pause_lifted: false,
             buf: [0; BUF],
             len: 0,
             last_flush: scan.summary.last_time,
@@ -392,6 +396,12 @@ impl Recorder {
             (Some(t), Some(v)) => u64::from(v) * 36 < u64::from(t) * 1000,
             (Some(_), None) => return Ok(()),
         };
+        if self.auto_pause_lifted {
+            if paused {
+                return Ok(());
+            }
+            self.auto_pause_lifted = false;
+        }
         if paused == self.auto_paused {
             return Ok(());
         }
@@ -403,6 +413,16 @@ impl Recorder {
         // pause/resume updates the summary before flushing; preserve its state even if the flush failed.
         self.auto_paused = !self.summary.running();
         result
+    }
+
+    /// Restarts the timer during an automatic pause, for the rider who is stopped but wants the time counted (or a
+    /// speed the GNSS does not see): no new automatic pause until the speed has been above the threshold.
+    pub fn lift_auto_pause<S: Storage>(&mut self, fs: &Filesystem<'_, S>, timestamp: u32) -> Result<()> {
+        if !self.auto_paused {
+            return Ok(());
+        }
+        self.auto_pause_lifted = true;
+        self.resume(fs, timestamp)
     }
 
     /// One record every `s` seconds from now on (1: every sample). The totals come from the records written: the
@@ -439,6 +459,7 @@ impl Recorder {
     /// Stops the timer (pause); written at once.
     pub fn pause<S: Storage>(&mut self, fs: &Filesystem<'_, S>, timestamp: u32) -> Result<()> {
         self.auto_paused = false;
+        self.auto_pause_lifted = false;
         if self.summary.running() {
             self.event(timestamp, EventType::Stop)?;
             self.flush(fs)?;

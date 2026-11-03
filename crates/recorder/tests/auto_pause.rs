@@ -150,3 +150,33 @@ fn saving_during_auto_pause_keeps_total_time_and_moving_average() {
     assert_eq!((totals.timer_ms, totals.elapsed_ms), (10_000, 40_000));
     assert_eq!(totals.avg_speed_mm_s(), 10_000);
 }
+
+#[test]
+fn lifting_an_automatic_pause_holds_until_the_rider_has_moved() {
+    let mut flash = Flash::new();
+    Filesystem::format(&mut flash).unwrap();
+    let mut alloc = Allocation::new();
+    let fs = Filesystem::mount(&mut alloc, &mut flash).unwrap();
+    let mut r = Recorder::start(&fs, ID, T0, 42).unwrap();
+    r.lift_auto_pause(&fs, T0).unwrap();
+    assert!(r.summary().running(), "nothing to lift");
+    r.auto_pause(&fs, T0 + 1, Some(0), Some(15)).unwrap();
+    assert!(r.auto_paused());
+
+    r.lift_auto_pause(&fs, T0 + 2).unwrap();
+    assert!(!r.auto_paused() && r.summary().running());
+    // still stopped: the timer stays on
+    r.auto_pause(&fs, T0 + 3, Some(0), Some(15)).unwrap();
+    assert!(!r.auto_paused() && r.summary().running());
+    // moving, then stopped again: automatic pauses are back
+    r.auto_pause(&fs, T0 + 4, Some(8000), Some(15)).unwrap();
+    r.auto_pause(&fs, T0 + 5, Some(0), Some(15)).unwrap();
+    assert!(r.auto_paused());
+
+    // a manual pause drops the hold
+    r.lift_auto_pause(&fs, T0 + 6).unwrap();
+    r.pause(&fs, T0 + 7).unwrap();
+    r.resume(&fs, T0 + 8).unwrap();
+    r.auto_pause(&fs, T0 + 9, Some(0), Some(15)).unwrap();
+    assert!(r.auto_paused());
+}

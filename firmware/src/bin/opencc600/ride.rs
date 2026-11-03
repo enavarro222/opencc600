@@ -257,6 +257,20 @@ impl Ride {
         }
     }
 
+    /// The rider restarts the timer of an automatic pause.
+    pub(crate) fn lift_auto_pause(&mut self, fs: &Fs<'_>, s: &Status) {
+        let t = s.now_unix()
+            .map_or(self.last_timestamp, fit::timestamp)
+            .max(self.last_timestamp);
+        let res = self.recorder.lift_auto_pause(fs, t);
+        self.wrote(fs, res);
+        self.last_timestamp = t;
+        info!("ride: automatic pause lifted");
+        if self.failure.is_none() {
+            sound(SOUND_BEEP);
+        }
+    }
+
     /// Records the latest GNSS epoch if it is new.
     #[allow(
         clippy::large_stack_frames,
