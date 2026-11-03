@@ -231,7 +231,7 @@ pub(crate) fn bench_map(fb: &mut FrameBuffer, r: &route::Route<'_>, m: Option<&r
         ascent_m: r.info.ascent_m,
         me: Some((p.x, p.y)),
         heading_cdeg: Some(4_500),
-        progress: Some(r.locate(p.x, p.y, None)),
+        progress: Some(r.locate(p.x, p.y, None, None)),
     });
     ui.key(ui::Key::BottomRight, ui::Press::Click, 0, &v);
     for _ in 0..ui::ZOOM_STEPS {

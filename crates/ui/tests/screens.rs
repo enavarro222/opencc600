@@ -341,7 +341,7 @@ fn with_route(v: View, ride: bool) -> View {
     let r = route::Route::parse(&file).unwrap();
     let pts: Vec<_> = r.points().collect();
     let me = pts[pts.len() / 5];
-    let progress = r.locate(me.x, me.y, None);
+    let progress = r.locate(me.x, me.y, None, None);
     View {
         route: Some(ui::RouteView {
             name: Line::new(format_args!("{}", r.name())),

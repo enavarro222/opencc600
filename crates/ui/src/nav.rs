@@ -35,14 +35,12 @@ impl Nav {
     /// The route as the screens show it, after the fix (`None`: no fix now).
     pub fn update(&mut self, r: &Route<'_>, fix: Option<Fix>) -> RouteView {
         let me = fix.map(|f| r.project(f.lat_e7, f.lon_e7));
-        if let Some(f) = fix
-            && f.speed_mm_s.is_some_and(|v| v >= MOVING_MM_S)
-            && f.course_cdeg.is_some()
-        {
-            self.heading_cdeg = f.course_cdeg;
+        let course = fix.filter(|f| f.speed_mm_s.is_some_and(|v| v >= MOVING_MM_S)).and_then(|f| f.course_cdeg);
+        if course.is_some() {
+            self.heading_cdeg = course;
         }
         if let Some((x, y)) = me {
-            self.progress = Some(r.locate(x, y, self.progress));
+            self.progress = Some(r.locate(x, y, self.progress, course));
         }
         RouteView {
             name: Line::new(format_args!("{}", r.name())),
