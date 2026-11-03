@@ -3,11 +3,14 @@
 //!
 //! The paired sensors ([`PAIRED`], from the settings) are connected and kept connected, one connection per device
 //! (a device can be several sensors), their measurements decoded by the `sensors` crate into [`current`]. A scan
-//! ([`SCAN`]) logs the cycling sensors around, to pair one; it drops the connections while it runs.
+//! ([`SCAN`]) logs the cycling sensors around, to pair one; it drops the connections while it runs. The remote, a
+//! BLE HID device, is one more of them ([`remote_link`]).
+
+pub mod remote_link;
 
 use core::cell::{Cell, RefCell};
 
-use embassy_futures::join::join3;
+use embassy_futures::join::{join3, join4};
 use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
@@ -25,15 +28,15 @@ use sensors::ble as gatt;
 use settings::Sensor;
 use trouble_host::prelude::*;
 
-type Ctrl = ExternalController<BleConnector<'static>, 20>;
-type Pool = DefaultPacketPool;
+pub(crate) type Ctrl = ExternalController<BleConnector<'static>, 20>;
+pub(crate) type Pool = DefaultPacketPool;
 /// Our GATT table: the GAP service (name, appearance; a sensor reading it gets answers, BlueZ waits 30 s for them,
 /// then drops the link) and the companion app's service.
-type Server<'a> = AttributeServer<'a, NoopRawMutex, Pool, 16, LINKS>;
-type HostError = BleHostError<esp_radio::ble::controller::BleConnectorError>;
+pub(crate) type Server<'a> = AttributeServer<'a, NoopRawMutex, Pool, 16, LINKS>;
+pub(crate) type HostError = BleHostError<esp_radio::ble::controller::BleConnectorError>;
 
-/// Devices connected at once: a heart rate strap, a speed / cadence sensor, a power meter.
-const CONNECTIONS_MAX: usize = 3;
+/// Devices connected at once: a heart rate strap, a speed / cadence sensor, a power meter, the remote.
+const CONNECTIONS_MAX: usize = 4;
 /// The sensors and the companion app.
 const LINKS: usize = CONNECTIONS_MAX + 1;
 /// Per connection: the signalling and ATT channels.
@@ -58,6 +61,8 @@ pub struct Paired {
     pub hr: Sensor,
     pub speed_cadence: Sensor,
     pub power: Sensor,
+    /// Its bond, if any, in [`remote_link::BOND`].
+    pub remote: Option<remote::Address>,
 }
 
 /// The sensor values now (`None`: no sensor, or nothing received for [`STALE`]).
@@ -114,11 +119,12 @@ fn reading(f: impl FnOnce(&mut Readings)) {
 
 /// A device to connect, and what it is paired for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Target {
+pub(crate) struct Target {
     address: Address,
     hr: bool,
     speed_cadence: bool,
     power: bool,
+    remote: bool,
 }
 
 /// The BLE devices of the paired sensors, each once.
@@ -135,7 +141,7 @@ fn targets(p: &Paired) -> Vec<Target, CONNECTIONS_MAX> {
         let t = match out.iter_mut().find(|t| t.address == address) {
             Some(t) => t,
             None => {
-                let _ = out.push(Target { address, hr: false, speed_cadence: false, power: false });
+                let _ = out.push(Target { address, hr: false, speed_cadence: false, power: false, remote: false });
                 out.last_mut().unwrap()
             }
         };
@@ -143,6 +149,13 @@ fn targets(p: &Paired) -> Vec<Target, CONNECTIONS_MAX> {
             0 => t.hr = true,
             1 => t.speed_cadence = true,
             _ => t.power = true,
+        }
+    }
+    // a remote is never a sensor too
+    if let Some(a) = &p.remote {
+        let address = remote_link::address(a);
+        if !out.iter().any(|t| t.address == address) {
+            let _ = out.push(Target { address, hr: false, speed_cadence: false, power: false, remote: true });
         }
     }
     out
@@ -191,15 +204,17 @@ pub async fn run(bt: BT<'static>, me: &'static identity::Identity, mut device: i
         let mut paired = Paired::default();
         loop {
             let t = targets(&paired);
-            let slots = join3(
+            let slots = join4(
                 slot(&stack, &server, &central, t.first()),
                 slot(&stack, &server, &central, t.get(1)),
                 slot(&stack, &server, &central, t.get(2)),
+                slot(&stack, &server, &central, t.get(3)),
             );
             match select3(PAIRED.wait(), SCAN.wait(), slots).await {
                 Either3::First(p) => {
                     info!("ble: paired {p:?}");
                     paired = p;
+                    set_bonds(&stack);
                 }
                 Either3::Second(0) => {}
                 Either3::Second(seconds) => scan(&central, &seen, seconds).await,
@@ -208,6 +223,25 @@ pub async fn run(bt: BT<'static>, me: &'static identity::Identity, mut device: i
         }
     })
     .await;
+}
+
+/// The stack's bonds: the remote's only (the sensors are not bonded).
+fn set_bonds(stack: &Stack<'_, Ctrl, Pool>) {
+    let mut old: Vec<Identity, 4> = Vec::new();
+    stack.with_bond_information(|bonds| {
+        for b in bonds {
+            let _ = old.push(b.identity);
+        }
+    });
+    for identity in old {
+        let _ = stack.remove_bond_information(identity);
+    }
+    if let Some(b) = remote_link::BOND.lock(Cell::get) {
+        match stack.add_bond_information(remote_link::bond_information(&b)) {
+            Ok(()) => info!("ble: remote bond restored"),
+            Err(e) => warn!("ble: remote bond: {e:?}"),
+        }
+    }
 }
 
 /// Keeps one device connected; never returns (pending without a device).
@@ -246,7 +280,12 @@ async fn slot(
                     l.retain(|(s, _)| *s != sensor);
                     let _ = l.push((sensor, Name::new()));
                 });
-                if let Err(e) = serve(stack, server, &conn, t).await {
+                let served = if t.remote {
+                    remote_link::serve(stack, server, &conn, t).await
+                } else {
+                    serve(stack, server, &conn, t).await
+                };
+                if let Err(e) = served {
                     warn!("ble: {:?}: {e:?}", t.address.addr);
                 }
                 LINKED.lock(|l| l.borrow_mut().retain(|(s, _)| *s != sensor));
@@ -553,6 +592,12 @@ pub type Name = heapless::String<18>;
 pub const ROLE_HR: u8 = 1;
 pub const ROLE_SPEED_CADENCE: u8 = 2;
 pub const ROLE_POWER: u8 = 4;
+/// A HID device (a remote): its service advertised, or a HID appearance.
+pub const ROLE_REMOTE: u8 = 8;
+/// GATT HID service.
+const HID: u16 = 0x1812;
+/// Advertising data type of the appearance; the HID appearances are 0x03C0..=0x03CF.
+const AD_APPEARANCE: u8 = 0x19;
 
 /// Devices kept from a scan; the ones without a sensor service go first when it is full.
 const HEARD_MAX: usize = 24;
@@ -639,8 +684,14 @@ impl EventHandler for Seen {
                                 gatt::HEART_RATE => ROLE_HR,
                                 gatt::SPEED_CADENCE => ROLE_SPEED_CADENCE,
                                 gatt::POWER => ROLE_POWER,
+                                HID => ROLE_REMOTE,
                                 _ => 0,
                             };
+                        }
+                    }
+                    AdStructure::Unknown { ty: AD_APPEARANCE, data: [lo, hi] } => {
+                        if u16::from_le_bytes([*lo, *hi]) & 0xFFF0 == 0x03C0 {
+                            roles |= ROLE_REMOTE;
                         }
                     }
                     _ => {}
@@ -667,7 +718,12 @@ impl EventHandler for Seen {
                 }
                 if roles & !d.roles != 0 {
                     d.roles |= roles;
-                    let kinds: Vec<&str, 3> = [(ROLE_HR, "hr"), (ROLE_SPEED_CADENCE, "speed_cadence"), (ROLE_POWER, "power")]
+                    let kinds: Vec<&str, 4> = [
+                        (ROLE_HR, "hr"),
+                        (ROLE_SPEED_CADENCE, "speed_cadence"),
+                        (ROLE_POWER, "power"),
+                        (ROLE_REMOTE, "remote"),
+                    ]
                         .into_iter()
                         .filter(|(r, _)| d.roles & r != 0)
                         .map(|(_, k)| k)

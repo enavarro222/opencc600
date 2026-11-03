@@ -1663,7 +1663,12 @@ impl<'d, C: Controller, P: PacketPool> ControlRunner<'d, C, P> {
                     }
                     #[cfg(feature = "security")]
                     CancelledCommandState::SyncResolvingList(update) => {
-                        host.sync_resolving_list(update).await?;
+                        // opencc600: a procedure that starts during the sync makes the controller refuse
+                        // (Command Disallowed); that stopped the whole host. Fixed upstream by a command gate
+                        // (0.8, bt-hci 0.10); here the sync is only given up.
+                        if let Err(e) = host.sync_resolving_list(update).await {
+                            warn!("[host] resolving list sync given up: {:?}", e);
+                        }
                     }
                 },
                 Either4::Fourth(request) => {

@@ -82,6 +82,8 @@ pub enum Screen {
     SensorScan,
     /// The power meter's zero offset calibration: what to do, then its result ([`Sensors::calibration`]).
     Calibrate,
+    /// The remote's buttons learned, key after key ([`LEARN_KEYS`], [`Sensors::learn`]): after it is paired.
+    RemoteLearn,
     Ride,
     Paused,
     PauseMenu,
@@ -180,7 +182,7 @@ pub struct EffortPick {
     picked: Effort,
     /// Since when the pages may still change, during a ride.
     since_ms: Option<u64>,
-    /// The roles paired, at the last update.
+    /// The sensor roles paired, at the last update.
     paired: [bool; 3],
 }
 
@@ -196,7 +198,8 @@ impl EffortPick {
         } else {
             Effort::None
         };
-        let paired = sensors.roles.map(|r| r.link != Link::Unpaired);
+        // the sensors only: a remote makes no page
+        let paired = [Role::HeartRate, Role::SpeedCadence, Role::Power].map(|r| link(r) != Link::Unpaired);
         if !ride {
             *self = Self { picked: seen, since_ms: None, paired };
             return seen;
@@ -281,6 +284,10 @@ pub enum Command {
     Forget(Role),
     /// Calibrate the power meter (zero offset).
     Calibrate,
+    /// The key being learned for the remote keeps its old button (or none); the next one.
+    LearnSkip,
+    /// Learning the remote's buttons is over (what is learned is kept).
+    LearnEnd,
     /// Follow the loaded route (`true`), or set it aside for a free ride: it stays stored.
     FollowRoute(bool),
     /// Switched on from the charging screen (the long press starts the nRF's sensor stream, ~400 ms later): the logo
@@ -296,16 +303,19 @@ pub enum Role {
     HeartRate,
     SpeedCadence,
     Power,
+    /// A BLE remote: its buttons do the keys.
+    Remote,
 }
 
 impl Role {
-    pub const ALL: [Role; 3] = [Role::HeartRate, Role::SpeedCadence, Role::Power];
+    pub const ALL: [Role; 4] = [Role::HeartRate, Role::SpeedCadence, Role::Power, Role::Remote];
 
     pub fn label(self) -> &'static str {
         match self {
             Role::HeartRate => "Cardio",
             Role::SpeedCadence => "Vitesse / cadence",
             Role::Power => "Puissance",
+            Role::Remote => "Télécommande",
         }
     }
 
@@ -315,18 +325,45 @@ impl Role {
             Role::HeartRate => "CARDIO",
             Role::SpeedCadence => "VITESSE / CADENCE",
             Role::Power => "PUISSANCE",
+            Role::Remote => "TÉLÉCOMMANDE",
         }
     }
+}
+
+/// The keys a remote's buttons are learned for, in order: the main key, the page key, back (`remote::LEARN_ORDER`).
+pub const LEARN_KEYS: [Key; 3] = [Key::BottomRight, Key::BottomLeft, Key::TopLeft];
+
+/// Where a key is and what it does most, for the remote's learning screen.
+pub fn key_label(key: Key) -> (&'static str, &'static str) {
+    match key {
+        Key::BottomRight => ("Bas droite", "pause, choisir"),
+        Key::BottomLeft => ("Bas gauche", "page, suivant"),
+        Key::TopLeft => ("Haut gauche", "retour, zoom"),
+    }
+}
+
+/// Learning the remote's buttons ([`Screen::RemoteLearn`]), from the firmware.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Learn {
+    /// The key being learned, as an index of [`LEARN_KEYS`]; past its end once all are.
+    pub step: u8,
+    /// Presses already had for it (0 or 1: two are asked).
+    pub presses: u8,
+    /// The last press was refused: its button already does this key.
+    pub taken: Option<Key>,
+    /// The remote is connected (its presses come in).
+    pub connected: bool,
 }
 
 /// The sensors screens' content, filled by the firmware.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Sensors {
     /// Each role's sensor, in [`Role::ALL`] order.
-    pub roles: [SensorRow; 3],
+    pub roles: [SensorRow; 4],
     /// What the scan found for the role being paired, closest first.
     pub found: [Option<Found>; FOUND],
     pub calibration: Calibration,
+    pub learn: Learn,
 }
 
 /// The power meter's last calibration ([`Command::Calibrate`]).
@@ -915,6 +952,13 @@ impl Ui {
     }
 
     /// At power-on with a paused ride: the screen that offers to resume or finish it.
+    /// The remote's learning screen, as after pairing it (from the sensors screen).
+    pub fn show_remote_learn(&mut self) {
+        self.role = Role::Remote as u8;
+        self.calibrate_row = false;
+        self.screen = Screen::RemoteLearn;
+    }
+
     pub fn found_paused_ride(&mut self) {
         self.screen = Screen::Resume;
         self.pages = self.next_pages();
@@ -1121,11 +1165,11 @@ impl Ui {
                 }
             }
             (Status | Sensors | About, TopLeft, Click) => (if self.back == Home { Menu } else { PauseMenu }, None),
-            // after the power meter, its calibration once it is paired
+            // after the power meter, its calibration once it is paired, then the remote
             (Sensors, BottomLeft, Click) => {
                 if self.calibrate_row {
                     self.calibrate_row = false;
-                    self.role = 0;
+                    self.role = Role::Remote as u8;
                 } else if self.role() == Role::Power && view.sensors.roles[2].link != Link::Unpaired {
                     self.calibrate_row = true;
                 } else {
@@ -1140,6 +1184,13 @@ impl Ui {
             }
             (SensorScan, TopLeft, Click) => (Sensors, Some(Command::StopScan)),
             (Calibrate, TopLeft, Click) => (Sensors, None),
+            (RemoteLearn, TopLeft, Click) => (Sensors, Some(Command::LearnEnd)),
+            (RemoteLearn, BottomLeft, Click) if (view.sensors.learn.step as usize) < LEARN_KEYS.len() => {
+                (RemoteLearn, Some(Command::LearnSkip))
+            }
+            (RemoteLearn, BottomRight, Click) if view.sensors.learn.step as usize >= LEARN_KEYS.len() => {
+                (Sensors, Some(Command::LearnEnd))
+            }
             (Calibrate, BottomRight, Click) if view.sensors.calibration != Calibration::Running => {
                 (Calibrate, Some(Command::Calibrate))
             }
@@ -1149,6 +1200,10 @@ impl Ui {
                 (SensorScan, None)
             }
             (SensorScan, BottomRight, Click) => match self.scan_entries(view) {
+                // a remote (paired again or not): its buttons learned next
+                (found, _) if self.item < found && self.role() == Role::Remote => {
+                    (RemoteLearn, Some(Command::Pair(Role::Remote, self.item)))
+                }
                 (found, _) if self.item < found => (Sensors, Some(Command::Pair(self.role(), self.item))),
                 (found, true) if self.item == found => (Sensors, Some(Command::Forget(self.role()))),
                 _ => (SensorScan, None),
@@ -1384,6 +1439,10 @@ impl Ui {
             Sensors => [BACK, NEXT, Hint::new("Chercher \u{e00b}").kind(Kind::Select)],
             Calibrate if view.sensors.calibration == Calibration::Running => [BACK, NOTHING, NOTHING],
             Calibrate => [BACK, NOTHING, Hint::new("Calibrer").kind(Kind::Go)],
+            RemoteLearn if (view.sensors.learn.step as usize) < LEARN_KEYS.len() => {
+                [Hint::new("Terminer"), Hint::new("Passer"), NOTHING]
+            }
+            RemoteLearn => [NOTHING, NOTHING, Hint::new("OK").kind(Kind::Go)],
             SensorScan => match self.scan_entries(view) {
                 (0, false) => [BACK, NOTHING, NOTHING],
                 (found, forget) => [
@@ -1950,8 +2009,11 @@ mod tests {
         assert_eq!(ui.key(BottomRight, Click, 0, &v), None, "once at a time");
         assert_eq!(ui.key(TopLeft, Click, 0, &v), None);
         assert_eq!(ui.screen(), Screen::Sensors);
+        // the remote after the calibration, then the first role again
         ui.key(BottomLeft, Click, 0, &v);
         assert!(!ui.calibrate_row());
+        assert_eq!(ui.role(), Role::Remote);
+        ui.key(BottomLeft, Click, 0, &v);
         assert_eq!(ui.role(), Role::HeartRate);
         ui.key(BottomLeft, Click, 0, &v);
         ui.key(BottomLeft, Click, 0, &v);
@@ -2141,10 +2203,51 @@ mod tests {
     }
 
     #[test]
+    fn pairing_a_remote_learns_its_buttons() {
+        let mut v = view();
+        v.sensors.found = [
+            Some(Found { name: Line::new(format_args!("BLE-M3")), rssi_dbm: -50, paired: false }),
+            None,
+            None,
+            None,
+        ];
+        let mut ui = Ui::new();
+        press(&mut ui, BottomLeft); // menu
+        ui.key(BottomRight, Click, 0, &v);
+        // the remote: after the three sensors (no power meter, no calibration)
+        for _ in 0..3 {
+            ui.key(BottomLeft, Click, 0, &v);
+        }
+        assert_eq!(ui.role(), Role::Remote);
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::Scan(Role::Remote)));
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::Pair(Role::Remote, 0)));
+        assert_eq!(ui.screen(), Screen::RemoteLearn);
+        // a key skipped, nothing on the main key until all are learned
+        assert_eq!(ui.hints(&v)[1].text, "Passer");
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), None);
+        assert_eq!(ui.key(BottomLeft, Click, 0, &v), Some(Command::LearnSkip));
+        v.sensors.learn.step = LEARN_KEYS.len() as u8;
+        assert_eq!(ui.key(BottomLeft, Click, 0, &v), None);
+        assert_eq!(ui.hints(&v)[2].text, "OK");
+        assert_eq!(ui.key(BottomRight, Click, 0, &v), Some(Command::LearnEnd));
+        assert_eq!(ui.screen(), Screen::Sensors);
+        // left half way
+        ui.key(BottomRight, Click, 0, &v);
+        ui.key(BottomRight, Click, 0, &v);
+        assert_eq!(ui.screen(), Screen::RemoteLearn);
+        v.sensors.learn.step = 1;
+        assert_eq!(ui.key(TopLeft, Click, 0, &v), Some(Command::LearnEnd));
+        assert_eq!(ui.screen(), Screen::Sensors);
+    }
+
+    #[test]
     fn the_effort_page_follows_the_sensors_connected() {
         let row = |link| SensorRow { link, name: None };
         // heart rate, speed / cadence, power
-        let s = |hr, power| Sensors { roles: [row(hr), row(Link::Unpaired), row(power)], ..Default::default() };
+        let s = |hr, power| Sensors {
+            roles: [row(hr), row(Link::Unpaired), row(power), row(Link::Unpaired)],
+            ..Default::default()
+        };
         use Link::*;
         let mut pick = EffortPick::default();
         // before the start: what is connected now

@@ -180,6 +180,14 @@ pub(crate) async fn usb_keys(mut rx: UsbSerialJtagRx<'static, esp_hal::Blocking>
                         (s, ..) => info!("screen {s:?}"),
                     },
                     Some(Command::BleScan(seconds)) => ble::SCAN.signal(seconds),
+                    Some(Command::RemoteBond(text)) => match remote::Bond::parse(text) {
+                        Some(b) => {
+                            ble::remote_link::BOND.lock(|c| c.set(Some(b)));
+                            ble::PAIRED.signal(crate::pairing::paired(&settings()));
+                            info!("usb: remote bond given to the stack");
+                        }
+                        None => warn!("usb: remote bond: not a bond line"),
+                    },
                     Some(Command::NrfE2(grp, id, val)) => {
                         info!("usb: nrf E2 {grp:02X} {id:02X} 00 00 {val:02X} 00 00");
                         NRF_COMMANDS.send(command::e2(grp, id, val)).await;

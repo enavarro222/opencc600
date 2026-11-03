@@ -57,6 +57,9 @@ A GPX route sent from Musette over BLE (or over USB), the climbs found by the ap
 - **BLE** heart rate, speed / cadence and power, searched and paired from the device.
 - **ANT+** through the nRF co-processor (written, tested on the PC; still to try with a real sensor).
 - Power meter zero offset calibration. A sensor lost mid-ride keeps its place with "--" and a banner.
+- **BLE remotes** (cheap phone remotes, HID over GATT, including those that fake a touchscreen): paired from
+  Sensors › Remote, then each button learned for a key by pressing it twice. They press the keys on every screen,
+  and the bond is kept, so they reconnect at power-on. Tried with a Yiser-J6.
 
 ## Recording you can trust
 

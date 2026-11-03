@@ -1,0 +1,7 @@
+[package]
+name         = "remote"
+description  = "BLE remotes (HID over GATT) as a second keypad: report maps parsed, presses rebuilt (fake touches, keys), learned buttons, the /remote file, no_std"
+edition.workspace      = true
+license.workspace      = true
+rust-version.workspace = true
+version.workspace      = true

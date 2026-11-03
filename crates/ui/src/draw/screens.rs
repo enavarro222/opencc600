@@ -472,14 +472,17 @@ fn sensor_value(role: Role, v: &View) -> Option<Fmt> {
             (None, None) => None,
         },
         Role::Power => v.power_w.map(|w| Fmt::new(format_args!("{w} W"))),
+        Role::Remote => None,
     }
 }
 
 const SENSORS_NOTE: &str = "Chercher : réveille d'abord le\ncapteur (roue, pédale, ceinture).";
 
-/// The sensor roles, each with its sensor, its link and its value; the selected one in blue.
+/// The sensor roles, each with its sensor, its link and its value; the selected one in blue. The power meter's
+/// calibration once it is paired, after it.
 pub(super) fn sensors<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &View, t: &Theme) -> Result<(), D::Error> {
-    const ROW: i32 = 54;
+    const ROW: i32 = 44;
+    const CALIBRATE_ROW: i32 = 38;
     fonts::text(d, &t.label(&fonts::LABEL), "CAPTEURS", MARGIN, 47, Align::Left)?;
     let mut buf = [0; 4];
     let chevron = char_str(icon::CHEVRON, &mut buf);
@@ -490,11 +493,12 @@ pub(super) fn sensors<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &Vie
         fill(d, rect(0, y, W - 1, y + ROW - 2), bg)?;
         hline(d, y + ROW - 1, t)?;
         let s = Style::new(&fonts::MENU, fg, bg);
-        fonts::text(d, &s, role.label(), MARGIN, y + 17, Align::Left)?;
+        fonts::text(d, &s, role.label(), MARGIN, y + 13, Align::Left)?;
         fonts::text(d, &s, chevron, W - MARGIN, y + ROW / 2 - 1, Align::Right)?;
         let r = &v.sensors.roles[i];
-        let name = r.name.as_ref().map_or("capteur", |n| n.as_str());
+        let name = r.name.as_ref().map_or(if role == Role::Remote { "télécommande" } else { "capteur" }, |n| n.as_str());
         let (state, color) = match r.link {
+            Link::Unpaired if role == Role::Remote => (Fmt::new(format_args!("Aucune")), t.mute),
             Link::Unpaired => (Fmt::new(format_args!("Aucun capteur")), t.mute),
             Link::Searching => (Fmt::new(format_args!("{name} : recherche…")), t.warn),
             Link::Connected => match sensor_value(role, v) {
@@ -503,22 +507,55 @@ pub(super) fn sensors<D: DrawTarget<Color = Rgb565>>(d: &mut D, ui: &Ui, v: &Vie
             },
         };
         let s = Style::new(&fonts::NOTE, if selected { fg } else { color }, bg);
-        fonts::text(d, &s, state.as_str(), MARGIN, y + 38, Align::Left)?;
+        fonts::text(d, &s, state.as_str(), MARGIN, y + 31, Align::Left)?;
         y += ROW;
+        if role == Role::Power && r.link != Link::Unpaired {
+            let (bg, fg) = row_colors(t, ui.calibrate_row());
+            fill(d, rect(0, y, W - 1, y + CALIBRATE_ROW - 2), bg)?;
+            hline(d, y + CALIBRATE_ROW - 1, t)?;
+            let s = Style::new(&fonts::MENU, fg, bg);
+            let cy = y + CALIBRATE_ROW / 2 - 1;
+            fonts::text(d, &s, "Calibrer la puissance", MARGIN, cy, Align::Left)?;
+            fonts::text(d, &s, chevron, W - MARGIN, cy, Align::Right)?;
+            y += CALIBRATE_ROW;
+        }
     }
-    // the power meter's calibration, in the note's place
-    if v.sensors.roles[2].link != Link::Unpaired {
-        const CALIBRATE_ROW: i32 = 42;
-        let (bg, fg) = row_colors(t, ui.calibrate_row());
-        fill(d, rect(0, y, W - 1, y + CALIBRATE_ROW - 2), bg)?;
-        hline(d, y + CALIBRATE_ROW - 1, t)?;
-        let s = Style::new(&fonts::MENU, fg, bg);
-        let cy = y + CALIBRATE_ROW / 2 - 1;
-        fonts::text(d, &s, "Calibrer la puissance", MARGIN, cy, Align::Left)?;
-        fonts::text(d, &s, chevron, W - MARGIN, cy, Align::Right)?;
+    if v.sensors.roles[Role::Power as usize].link != Link::Unpaired {
         return Ok(());
     }
-    note_lines(d, &t.mute(&fonts::NOTE), SENSORS_NOTE, MARGIN, y + 16, 19)
+    note_lines(d, &t.mute(&fonts::NOTE), SENSORS_NOTE, MARGIN, y + 14, 18)
+}
+
+/// Learning the remote's buttons: the keys (learned, being learned, to come), then what to do.
+pub(super) fn remote_learn<D: DrawTarget<Color = Rgb565>>(d: &mut D, v: &View, t: &Theme) -> Result<(), D::Error> {
+    use crate::{LEARN_KEYS, key_label};
+    fonts::text(d, &t.label(&fonts::LABEL), "TÉLÉCOMMANDE · BOUTONS", MARGIN, 47, Align::Left)?;
+    let l = v.sensors.learn;
+    if l.step as usize >= LEARN_KEYS.len() {
+        bullet(d, &t.style(&fonts::BODY_BOLD).colored(t.ok), icon::CHECK, "Boutons appris", 84, 22)?;
+        let done = "Ses boutons font les touches du\ncompteur, sur tous les écrans.\n\nPour recommencer : Capteurs,\nTélécommande, choisis-la.";
+        return note_lines(d, &t.mute(&fonts::NOTE), done, MARGIN, 120, 19);
+    }
+    let mut y = 80;
+    for (i, &k) in LEARN_KEYS.iter().enumerate() {
+        let (place, does) = key_label(k);
+        let (style, mark) = match (i as u8).cmp(&l.step) {
+            core::cmp::Ordering::Less => (t.style(&fonts::BODY).colored(t.ok), icon::CHECK),
+            core::cmp::Ordering::Equal => (t.style(&fonts::BODY_BOLD), icon::RIGHT),
+            core::cmp::Ordering::Greater => (t.mute(&fonts::BODY), icon::DOT),
+        };
+        bullet(d, &style, mark, place, y, 22)?;
+        fonts::text(d, &t.mute(&fonts::NOTE), does, W - MARGIN, y, Align::Right)?;
+        y += 30;
+    }
+    let taken = l.taken.map(|k| Fmt::new(format_args!("Ce bouton fait déjà :\n{}.", key_label(k).0)));
+    let (what, color) = match (&taken, l.connected, l.presses) {
+        (_, false, _) => ("Allume la télécommande :\nappuie sur un de ses boutons.", t.warn),
+        (Some(text), ..) => (text.as_str(), t.danger),
+        (None, true, 0) => ("Appuie sur le bouton de la\ntélécommande pour cette touche.", t.fg),
+        (None, true, _) => ("Encore une fois, sur le même\nbouton.", t.fg),
+    };
+    note_lines(d, &t.style(&fonts::BODY).colored(color), what, MARGIN, y + 20, 22)
 }
 
 /// The power meter's zero offset calibration: what to do before, then how it went.

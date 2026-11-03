@@ -238,6 +238,7 @@ pub fn draw_with_atlas<D: DrawTarget<Color = Rgb565>>(
         Screen::Charging | Screen::Splash => {}
         Screen::SensorScan => screens::sensor_scan(d, ui, v, t)?,
         Screen::Calibrate => screens::calibrate(d, v, t)?,
+        Screen::RemoteLearn => screens::remote_learn(d, v, t)?,
         Screen::Ride => match ui.page() {
             Some(Page::Altitude) => ride::ride_altitude(d, v, t)?,
             Some(Page::Climbs) => ride::ride_climbs(d, v, route, t)?,

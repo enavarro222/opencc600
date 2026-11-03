@@ -675,13 +675,13 @@ fn effort_pages() {
         power_3s_w: Some(215),
         ftp_w: 230,
         hr_max: 185,
-        sensors: Sensors { roles: [row("H9Z 12381"), SensorRow::default(), row("Assioma")], ..Default::default() },
+        sensors: Sensors { roles: [row("H9Z 12381"), SensorRow::default(), row("Assioma"), SensorRow::default()], ..Default::default() },
         ride: RideView { avg_power_w: Some(198), avg_heart_rate: Some(136), max_heart_rate: Some(171), ..view().ride },
         ..view()
     };
     let power_only = View {
         heart_rate: None,
-        sensors: Sensors { roles: [SensorRow::default(), SensorRow::default(), row("Assioma")], ..Default::default() },
+        sensors: Sensors { roles: [SensorRow::default(), SensorRow::default(), row("Assioma"), SensorRow::default()], ..Default::default() },
         ..power_and_hr
     };
     // the power meter lost: its cells stay, with "–"
@@ -694,7 +694,7 @@ fn effort_pages() {
         power_w: None,
         power_3s_w: None,
         cadence_rpm: None,
-        sensors: Sensors { roles: [row("H9Z 12381"), SensorRow::default(), SensorRow::default()], ..Default::default() },
+        sensors: Sensors { roles: [row("H9Z 12381"), SensorRow::default(), SensorRow::default(), SensorRow::default()], ..Default::default() },
         ..power_and_hr
     };
     let shots = [
@@ -746,6 +746,7 @@ fn sensor_screens() {
                 SensorRow { link: Link::Connected, name: name("HRM-Pro") },
                 SensorRow { link: Link::Searching, name: name("Wahoo CADENCE") },
                 SensorRow::default(),
+                SensorRow { link: Link::Connected, name: name("BLE-M3") },
             ],
             found: [found("HRM-Pro", -48, true), found("Polar H10", -71, false), None, None],
             ..Default::default()
@@ -785,6 +786,9 @@ fn sensor_screens() {
             ui.key(BottomLeft, Press::Click, 0, &power);
         }
         assert!(ui.calibrate_row());
+        // the remote last, after the calibration
+        let no_remote = View { sensors: Sensors { roles: [power.sensors.roles[0], power.sensors.roles[1], power.sensors.roles[2], SensorRow::default()], ..power.sensors }, ..power };
+        shot(&ui, &no_remote, "sensors-calibrate-no-remote");
         shot(&ui, &power, "sensors-calibrate");
         ui.key(BottomRight, Press::Click, 0, &power);
         assert_eq!(ui.screen(), ui::Screen::Calibrate);
@@ -1044,5 +1048,28 @@ fn top_bars() {
             ui::fonts::text(&mut sheet, &label, name, (240 + GAP + 8) as i32, (y0 + BAR / 2) as i32, ui::fonts::Align::Left).unwrap();
         }
         sheet.png(&format!("top-bars{suffix}"));
+    }
+}
+
+/// Learning the remote's buttons: each step, a press refused, the remote away, the end.
+#[test]
+fn remote_learning() {
+    use ui::{Learn, Sensors};
+    let v = |learn: Learn| View { sensors: Sensors { learn, ..Default::default() }, ..view() };
+    let on = Learn { connected: true, ..Default::default() };
+    let shots = [
+        (Learn { connected: false, ..on }, "remote-learn-away"),
+        (on, "remote-learn-1"),
+        (Learn { presses: 1, ..on }, "remote-learn-1-again"),
+        (Learn { step: 1, taken: Some(Key::BottomRight), ..on }, "remote-learn-2-taken"),
+        (Learn { step: 2, ..on }, "remote-learn-3"),
+        (Learn { step: 3, ..on }, "remote-learn-done"),
+    ];
+    for (theme, suffix) in [(ui::DAY, ""), (ui::NIGHT, "-night")] {
+        for (learn, name) in shots {
+            let mut ui = Ui::new();
+            ui.show_remote_learn();
+            save(&format!("{name}{suffix}"), &ui, &v(learn), &theme);
+        }
     }
 }

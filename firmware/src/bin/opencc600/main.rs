@@ -58,6 +58,7 @@ use alloc::vec::Vec;
 
 mod app;
 mod config;
+mod remote;
 mod nrf;
 mod pairing;
 mod receiver;
@@ -192,6 +193,9 @@ async fn main(spawner: Spawner) -> ! {
         .as_ref()
         .map_or_else(|_| settings::Settings::default(), load_settings);
     SETTINGS.lock(|s| s.set(Some(loaded)));
+    if let Ok(fs) = fs.as_ref() {
+        remote::load(fs);
+    }
     NIGHT.store(loaded.theme == settings::Theme::Night, Ordering::Relaxed);
     SOUND_ON.store(loaded.sound, Ordering::Relaxed);
     ble::PAIRED.signal(paired(&loaded));
@@ -506,6 +510,17 @@ async fn main(spawner: Spawner) -> ! {
                 commands.push(c);
             }
         }
+        // the remote's buttons: the keys they were learned for, a click each
+        while let Ok(s) = ble::remote_link::PRESSES.try_receive() {
+            if let Some(key) = remote::press(s, ui.screen() == ui::Screen::RemoteLearn)
+                && let Some(c) = ui.key(key, ui::Press::Click, Instant::now().as_millis(), &view)
+            {
+                commands.push(c);
+            }
+        }
+        if let Some(bond) = ble::remote_link::BONDED.try_take() {
+            remote::bonded(fs.as_ref().ok(), bond);
+        }
         let state = STATUS.lock(Cell::get);
         for c in commands {
             match (c, ride.as_mut(), fs.as_ref()) {
@@ -598,12 +613,26 @@ async fn main(spawner: Spawner) -> ! {
                 }
                 // the scan follows the scan screen (below)
                 (ui::Command::Scan(_) | ui::Command::StopScan, _, _) => {}
+                (ui::Command::Pair(ui::Role::Remote, i), _, _) => {
+                    if let Some(sensor) = SHOWN_FOUND.lock(Cell::get).get(i as usize).copied().flatten()
+                        && remote::pair(fs.as_ref().ok(), sensor)
+                    {
+                        ble::PAIRED.signal(paired(&settings()));
+                    }
+                }
                 (ui::Command::Pair(role, i), _, _) => {
                     if let Some(sensor) = SHOWN_FOUND.lock(Cell::get).get(i as usize).copied().flatten() {
                         set_sensor(role, sensor);
                     }
                 }
+                (ui::Command::Forget(ui::Role::Remote), _, _) => {
+                    if remote::forget(fs.as_ref().ok()) {
+                        ble::PAIRED.signal(paired(&settings()));
+                    }
+                }
                 (ui::Command::Forget(role), _, _) => set_sensor(role, settings::Sensor::None),
+                (ui::Command::LearnSkip, _, _) => remote::skip(),
+                (ui::Command::LearnEnd, _, _) => remote::end_learning(fs.as_ref().ok()),
                 (ui::Command::Calibrate, _, _) => calibrate_power(),
                 (ui::Command::WakeUp, _, _) => {
                     info!("charging screen: switched on");
@@ -649,7 +678,9 @@ async fn main(spawner: Spawner) -> ! {
             SCAN_ROLE.lock(|c| c.set(Some(ROLE_BITS[role_index(ui.role())])));
             if scan_sent.is_none_or(|t: Instant| t.elapsed() >= Duration::from_secs(20)) {
                 ble::SCAN.signal(30);
-                NRF_COMMANDS.send(ant::search(30, scan_sent.is_none())).await;
+                if ui.role() != ui::Role::Remote {
+                    NRF_COMMANDS.send(ant::search(30, scan_sent.is_none())).await;
+                }
                 scan_sent = Some(Instant::now());
             }
         } else if scan_sent.take().is_some() {

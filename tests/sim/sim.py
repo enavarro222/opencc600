@@ -20,10 +20,11 @@ ROOT = Path(__file__).resolve().parents[2]
 ELF = ROOT / "firmware/target/xtensa-esp32s3-none-elf/release/opencc600"
 PARTITIONS = ROOT / "tools/demo/partitions.csv"
 
-# the companion service (firmware/src/ble.rs): the GATT table is ours, so its handles are stable; the discovery at
-# the start of each run checks them
-RX = 0x0009
-TX = 0x000B
+# the companion service (firmware/src/ble/mod.rs): the GATT table is ours, so its handles are stable; the discovery
+# at the start of each run checks them. After the GAP service (its Central Address Resolution with trouble-host's
+# `security`, for the remote) and the GATT one.
+RX = 0x000B
+TX = 0x000D
 TX_CCCD = TX + 1
 RX_UUID = "c039ed02-4557-4b35-bc20-5c9320871456"
 

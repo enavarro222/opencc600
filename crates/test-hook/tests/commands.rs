@@ -65,6 +65,7 @@ fn test_switches() {
     assert_eq!(parse("storage unfill"), Some(Command::StorageFill(None)));
     assert_eq!(parse("rtc shift -300"), Some(Command::RtcShift(-300)));
     assert_eq!(parse("ble scan 0"), None);
+    assert_eq!(parse("remote bond 01 beef  x "), Some(Command::RemoteBond("01 beef  x")));
 }
 
 #[test]

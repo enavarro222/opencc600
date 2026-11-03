@@ -71,6 +71,9 @@ pub enum Command<'a> {
     /// `fix <lat_e7> <lon_e7> [<speed_mm_s> [<course_cdeg>]]`: a position in place of the receiver's for a few
     /// seconds (tools/replay_gpx.py); `fix off` (`None`) gives the receiver back at once.
     SimFix(Option<SimFix>),
+    /// `remote bond <the fields of a /remote bond line>`: this bond given to the BLE stack, as after a pairing,
+    /// not saved (the stack's resolving list sync with it).
+    RemoteBond(&'a str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -138,6 +141,7 @@ pub fn parse(line: &str) -> Option<Command<'_>> {
         ("light", "?", None) => Some(Command::Light),
         ("light", "off", None) => Some(Command::SimLight(None)),
         ("light", raw, None) => Some(Command::SimLight(Some(raw.parse().ok()?))),
+        ("remote", "bond", Some(_)) => Some(Command::RemoteBond(line.split_once("bond")?.1.trim())),
         ("ble", "scan", Some(s)) => Some(Command::BleScan(s.parse().ok().filter(|&s| s > 0)?)),
         ("fix", "off", None) => Some(Command::SimFix(None)),
         ("fix", lat, Some(lon)) => {

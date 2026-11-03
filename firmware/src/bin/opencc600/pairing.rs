@@ -23,13 +23,13 @@ pub(crate) static SHOWN_FOUND: Mutex<CriticalSectionRawMutex, Cell<[Option<setti
 pub(crate) static LISTED_FOUND: Mutex<CriticalSectionRawMutex, Cell<[Option<settings::Sensor>; ui::FOUND]>> =
     Mutex::new(Cell::new([None; ui::FOUND]));
 
-pub(crate) const ROLE_BITS: [u8; 3] = [ble::ROLE_HR, ble::ROLE_SPEED_CADENCE, ble::ROLE_POWER];
+pub(crate) const ROLE_BITS: [u8; 4] = [ble::ROLE_HR, ble::ROLE_SPEED_CADENCE, ble::ROLE_POWER, ble::ROLE_REMOTE];
 
 pub(crate) fn role_index(role: ui::Role) -> usize {
     ui::Role::ALL.iter().position(|&r| r == role).unwrap_or(0)
 }
 
-/// The paired sensor of each role, in [`ui::Role::ALL`] order.
+/// The paired sensor of each sensor role, in [`ui::Role::ALL`] order (the remote is in `/remote`).
 pub(crate) fn role_sensors(s: &settings::Settings) -> [settings::Sensor; 3] {
     [s.hr, s.speed_cadence, s.power]
 }
@@ -41,6 +41,7 @@ pub(crate) fn set_sensor(role: ui::Role, sensor: settings::Sensor) {
         ui::Role::HeartRate => s.hr = sensor,
         ui::Role::SpeedCadence => s.speed_cadence = sensor,
         ui::Role::Power => s.power = sensor,
+        ui::Role::Remote => return,
     }
     info!("sensors: {role:?} = {sensor}");
     SETTINGS.lock(|c| c.set(Some(s)));
@@ -87,25 +88,43 @@ pub(crate) fn sensors_view() -> ui::Sensors {
             };
         }
     }
+    out.roles[role_index(ui::Role::Remote)] = crate::remote::row();
+    let remote = crate::remote::address().map(|a| settings::Sensor::Ble { random: a.random, addr: a.addr });
     let mut shown = [None; ui::FOUND];
     if let Some(bit) = SCAN_ROLE.lock(Cell::get) {
         let role = ROLE_BITS.iter().position(|&b| b == bit).unwrap_or(0);
-        // BLE and ANT+ together, closest first
+        // BLE and ANT+ together, closest first (no ANT+ remote)
         let mut all: heapless::Vec<(settings::Sensor, i8), { 2 * ui::FOUND }> =
             ble::found::<{ ui::FOUND }>(bit).into_iter().map(|h| (h.sensor, h.rssi_dbm)).collect();
-        all.extend(ant::found::<{ ui::FOUND }>(role));
+        if bit != ble::ROLE_REMOTE {
+            all.extend(ant::found::<{ ui::FOUND }>(role));
+        }
         all.sort_unstable_by_key(|&(_, rssi)| core::cmp::Reverse(rssi));
-        for (i, (sensor, rssi_dbm)) in all.into_iter().take(ui::FOUND).enumerate() {
+        // a device listed keeps its place, the new ones come after: sorted by signal, the list moved under the
+        // rider's finger and the key picked another device
+        let mut listed: heapless::Vec<(settings::Sensor, i8), { 2 * ui::FOUND }> = LISTED_FOUND
+            .lock(Cell::get)
+            .iter()
+            .flatten()
+            .filter_map(|s| all.iter().find(|(a, _)| a == s).copied())
+            .collect();
+        for e in &all {
+            if !listed.iter().any(|(s, _)| *s == e.0) {
+                let _ = listed.push(*e);
+            }
+        }
+        for (i, (sensor, rssi_dbm)) in listed.into_iter().take(ui::FOUND).enumerate() {
             shown[i] = Some(sensor);
             out.found[i] = Some(ui::Found {
                 name: sensor_name(&sensor),
                 rssi_dbm,
-                paired: sensor == paired[role],
+                paired: Some(sensor) == paired.get(role).copied().or(remote),
             });
         }
     }
     LISTED_FOUND.lock(|c| c.set(shown));
     out.calibration = power_calibration();
+    out.learn = crate::remote::learn_view();
     out
 }
 
@@ -170,5 +189,6 @@ pub(crate) fn paired(s: &settings::Settings) -> ble::Paired {
         hr: s.hr,
         speed_cadence: s.speed_cadence,
         power: s.power,
+        remote: crate::remote::address(),
     }
 }
