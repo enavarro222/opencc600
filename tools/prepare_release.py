@@ -49,7 +49,9 @@ def update_section(path: Path, section: str, version: str) -> None:
     for i in range(start + 1, end):
         match = re.match(r'^(\s*version\s*=\s*)"[^\"]+"(.*)$', lines[i])
         if match:
-            lines[i] = f'{match.group(1)}"{version}"{match.group(2)}'
+            # `$` stops before the newline, which `keepends` left on the line: put it back
+            newline = lines[i][len(lines[i].rstrip("\r\n")):]
+            lines[i] = f'{match.group(1)}"{version}"{match.group(2)}{newline}'
             path.write_text("".join(lines))
             return
     fail(f"version not found in [{section}] in {path.relative_to(ROOT)}")
